@@ -76,7 +76,7 @@ enum TeamRankTier: String, CaseIterable {
     var color: Color {
         switch self {
         case .teamS: return Color(red: 255/255, green: 215/255, blue: 0/255)
-        case .teamA: return Color(hex: "2E5CFF")
+        case .teamA: return Color.tasukiAccent
         case .teamB: return Color(hex: "34C759")
         case .teamC: return Color(hex: "FF9500")
         case .teamD: return Color(hex: "8E8E93")

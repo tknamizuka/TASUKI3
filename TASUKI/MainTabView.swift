@@ -78,12 +78,16 @@ struct MainTabView: View {
         }
     }
     
-    /// EKIDEN タブ（index 2）選択時はアクセントオレンジ、それ以外は従来どおり
-    private func ekidenTabAccentColor(index: Int) -> Color {
+    private func tabIconAndLabelColor(index: Int) -> Color {
+        selectedTab == index ? Color.tasukiPrimary : Color.tasukiMutedText
+    }
+
+    /// EKIDEN（index 2）は常に薄い黄の下地。選択中は少し濃い黄。他タブは従来の紫系ハイライトのみ。
+    private func tabSelectionBackground(for index: Int) -> Color {
         if index == 2 {
-            return selectedTab == 2 ? Color.tasukiAccentOrange : Color.tasukiMutedText
+            return Color.tasukiBrandYellow.opacity(selectedTab == 2 ? 0.30 : 0.14)
         }
-        return selectedTab == index ? Color.tasukiPrimary : Color.tasukiMutedText
+        return selectedTab == index ? Color.tasukiTabSelectionFill : .clear
     }
     
     private var customTabBar: some View {
@@ -93,18 +97,18 @@ struct MainTabView: View {
                     VStack(spacing: 2) {
                         Image(systemName: tabItems[index].icon)
                             .font(.system(size: 18, weight: .semibold))
-                            .foregroundColor(ekidenTabAccentColor(index: index))
+                            .foregroundColor(tabIconAndLabelColor(index: index))
                         Text(tabItems[index].label)
                             .font(.system(size: index == 2 ? 10 : 9, weight: index == 2 ? .bold : .regular))
                             .lineLimit(1)
                             .minimumScaleFactor(0.7)
-                            .foregroundColor(ekidenTabAccentColor(index: index))
+                            .foregroundColor(tabIconAndLabelColor(index: index))
                     }
                     .padding(.vertical, 8)
                     .frame(maxWidth: .infinity)
                     .background(
                         RoundedRectangle(cornerRadius: 10)
-                            .fill(selectedTab == index ? Color.tasukiSurface : .clear)
+                            .fill(tabSelectionBackground(for: index))
                     )
                 }
                 .buttonStyle(.plain)

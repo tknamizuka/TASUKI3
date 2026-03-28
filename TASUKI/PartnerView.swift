@@ -416,18 +416,18 @@ struct PartnerView: View {
                     HStack(spacing: 12) {
                         HStack {
                             Image(systemName: "magnifyingglass")
-                                .foregroundColor(Color(hex: "0F1A2E").opacity(0.5))
+                                .foregroundColor(Color.tasukiPrimary.opacity(0.5))
                                 .padding(.leading, 12)
                             
                             TextField("名前で検索", text: $searchText)
                                 .font(.system(size: 16))
-                                .foregroundColor(Color(hex: "0F1A2E"))
+                                .foregroundColor(Color.tasukiPrimary)
                                 .padding(.vertical, 12)
                                 .padding(.trailing, 12)
                         }
                         .background(
                             RoundedRectangle(cornerRadius: 12)
-                                .fill(Color(hex: "F5F7FA"))
+                                .fill(Color.tasukiDarkCardSecondary)
                         )
                         
                         Button(action: {
@@ -435,11 +435,11 @@ struct PartnerView: View {
                         }) {
                             Image(systemName: "slider.horizontal.3")
                                 .font(.system(size: 18, weight: .medium))
-                                .foregroundColor(Color(hex: "0F1A2E"))
+                                .foregroundColor(Color.tasukiPrimary)
                                 .frame(width: 44, height: 44)
                                 .background(
                                     RoundedRectangle(cornerRadius: 12)
-                                        .fill(Color(hex: "F5F7FA"))
+                                        .fill(Color.tasukiDarkCardSecondary)
                                 )
                         }
                     }
@@ -502,12 +502,12 @@ struct PartnerView: View {
             if let avatarImage = user.avatarImage {
                 Image(systemName: avatarImage)
                     .font(.system(size: 48))
-                    .foregroundColor(Color(hex: "0F1A2E"))
+                    .foregroundColor(Color.tasukiPrimary)
                     .saturation(0)  // モノトーン調
                     .frame(width: 56, height: 56)
             } else {
                 Circle()
-                    .fill(Color(hex: "F5F7FA"))
+                    .fill(Color.tasukiDarkCardSecondary)
                     .frame(width: 56, height: 56)
             }
             
@@ -518,7 +518,7 @@ struct PartnerView: View {
                     HStack(alignment: .firstTextBaseline, spacing: 8) {
                         Text(user.name)
                             .font(.system(size: 16, weight: .bold, design: .default))
-                            .foregroundColor(Color(hex: "0F1A2E"))
+                            .foregroundColor(Color.tasukiPrimary)
                         if let tier = PointBadgeHelper.tier(forTotalPoints: user.totalPoints) {
                             Image(systemName: tier.iconName)
                                 .font(.system(size: 12, weight: .semibold))
@@ -526,7 +526,7 @@ struct PartnerView: View {
                         }
                         Text("Rank \(user.rank)")
                             .font(.system(size: 12, weight: .regular, design: .default))
-                            .foregroundColor(Color(hex: "0F1A2E").opacity(0.7))
+                            .foregroundColor(Color.tasukiPrimary.opacity(0.7))
                     }
                 }
                 
@@ -540,7 +540,7 @@ struct PartnerView: View {
                     
                     Text(user.isOnline ? "オンライン" : "オフライン")
                         .font(.system(size: 12, weight: .regular, design: .default))
-                        .foregroundColor(Color(hex: "0F1A2E").opacity(0.7))
+                        .foregroundColor(Color.tasukiPrimary.opacity(0.7))
                 }
             }
         }
@@ -601,7 +601,7 @@ struct FilterView: View {
                         VStack(alignment: .leading, spacing: 20) {
                             Text("Basic Info")
                                 .font(.system(size: 20, weight: .bold))
-                                .foregroundColor(Color(hex: "0F1A2E"))
+                                .foregroundColor(Color.tasukiPrimary)
                                 .padding(.horizontal, 20)
                             
                             Divider()
@@ -611,7 +611,7 @@ struct FilterView: View {
                             VStack(alignment: .leading, spacing: 12) {
                                 Text("都道府県")
                                     .font(.system(size: 16, weight: .semibold))
-                                    .foregroundColor(Color(hex: "0F1A2E"))
+                                    .foregroundColor(Color.tasukiPrimary)
                                 
                                 Picker("Prefecture", selection: $selectedPrefecture) {
                                     ForEach(prefectures, id: \.self) { prefecture in
@@ -623,7 +623,7 @@ struct FilterView: View {
                                 .padding(.vertical, 12)
                                 .background(
                                     RoundedRectangle(cornerRadius: 12)
-                                        .fill(Color(hex: "F5F7FA"))
+                                        .fill(Color.tasukiDarkCardSecondary)
                                 )
                             }
                             .padding(.horizontal, 20)
@@ -632,7 +632,7 @@ struct FilterView: View {
                             VStack(alignment: .leading, spacing: 12) {
                                 Text("年齢")
                                     .font(.system(size: 16, weight: .semibold))
-                                    .foregroundColor(Color(hex: "0F1A2E"))
+                                    .foregroundColor(Color.tasukiPrimary)
                                 
                                 FlowLayout(spacing: 8) {
                                     ForEach(ageGroups, id: \.self) { ageGroup in
@@ -656,7 +656,7 @@ struct FilterView: View {
                             VStack(alignment: .leading, spacing: 12) {
                                 Text("性別")
                                     .font(.system(size: 16, weight: .semibold))
-                                    .foregroundColor(Color(hex: "0F1A2E"))
+                                    .foregroundColor(Color.tasukiPrimary)
                                 
                                 Picker("Gender", selection: $selectedGender) {
                                     ForEach(genders, id: \.self) { gender in
@@ -671,10 +671,10 @@ struct FilterView: View {
                                     HStack(spacing: 6) {
                                         Image(systemName: "lock.fill")
                                             .font(.system(size: 12))
-                                            .foregroundColor(Color(hex: "2E5CFF"))
+                                            .foregroundColor(Color.tasukiAccent)
                                         Text("安全のため同性のみ表示しています")
                                             .font(.system(size: 12, weight: .regular))
-                                            .foregroundColor(Color(hex: "0F1A2E").opacity(0.7))
+                                            .foregroundColor(Color.tasukiPrimary.opacity(0.7))
                                     }
                                     .padding(.top, 4)
                                 }
@@ -686,7 +686,7 @@ struct FilterView: View {
                         VStack(alignment: .leading, spacing: 20) {
                             Text("Style")
                                 .font(.system(size: 20, weight: .bold))
-                                .foregroundColor(Color(hex: "0F1A2E"))
+                                .foregroundColor(Color.tasukiPrimary)
                                 .padding(.horizontal, 20)
                             
                             Divider()
@@ -696,17 +696,17 @@ struct FilterView: View {
                             VStack(alignment: .leading, spacing: 12) {
                                 Text("ランニングスポット")
                                     .font(.system(size: 16, weight: .semibold))
-                                    .foregroundColor(Color(hex: "0F1A2E"))
+                                    .foregroundColor(Color.tasukiPrimary)
                                 
                                 VStack(alignment: .leading, spacing: 8) {
                                     TextField("例: 皇居", text: $runSpotText)
                                         .font(.system(size: 16))
-                                        .foregroundColor(Color(hex: "0F1A2E"))
+                                        .foregroundColor(Color.tasukiPrimary)
                                         .padding(.horizontal, 16)
                                         .padding(.vertical, 12)
                                         .background(
                                             RoundedRectangle(cornerRadius: 12)
-                                                .fill(Color(hex: "F5F7FA"))
+                                                .fill(Color.tasukiDarkCardSecondary)
                                         )
                                         .onChange(of: runSpotText) { oldValue, newValue in
                                             showRunSpotSuggestions = !newValue.isEmpty && !filteredRunSpotSuggestions.isEmpty
@@ -724,14 +724,14 @@ struct FilterView: View {
                                                     HStack {
                                                         Text(suggestion)
                                                             .font(.system(size: 14))
-                                                            .foregroundColor(Color(hex: "0F1A2E"))
+                                                            .foregroundColor(Color.tasukiPrimary)
                                                         Spacer()
                                                     }
                                                     .padding(.horizontal, 16)
                                                     .padding(.vertical, 10)
                                                     .background(
                                                         RoundedRectangle(cornerRadius: 8)
-                                                            .fill(Color(hex: "F5F7FA"))
+                                                            .fill(Color.tasukiDarkCardSecondary)
                                                     )
                                                 }
                                             }
@@ -757,7 +757,7 @@ struct FilterView: View {
                                         .padding(.vertical, 8)
                                         .background(
                                             Capsule()
-                                                .fill(Color(hex: "2E5CFF"))
+                                                .fill(Color.tasukiAccent)
                                         )
                                     }
                                 }
@@ -768,7 +768,7 @@ struct FilterView: View {
                             VStack(alignment: .leading, spacing: 12) {
                                 Text("目的")
                                     .font(.system(size: 16, weight: .semibold))
-                                    .foregroundColor(Color(hex: "0F1A2E"))
+                                    .foregroundColor(Color.tasukiPrimary)
                                 
                                 FlowLayout(spacing: 8) {
                                     ForEach(purposes, id: \.self) { purpose in
@@ -792,7 +792,7 @@ struct FilterView: View {
                             VStack(alignment: .leading, spacing: 12) {
                                 Text("スケジュール")
                                     .font(.system(size: 16, weight: .semibold))
-                                    .foregroundColor(Color(hex: "0F1A2E"))
+                                    .foregroundColor(Color.tasukiPrimary)
                                 
                                 FlowLayout(spacing: 8) {
                                     ForEach(schedules, id: \.self) { schedule in
@@ -817,7 +817,7 @@ struct FilterView: View {
                         VStack(alignment: .leading, spacing: 20) {
                             Text("Level")
                                 .font(.system(size: 20, weight: .bold))
-                                .foregroundColor(Color(hex: "0F1A2E"))
+                                .foregroundColor(Color.tasukiPrimary)
                                 .padding(.horizontal, 20)
                             
                             Divider()
@@ -827,7 +827,7 @@ struct FilterView: View {
                             VStack(alignment: .leading, spacing: 12) {
                                 Text("ランク")
                                     .font(.system(size: 16, weight: .semibold))
-                                    .foregroundColor(Color(hex: "0F1A2E"))
+                                    .foregroundColor(Color.tasukiPrimary)
                                 
                                 FlowLayout(spacing: 8) {
                                     ForEach(Array(zip(ranks, rankLabels)), id: \.0) { rank, label in
@@ -851,16 +851,16 @@ struct FilterView: View {
                             VStack(alignment: .leading, spacing: 12) {
                                 Text("次回のレース")
                                     .font(.system(size: 16, weight: .semibold))
-                                    .foregroundColor(Color(hex: "0F1A2E"))
+                                    .foregroundColor(Color.tasukiPrimary)
                                 
                                 TextField("例: 東京マラソン2025", text: $nextRaceText)
                                     .font(.system(size: 16))
-                                    .foregroundColor(Color(hex: "0F1A2E"))
+                                    .foregroundColor(Color.tasukiPrimary)
                                     .padding(.horizontal, 16)
                                     .padding(.vertical, 12)
                                     .background(
                                         RoundedRectangle(cornerRadius: 12)
-                                            .fill(Color(hex: "F5F7FA"))
+                                            .fill(Color.tasukiDarkCardSecondary)
                                     )
                             }
                             .padding(.horizontal, 20)
@@ -878,14 +878,14 @@ struct FilterView: View {
                     Button("キャンセル") {
                         dismiss()
                     }
-                    .foregroundColor(Color(hex: "0F1A2E"))
+                    .foregroundColor(Color.tasukiPrimary)
                 }
                 
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button("リセット") {
                         onReset()
                     }
-                    .foregroundColor(Color(hex: "2E5CFF"))
+                    .foregroundColor(Color.tasukiAccent)
                 }
             }
             .safeAreaInset(edge: .bottom) {
@@ -902,7 +902,7 @@ struct FilterView: View {
                     .frame(height: 50)
                     .background(
                         Capsule()
-                            .fill(Color(hex: "2E5CFF"))
+                            .fill(Color.tasukiAccent)
                     )
                     .padding(.horizontal, 20)
                     .padding(.vertical, 16)
@@ -917,14 +917,14 @@ struct FilterView: View {
         Button(action: action) {
             Text(text)
                 .font(.system(size: 14, weight: .medium))
-                .foregroundColor(isSelected ? .white : Color(hex: "0F1A2E"))
+                .foregroundColor(isSelected ? .white : Color.tasukiPrimary)
                 .lineLimit(1)
                 .minimumScaleFactor(0.8)
                 .padding(.horizontal, 16)
                 .padding(.vertical, 8)
                 .background(
                     Capsule()
-                        .fill(isSelected ? Color(hex: "2E5CFF") : Color(hex: "F5F7FA"))
+                        .fill(isSelected ? Color.tasukiAccent : Color.tasukiDarkCardSecondary)
                 )
         }
     }

@@ -1282,7 +1282,7 @@ private struct AgeRangeSlider: View {
                     .frame(height: trackHeight)
 
                 RoundedRectangle(cornerRadius: trackHeight / 2)
-                    .fill(Color(hex: "2E5CFF"))
+                    .fill(Color.tasukiAccent)
                     .frame(width: max(0, maxX - minX), height: trackHeight)
                     .position(x: (minX + maxX) / 2, y: thumbHitSize / 2)
 
@@ -1333,7 +1333,7 @@ private struct AgeRangeSlider: View {
             .fill(Color.white)
             .frame(width: thumbSize, height: thumbSize)
             .shadow(color: .black.opacity(0.2), radius: 2, x: 0, y: 1)
-            .overlay(Circle().stroke(Color(hex: "2E5CFF"), lineWidth: 2))
+            .overlay(Circle().stroke(Color.tasukiAccent, lineWidth: 2))
             .frame(width: thumbHitSize, height: thumbHitSize)
             .contentShape(Rectangle())
             .zIndex(1)
@@ -1427,10 +1427,10 @@ struct FilterDetailSheet: View {
                 Section(header: Text("検索")) {
                     HStack {
                         Image(systemName: "magnifyingglass")
-                            .foregroundColor(Color(hex: "0F1A2E").opacity(0.5))
+                            .foregroundColor(Color.tasukiPrimary.opacity(0.5))
                         TextField("名前・エリア・目的など", text: $searchText)
                             .font(.system(size: 16))
-                            .foregroundColor(Color(hex: "0F1A2E"))
+                            .foregroundColor(Color.tasukiPrimary)
                     }
                 }
                 
@@ -1443,7 +1443,7 @@ struct FilterDetailSheet: View {
                         } label: {
                             HStack {
                                 Text("マッチングするランク（複数選択）")
-                                    .foregroundColor(Color(hex: "0F1A2E"))
+                                    .foregroundColor(Color.tasukiPrimary)
                                 Spacer()
                                 Text(
                                     selectedRunnerRanks.isEmpty
@@ -1451,7 +1451,7 @@ struct FilterDetailSheet: View {
                                     : selectedRunnerRanks.sorted().joined(separator: ", ")
                                 )
                                 .font(.caption)
-                                .foregroundColor(Color(hex: "0F1A2E").opacity(0.65))
+                                .foregroundColor(Color.tasukiPrimary.opacity(0.65))
                                 .lineLimit(1)
                                 Image(systemName: isRankPickerExpanded ? "chevron.up" : "chevron.down")
                                     .font(.caption2)
@@ -1471,10 +1471,10 @@ struct FilterDetailSheet: View {
                                 } label: {
                                     HStack {
                                         Text(rank)
-                                            .foregroundColor(Color(hex: "0F1A2E"))
+                                            .foregroundColor(Color.tasukiPrimary)
                                         Spacer()
                                         Image(systemName: selectedRunnerRanks.contains(rank) ? "checkmark.circle.fill" : "circle")
-                                            .foregroundColor(selectedRunnerRanks.contains(rank) ? Color(hex: "2E5CFF") : .gray)
+                                            .foregroundColor(selectedRunnerRanks.contains(rank) ? Color.tasukiAccent : .gray)
                                     }
                                 }
                                 .buttonStyle(.plain)
@@ -1486,7 +1486,7 @@ struct FilterDetailSheet: View {
                             .foregroundColor(.secondary)
                         Text("自分のランク: \(myRank)")
                             .font(.caption)
-                            .foregroundColor(Color(hex: "0F1A2E").opacity(0.6))
+                            .foregroundColor(Color.tasukiPrimary.opacity(0.6))
                     }
                     
                     // 基本情報
@@ -1512,7 +1512,7 @@ struct FilterDetailSheet: View {
                         VStack(alignment: .leading, spacing: 12) {
                             Text("年齢（20〜80歳）")
                                 .font(.subheadline)
-                                .foregroundColor(Color(hex: "0F1A2E"))
+                                .foregroundColor(Color.tasukiPrimary)
                             HStack {
                                 Text("\(ageMin)歳")
                                     .font(.subheadline.bold())
@@ -1558,7 +1558,7 @@ struct FilterDetailSheet: View {
                         if !myBestFull.isEmpty {
                             Text("登録時の値: \(myBestFull)")
                                 .font(.caption)
-                                .foregroundColor(Color(hex: "0F1A2E").opacity(0.6))
+                                .foregroundColor(Color.tasukiPrimary.opacity(0.6))
                         }
                         
                         expandableSingleSelect(
@@ -1572,7 +1572,7 @@ struct FilterDetailSheet: View {
                         if !myBestHalf.isEmpty {
                             Text("登録時の値: \(myBestHalf)")
                                 .font(.caption)
-                                .foregroundColor(Color(hex: "0F1A2E").opacity(0.6))
+                                .foregroundColor(Color.tasukiPrimary.opacity(0.6))
                         }
                         
                         expandableSingleSelect(
@@ -1585,7 +1585,7 @@ struct FilterDetailSheet: View {
                         }
                         Text("登録時の値: \(myJogPace)")
                             .font(.caption)
-                            .foregroundColor(Color(hex: "0F1A2E").opacity(0.6))
+                            .foregroundColor(Color.tasukiPrimary.opacity(0.6))
                     }
                     
                     // よく走る場所
@@ -1604,12 +1604,12 @@ struct FilterDetailSheet: View {
                                     }) {
                                         Text(spot)
                                             .font(.system(size: 12, weight: .medium))
-                                            .foregroundColor(Color(hex: "0F1A2E"))
+                                            .foregroundColor(Color.tasukiPrimary)
                                             .padding(.horizontal, 12)
                                             .padding(.vertical, 6)
                                             .background(
                                                 Capsule()
-                                                    .fill(Color(hex: "F5F7FA"))
+                                                    .fill(Color.tasukiDarkCardSecondary)
                                             )
                                     }
                                 }
@@ -1640,7 +1640,7 @@ struct FilterDetailSheet: View {
                             }
                         ), displayedComponents: .date)
                         .datePickerStyle(.compact)
-                        .tint(Color(hex: "2E5CFF"))
+                        .tint(Color.tasukiAccent)
                         
                         DatePicker("開催時刻", selection: Binding(
                             get: { practiceDateSelection },
@@ -1650,7 +1650,7 @@ struct FilterDetailSheet: View {
                                 practiceFilterDate = merged
                             }
                         ), displayedComponents: .hourAndMinute)
-                        .tint(Color(hex: "2E5CFF"))
+                        .tint(Color.tasukiAccent)
                     }
                     
                     Section(header: Text("よく走る場所")) {
@@ -1664,12 +1664,12 @@ struct FilterDetailSheet: View {
                                     }) {
                                         Text(spot)
                                             .font(.system(size: 12, weight: .medium))
-                                            .foregroundColor(Color(hex: "0F1A2E"))
+                                            .foregroundColor(Color.tasukiPrimary)
                                             .padding(.horizontal, 12)
                                             .padding(.vertical, 6)
                                             .background(
                                                 Capsule()
-                                                    .fill(Color(hex: "F5F7FA"))
+                                                    .fill(Color.tasukiDarkCardSecondary)
                                             )
                                     }
                                 }
@@ -1696,7 +1696,7 @@ struct FilterDetailSheet: View {
                     Button("閉じる") {
                         dismiss()
                     }
-                    .foregroundColor(Color(hex: "0F1A2E"))
+                    .foregroundColor(Color.tasukiPrimary)
                 }
                 // 右上: 条件をクリア
                 ToolbarItem(placement: .navigationBarTrailing) {
@@ -1709,7 +1709,7 @@ struct FilterDetailSheet: View {
                         practiceSpot = ""
                         practiceCapacity = "指定なし"
                     }
-                    .foregroundColor(Color(hex: "2E5CFF"))
+                    .foregroundColor(Color.tasukiAccent)
                 }
             }
             // 下部固定の「この条件で検索」ボタン
@@ -1723,7 +1723,7 @@ struct FilterDetailSheet: View {
                         .foregroundColor(.white)
                         .frame(maxWidth: .infinity)
                         .padding()
-                        .background(Color(hex: "2E5CFF"))
+                        .background(Color.tasukiAccent)
                         .cornerRadius(12)
                         .padding(.horizontal, 16)
                         .padding(.bottom, 8)
@@ -1752,11 +1752,11 @@ struct FilterDetailSheet: View {
             } label: {
                 HStack {
                     Text(title)
-                        .foregroundColor(Color(hex: "0F1A2E"))
+                        .foregroundColor(Color.tasukiPrimary)
                     Spacer()
                     Text(selectionText)
                         .font(.caption)
-                        .foregroundColor(Color(hex: "0F1A2E").opacity(0.65))
+                        .foregroundColor(Color.tasukiPrimary.opacity(0.65))
                         .lineLimit(1)
                     Image(systemName: isExpanded.wrappedValue ? "chevron.up" : "chevron.down")
                         .font(.caption2)
@@ -1772,10 +1772,10 @@ struct FilterDetailSheet: View {
                     } label: {
                         HStack {
                             Text(option)
-                                .foregroundColor(Color(hex: "0F1A2E"))
+                                .foregroundColor(Color.tasukiPrimary)
                             Spacer()
                             Image(systemName: selectionText == option ? "checkmark.circle.fill" : "circle")
-                                .foregroundColor(selectionText == option ? Color(hex: "2E5CFF") : .gray)
+                                .foregroundColor(selectionText == option ? Color.tasukiAccent : .gray)
                         }
                     }
                     .buttonStyle(.plain)

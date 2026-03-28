@@ -57,7 +57,7 @@ enum Condition: String, CaseIterable {
     var colorHex: String {
         switch self {
         case .excellent: return "00C853"  // 緑
-        case .good: return "2E5CFF"       // 青
+        case .good: return "5D2D91"       // ブランド紫（旧ブルー）
         case .tired: return "FF9500"      // オレンジ
         case .sos: return "FF453A"        // 赤
         }
@@ -155,8 +155,8 @@ enum PracticeCategory: String, CaseIterable, Identifiable, Codable {
         case .distance: return "FF9500"   // オレンジ
         case .jog:      return "34C759"   // グリーン
         case .chat:     return "AF52DE"   // パープル
-        case .variation:return "0F1A2E"   // ネイビー
-        case .pace:     return "2E5CFF"   // ブルー
+        case .variation:return "2A0F45"   // ディープパープル
+        case .pace:     return "5D2D91"   // アクセント紫
         case .other:    return "8E8E93"   // グレー
         }
     }

@@ -106,7 +106,7 @@ struct MessageListView: View {
                                 VStack {
                                     Text("練習会のチャットがありません")
                                         .font(.system(size: 16, weight: .regular))
-                                        .foregroundColor(Color(hex: "0F1A2E").opacity(0.6))
+                                        .foregroundColor(Color.tasukiPrimary.opacity(0.6))
                                 }
                             } else {
                                 List {
@@ -132,7 +132,7 @@ struct MessageListView: View {
                                 VStack {
                                     Text("メッセージがありません")
                                         .font(.system(size: 16, weight: .regular))
-                                        .foregroundColor(Color(hex: "0F1A2E").opacity(0.6))
+                                        .foregroundColor(Color.tasukiPrimary.opacity(0.6))
                                 }
                             } else {
                                 List {
@@ -157,7 +157,7 @@ struct MessageListView: View {
                                 VStack {
                                     Text("リクエストがありません")
                                         .font(.system(size: 16, weight: .regular))
-                                        .foregroundColor(Color(hex: "0F1A2E").opacity(0.6))
+                                        .foregroundColor(Color.tasukiPrimary.opacity(0.6))
                                 }
                             } else {
                                 List {
@@ -199,16 +199,16 @@ struct MessageListView: View {
             if let avatarImage = conversation.avatarImage {
                 Image(systemName: avatarImage)
                     .font(.system(size: iconSize))
-                    .foregroundColor(Color(hex: "0F1A2E"))
+                    .foregroundColor(Color.tasukiPrimary)
                     .saturation(0)
                     .frame(width: frameSize, height: frameSize)
                     .background(
                         Circle()
-                            .fill(Color(hex: "F5F7FA"))
+                            .fill(Color.tasukiDarkCardSecondary)
                     )
             } else {
                 Circle()
-                    .fill(Color(hex: "F5F7FA"))
+                    .fill(Color.tasukiDarkCardSecondary)
                     .frame(width: frameSize, height: frameSize)
             }
             
@@ -217,24 +217,24 @@ struct MessageListView: View {
                 HStack(spacing: 6) {
                     if conversation.hasUnread {
                         Circle()
-                            .fill(Color(hex: "2E5CFF"))
+                            .fill(Color.tasukiAccent)
                             .frame(width: 8, height: 8)
                     }
                     Text(conversation.partnerName)
                         .font(.system(size: 16, weight: conversation.hasUnread ? .bold : .semibold))
-                        .foregroundColor(Color(hex: "0F1A2E"))
+                        .foregroundColor(Color.tasukiPrimary)
                         .lineLimit(1)
                 }
                 
                 if conversation.isPractice, let sender = conversation.lastMessageSenderName, !sender.isEmpty {
                     Text("\(sender): \(conversation.lastMessage)")
                         .font(.system(size: 14, weight: .regular))
-                        .foregroundColor(conversation.hasUnread ? Color(hex: "0F1A2E").opacity(0.8) : Color(hex: "0F1A2E").opacity(0.6))
+                        .foregroundColor(conversation.hasUnread ? Color.tasukiPrimary.opacity(0.8) : Color.tasukiPrimary.opacity(0.6))
                         .lineLimit(2)
                 } else {
                     Text(conversation.lastMessage)
                         .font(.system(size: 14, weight: .regular))
-                        .foregroundColor(conversation.hasUnread ? Color(hex: "0F1A2E").opacity(0.8) : Color(hex: "0F1A2E").opacity(0.6))
+                        .foregroundColor(conversation.hasUnread ? Color.tasukiPrimary.opacity(0.8) : Color.tasukiPrimary.opacity(0.6))
                         .lineLimit(1)
                 }
             }
@@ -243,7 +243,7 @@ struct MessageListView: View {
             // 右: 送信時間
             Text(formatTime(conversation.timestamp))
                 .font(.system(size: 12, weight: .regular))
-                .foregroundColor(Color(hex: "0F1A2E").opacity(0.5))
+                .foregroundColor(Color.tasukiPrimary.opacity(0.5))
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
@@ -262,44 +262,44 @@ struct MessageListView: View {
             // 左: アイコン
             Image(systemName: "person.crop.circle.badge.plus")
                 .font(.system(size: 40))
-                .foregroundColor(Color(hex: "0F1A2E"))
+                .foregroundColor(Color.tasukiPrimary)
                 .saturation(0)
                 .frame(width: 48, height: 48)
                 .background(
                     Circle()
-                        .fill(Color(hex: "F5F7FA"))
+                        .fill(Color.tasukiDarkCardSecondary)
                 )
             
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 6) {
                     if request.isNew {
                         Circle()
-                            .fill(Color(hex: "2E5CFF"))
+                            .fill(Color.tasukiAccent)
                             .frame(width: 8, height: 8)
                     }
                     Text(request.fromName)
                         .font(.system(size: 16, weight: request.isNew ? .bold : .semibold))
-                        .foregroundColor(Color(hex: "0F1A2E"))
+                        .foregroundColor(Color.tasukiPrimary)
                         .lineLimit(1)
                     Text(request.type.rawValue)
                         .font(.system(size: 11, weight: .medium))
-                        .foregroundColor(Color(hex: "2E5CFF"))
+                        .foregroundColor(Color.tasukiAccent)
                         .padding(.horizontal, 6)
                         .padding(.vertical, 2)
                         .background(
                             Capsule()
-                                .fill(Color(hex: "2E5CFF").opacity(0.1))
+                                .fill(Color.tasukiAccent.opacity(0.1))
                         )
                 }
                 
                 Text(request.message)
                     .font(.system(size: 14))
-                    .foregroundColor(Color(hex: "0F1A2E").opacity(0.7))
+                    .foregroundColor(Color.tasukiPrimary.opacity(0.7))
                     .lineLimit(2)
                 
                 Text(formatTime(request.createdAt))
                     .font(.system(size: 11))
-                    .foregroundColor(Color(hex: "0F1A2E").opacity(0.4))
+                    .foregroundColor(Color.tasukiPrimary.opacity(0.4))
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
@@ -426,19 +426,19 @@ struct RequestDetailView: View {
             VStack(spacing: 12) {
                 Image(systemName: "person.circle.fill")
                     .font(.system(size: 64))
-                    .foregroundColor(Color(hex: "0F1A2E"))
+                    .foregroundColor(Color.tasukiPrimary)
                     .saturation(0)
                 Text(request.fromName)
                     .font(.system(size: 20, weight: .bold))
-                    .foregroundColor(Color(hex: "0F1A2E"))
+                    .foregroundColor(Color.tasukiPrimary)
                 Text(request.type.rawValue)
                     .font(.system(size: 13, weight: .medium))
-                    .foregroundColor(Color(hex: "2E5CFF"))
+                    .foregroundColor(Color.tasukiAccent)
                     .padding(.horizontal, 10)
                     .padding(.vertical, 4)
                     .background(
                         Capsule()
-                            .fill(Color(hex: "2E5CFF").opacity(0.1))
+                            .fill(Color.tasukiAccent.opacity(0.1))
                     )
             }
             .padding(.top, 32)
@@ -447,17 +447,17 @@ struct RequestDetailView: View {
             VStack(alignment: .leading, spacing: 12) {
                 Text("リクエスト内容")
                     .font(.headline)
-                    .foregroundColor(Color(hex: "0F1A2E"))
+                    .foregroundColor(Color.tasukiPrimary)
                 Text(request.message)
                     .font(.body)
-                    .foregroundColor(Color(hex: "0F1A2E").opacity(0.8))
+                    .foregroundColor(Color.tasukiPrimary.opacity(0.8))
                     .fixedSize(horizontal: false, vertical: true)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding()
             .background(
                 RoundedRectangle(cornerRadius: 16)
-                    .fill(Color(hex: "F5F7FA"))
+                    .fill(Color.tasukiDarkCardSecondary)
             )
             .padding(.horizontal, 20)
             
@@ -473,7 +473,7 @@ struct RequestDetailView: View {
                         .foregroundColor(.white)
                         .frame(maxWidth: .infinity)
                         .padding()
-                        .background(Color(hex: "0F1A2E"))
+                        .background(Color.tasukiPrimary)
                         .cornerRadius(30)
                 }
                 
@@ -482,7 +482,7 @@ struct RequestDetailView: View {
                 }) {
                     Text("今回は見送る")
                         .font(.system(size: 15, weight: .regular))
-                        .foregroundColor(Color(hex: "0F1A2E").opacity(0.7))
+                        .foregroundColor(Color.tasukiPrimary.opacity(0.7))
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 8)
                 }

@@ -28,10 +28,10 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         appearance.configureWithOpaqueBackground()
         appearance.backgroundColor = UIColor.white
         let itemAppearance = UITabBarItemAppearance()
-        itemAppearance.normal.iconColor = UIColor.gray
-        itemAppearance.selected.iconColor = UIColor(red: 15/255, green: 26/255, blue: 46/255, alpha: 1.0)
-        itemAppearance.normal.titleTextAttributes = [.foregroundColor: UIColor.gray]
-        itemAppearance.selected.titleTextAttributes = [.foregroundColor: UIColor(red: 15/255, green: 26/255, blue: 46/255, alpha: 1.0)]
+        itemAppearance.normal.iconColor = UIColor.secondaryLabel
+        itemAppearance.selected.iconColor = .tasukiTabSelectedPurple
+        itemAppearance.normal.titleTextAttributes = [.foregroundColor: UIColor.secondaryLabel]
+        itemAppearance.selected.titleTextAttributes = [.foregroundColor: UIColor.tasukiTabSelectedPurple]
         appearance.stackedLayoutAppearance = itemAppearance
         UITabBar.appearance().standardAppearance = appearance
         UITabBar.appearance().scrollEdgeAppearance = appearance
@@ -67,6 +67,7 @@ struct TASUKIApp: App {
     var body: some Scene {
         WindowGroup {
             ZStack {
+                Color.tasukiDarkBackground.ignoresSafeArea()
                 switch appState {
                 case .loading:
                     // スプラッシュ画面またはローディング表示

@@ -41,6 +41,7 @@ struct MyProfileView: View {
                     VStack(spacing: TasukiUI.sectionSpacing) {
                         heroCard
                         engagementPreferenceCard
+                        integratedRunnerUXCard
                         activityGraphCard
                         statsCard
                         profileCard
@@ -158,6 +159,32 @@ struct MyProfileView: View {
             }
             .tint(Color.tasukiAccent)
         }
+        .tasukiCard()
+    }
+
+    private var integratedRunnerUXCard: some View {
+        NavigationLink(destination: IntegratedRunnerUXGuideView()) {
+            HStack(spacing: 12) {
+                Image(systemName: "point.3.connected.trianglepath.dotted")
+                    .font(.system(size: 22, weight: .semibold))
+                    .foregroundColor(Color.tasukiAccentOrange)
+                    .frame(width: 36)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("統合ランニング体験について")
+                        .font(.system(size: 16, weight: .bold))
+                        .foregroundColor(Color.tasukiPrimary)
+                    Text("HealthKit・伴走・コミュニティの考え方")
+                        .font(.caption)
+                        .foregroundColor(Color.tasukiMutedText)
+                }
+                Spacer()
+                Image(systemName: "chevron.right")
+                    .font(.caption)
+                    .foregroundColor(Color.tasukiMutedText)
+            }
+            .padding(16)
+        }
+        .buttonStyle(.plain)
         .tasukiCard()
     }
 

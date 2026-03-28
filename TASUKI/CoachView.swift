@@ -31,6 +31,13 @@ struct CoachView: View {
                             .padding(.horizontal, 20)
                             .padding(.top, 32)
                             .padding(.bottom, 20)
+
+                        NavigationLink(destination: WeeklyReflectionView()) {
+                            weeklyReflectionShortcutRow
+                        }
+                        .buttonStyle(.plain)
+                        .padding(.horizontal, 20)
+                        .padding(.bottom, 16)
                         
                         // A. コーチプログラム（インライン表示）
                         coachProgramSection
@@ -124,6 +131,33 @@ struct CoachView: View {
         }
     }
     
+    private var weeklyReflectionShortcutRow: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "calendar.badge.clock")
+                .font(.system(size: 18, weight: .semibold))
+                .foregroundColor(Color.tasukiAccent)
+                .frame(width: 30)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("今週の振り返り")
+                    .font(.system(size: 13, weight: .bold))
+                    .foregroundColor(Color.tasukiPrimary)
+                Text("回数・休息も含めて振り返る")
+                    .font(.caption)
+                    .foregroundColor(Color.tasukiMutedText)
+            }
+            Spacer()
+            Image(systemName: "chevron.right")
+                .font(.caption)
+                .foregroundColor(Color.tasukiMutedText)
+        }
+        .padding(14)
+        .background(
+            RoundedRectangle(cornerRadius: 16)
+                .fill(Color.white)
+                .shadow(color: Color.black.opacity(0.06), radius: 8, x: 0, y: 3)
+        )
+    }
+
     // MARK: - Header View
     private var headerView: some View {
         VStack(alignment: .leading, spacing: 8) {

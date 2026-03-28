@@ -62,7 +62,7 @@ struct ProfileRegistrationView: View {
     var body: some View {
         NavigationStack {
                     ZStack {
-                        Color.white.ignoresSafeArea()
+                        Color.tasukiDarkBackground.ignoresSafeArea()
                         
                         VStack(spacing: 32) {
                             // プログレスバー
@@ -99,7 +99,7 @@ struct ProfileRegistrationView: View {
                                     .foregroundColor(.white)
                                     .frame(maxWidth: .infinity)
                                     .padding()
-                                    .background(isCurrentStepValid ? Color(hex: "0F1A2E") : Color.gray.opacity(0.4))
+                                    .background(isCurrentStepValid ? Color.tasukiPrimary : Color.gray.opacity(0.4))
                                     .cornerRadius(12)
                             }
                             .padding(.horizontal, 20)
@@ -233,7 +233,7 @@ struct ProfileRegistrationView: View {
                     .frame(height: 6)
                 
                 RoundedRectangle(cornerRadius: 999)
-                    .fill(Color(hex: "0F1A2E"))
+                    .fill(Color.tasukiPrimary)
                     .frame(width: geometry.size.width * progress, height: 6)
             }
         }
@@ -380,12 +380,12 @@ struct ProfileRegistrationView: View {
                             } label: {
                                 Text(source.displayName)
                                     .font(.system(size: 15, weight: .semibold))
-                                    .foregroundColor(selectedDeviceSources.contains(source) ? .white : Color(hex: "0F1A2E"))
+                                    .foregroundColor(selectedDeviceSources.contains(source) ? .white : Color.tasukiPrimary)
                                     .frame(maxWidth: .infinity)
                                     .padding(.vertical, 12)
                                     .background(
                                         RoundedRectangle(cornerRadius: 10)
-                                            .fill(selectedDeviceSources.contains(source) ? Color(hex: "0F1A2E") : Color.gray.opacity(0.12))
+                                            .fill(selectedDeviceSources.contains(source) ? Color.tasukiPrimary : Color.gray.opacity(0.12))
                                     )
                             }
                             .buttonStyle(.plain)
@@ -394,7 +394,7 @@ struct ProfileRegistrationView: View {
                     if let integrationNotice {
                         Text(integrationNotice)
                             .font(.footnote)
-                            .foregroundColor(Color(hex: "2E5CFF"))
+                            .foregroundColor(Color.tasukiAccent)
                     }
                 }
             default:
@@ -419,12 +419,12 @@ struct ProfileRegistrationView: View {
                         .scaledToFill()
                         .frame(width: 200, height: 200)
                         .clipShape(Circle())
-                        .overlay(Circle().stroke(Color(hex: "0F1A2E"), lineWidth: 3))
+                        .overlay(Circle().stroke(Color.tasukiPrimary, lineWidth: 3))
                 } else {
                     VStack(spacing: 12) {
                         Image(systemName: "person.circle.fill")
                             .font(.system(size: 80))
-                            .foregroundColor(Color(hex: "0F1A2E").opacity(0.3))
+                            .foregroundColor(Color.tasukiPrimary.opacity(0.3))
                         Text("タップして写真を選択")
                             .font(.subheadline)
                             .foregroundColor(.gray)
@@ -433,7 +433,7 @@ struct ProfileRegistrationView: View {
                     .background(Circle().fill(Color.gray.opacity(0.1)))
                     .overlay(
                         Circle()
-                            .stroke(Color(hex: "0F1A2E").opacity(0.3), style: StrokeStyle(lineWidth: 2, dash: [8, 4]))
+                            .stroke(Color.tasukiPrimary.opacity(0.3), style: StrokeStyle(lineWidth: 2, dash: [8, 4]))
                     )
                 }
             }
@@ -457,7 +457,7 @@ struct ProfileRegistrationView: View {
             VStack(spacing: 12) {
                 Text("TASUKI（タスキ）利用規約")
                     .font(.system(size: 18, weight: .bold))
-                    .foregroundColor(Color(hex: "0F1A2E"))
+                    .foregroundColor(Color.tasukiPrimary)
 
                 ScrollView {
                     Text(LegalTexts.termsOfServiceText)
@@ -493,7 +493,7 @@ struct ProfileRegistrationView: View {
                         Text("プライバシーポリシーを読む")
                             .font(.footnote)
                     }
-                    .foregroundColor(Color(hex: "2E5CFF"))
+                    .foregroundColor(Color.tasukiAccent)
                 }
             }
             .padding(12)
@@ -509,14 +509,14 @@ struct ProfileRegistrationView: View {
         HStack(spacing: 12) {
             Image(systemName: agreed.wrappedValue ? "checkmark.square.fill" : "square")
                 .font(.system(size: 20))
-                .foregroundColor(agreed.wrappedValue ? Color(hex: "0F1A2E") : .gray)
+                .foregroundColor(agreed.wrappedValue ? Color.tasukiPrimary : .gray)
                 .onTapGesture {
                     agreed.wrappedValue.toggle()
                 }
 
             Text(title)
                 .font(.system(size: 14, weight: .semibold))
-                .foregroundColor(Color(hex: "0F1A2E"))
+                .foregroundColor(Color.tasukiPrimary)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .onTapGesture {
                     agreed.wrappedValue.toggle()
@@ -532,7 +532,7 @@ struct ProfileRegistrationView: View {
     private func questionTitle(_ text: String) -> some View {
         Text(text)
             .font(.system(size: 24, weight: .bold))
-            .foregroundColor(Color(hex: "0F1A2E"))
+            .foregroundColor(Color.tasukiPrimary)
             .frame(maxWidth: .infinity, alignment: .leading)
     }
     
@@ -540,12 +540,12 @@ struct ProfileRegistrationView: View {
         Button(action: action) {
             Text(title)
                 .font(.system(size: 16, weight: .semibold))
-                .foregroundColor(isSelected ? .white : Color(hex: "0F1A2E"))
+                .foregroundColor(isSelected ? .white : Color.tasukiPrimary)
                 .padding(.vertical, 10)
                 .padding(.horizontal, 18)
                 .background(
                     Capsule()
-                        .fill(isSelected ? Color(hex: "0F1A2E") : Color.gray.opacity(0.15))
+                        .fill(isSelected ? Color.tasukiPrimary : Color.gray.opacity(0.15))
                 )
         }
         .buttonStyle(.plain)

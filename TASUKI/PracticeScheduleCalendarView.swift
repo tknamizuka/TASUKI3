@@ -134,12 +134,12 @@ struct PracticeScheduleCalendarView: View {
                     } label: {
                         Image(systemName: "chevron.left")
                             .font(.system(size: 18, weight: .semibold))
-                            .foregroundColor(Color(hex: "0F1A2E"))
+                            .foregroundColor(Color.tasukiPrimary)
                     }
                     Spacer()
                     Text(monthTitle)
                         .font(.system(size: 18, weight: .bold))
-                        .foregroundColor(Color(hex: "0F1A2E"))
+                        .foregroundColor(Color.tasukiPrimary)
                     Spacer()
                     Button {
                         if let next = calendar.date(byAdding: .month, value: 1, to: displayedMonth) {
@@ -149,7 +149,7 @@ struct PracticeScheduleCalendarView: View {
                     } label: {
                         Image(systemName: "chevron.right")
                             .font(.system(size: 18, weight: .semibold))
-                            .foregroundColor(Color(hex: "0F1A2E"))
+                            .foregroundColor(Color.tasukiPrimary)
                     }
                 }
                 .padding(.horizontal, 20)
@@ -191,7 +191,7 @@ struct PracticeScheduleCalendarView: View {
                 VStack(alignment: .leading, spacing: 8) {
                     Text(sectionTitle)
                         .font(.system(size: 16, weight: .bold))
-                        .foregroundColor(Color(hex: "0F1A2E"))
+                        .foregroundColor(Color.tasukiPrimary)
                         .padding(.horizontal, 20)
                         .padding(.top, 16)
                     
@@ -226,7 +226,7 @@ struct PracticeScheduleCalendarView: View {
                     Button("閉じる") {
                         dismiss()
                     }
-                    .foregroundColor(Color(hex: "2E5CFF"))
+                    .foregroundColor(Color.tasukiAccent)
                 }
             }
         }
@@ -241,10 +241,10 @@ struct PracticeScheduleCalendarView: View {
             VStack(spacing: 4) {
                 Text("\(dayNum)")
                     .font(.system(size: 16, weight: isToday ? .bold : .regular))
-                    .foregroundColor(isSelected ? .white : (isToday ? Color(hex: "2E5CFF") : Color(hex: "0F1A2E")))
+                    .foregroundColor(isSelected ? .white : (isToday ? Color.tasukiAccent : Color.tasukiPrimary))
                 if hasPractice {
                     Circle()
-                        .fill(isSelected ? Color.white : Color(hex: "2E5CFF"))
+                        .fill(isSelected ? Color.white : Color.tasukiAccent)
                         .frame(width: 5, height: 5)
                 }
             }
@@ -252,7 +252,7 @@ struct PracticeScheduleCalendarView: View {
             .frame(height: 36)
             .background(
                 RoundedRectangle(cornerRadius: 8)
-                    .fill(isSelected ? Color(hex: "2E5CFF") : Color.clear)
+                    .fill(isSelected ? Color.tasukiAccent : Color.clear)
             )
         }
         .buttonStyle(.plain)
@@ -268,12 +268,12 @@ struct PracticeScheduleCalendarView: View {
             HStack {
                 Text(item.title)
                     .font(.system(size: 15, weight: .semibold))
-                    .foregroundColor(Color(hex: "0F1A2E"))
+                    .foregroundColor(Color.tasukiPrimary)
                 Spacer()
                 if showChatHint {
                     Image(systemName: "message.fill")
                         .font(.system(size: 14))
-                        .foregroundColor(Color(hex: "2E5CFF"))
+                        .foregroundColor(Color.tasukiAccent)
                 }
             }
             HStack(spacing: 8) {

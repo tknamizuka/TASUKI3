@@ -8,7 +8,7 @@ struct SplashView: View {
     var body: some View {
         ZStack {
             // 1. 背景色（動画が出るまでのチラつき防止用）
-            Color(hex: "0F1A2E")
+            Color.tasukiDarkBackground
                 .ignoresSafeArea()
             
             // 2. 動画プレイヤー（intro_run.mp4 を TASUKI フォルダに追加すると再生されます）
@@ -26,12 +26,16 @@ struct SplashView: View {
                     }
             }
             
-            // 3. ロゴ（シンプル表示）
-            VStack(spacing: 20) {
+            // 3. ロゴ（紫＋ブランド黄のアクセントライン）
+            VStack(spacing: 16) {
                 Text("TASUKI")
                     .font(.system(size: 60, weight: .heavy))
-                    .foregroundColor(.white)
+                    .foregroundColor(Color.tasukiPrimary)
                     .tracking(10)
+                    .opacity(opacity)
+                Capsule()
+                    .fill(Color.tasukiBrandYellow)
+                    .frame(width: 120, height: 5)
                     .opacity(opacity)
             }
         }

@@ -26,12 +26,12 @@ struct UserProfileDetailView: View {
                             .clipShape(Circle())
                             .overlay(
                                 Circle()
-                                    .stroke(Color(hex: "0F1A2E").opacity(0.1), lineWidth: 2)
+                                    .stroke(Color.tasukiPrimary.opacity(0.1), lineWidth: 2)
                             )
                     } else {
                         Image(systemName: "person.circle.fill")
                             .font(.system(size: 120))
-                            .foregroundColor(Color(hex: "0F1A2E").opacity(0.2))
+                            .foregroundColor(Color.tasukiPrimary.opacity(0.2))
                             .frame(width: 120, height: 120)
                     }
                     
@@ -39,7 +39,7 @@ struct UserProfileDetailView: View {
                     HStack(spacing: 8) {
                         Text(user.name)
                             .font(.system(size: 28, weight: .bold))
-                            .foregroundColor(Color(hex: "0F1A2E"))
+                            .foregroundColor(Color.tasukiPrimary)
                         if let tier = PointBadgeHelper.tier(forTotalPoints: user.totalPoints) {
                             HStack(spacing: 4) {
                                 Image(systemName: tier.iconName)
@@ -48,13 +48,13 @@ struct UserProfileDetailView: View {
                                 Text(tier.displayName)
                                     .font(.caption)
                                     .fontWeight(.semibold)
-                                    .foregroundColor(Color(hex: "0F1A2E"))
+                                    .foregroundColor(Color.tasukiPrimary)
                             }
                             .padding(.horizontal, 8)
                             .padding(.vertical, 4)
                             .background(
                                 RoundedRectangle(cornerRadius: 8)
-                                    .fill(Color(hex: "0F1A2E").opacity(0.06))
+                                    .fill(Color.tasukiPrimary.opacity(0.06))
                             )
                         }
                     }
@@ -72,12 +72,12 @@ struct UserProfileDetailView: View {
                             .font(.subheadline)
                             .fontWeight(.semibold)
                     }
-                    .foregroundColor(Color(hex: "0F1A2E"))
+                    .foregroundColor(Color.tasukiPrimary)
                     .padding(.horizontal, 16)
                     .padding(.vertical, 8)
                     .background(
                         RoundedRectangle(cornerRadius: 20)
-                            .fill(Color(hex: "0F1A2E").opacity(0.1))
+                            .fill(Color.tasukiPrimary.opacity(0.1))
                     )
                 }
                 .padding(.top, 20)
@@ -94,19 +94,19 @@ struct UserProfileDetailView: View {
                             .padding(.vertical, 6)
                             .background(
                                 RoundedRectangle(cornerRadius: 12)
-                                    .fill(Color(hex: "0F1A2E"))
+                                    .fill(Color.tasukiPrimary)
                             )
                         
                         // Purposeタグ
                         Text(user.purpose)
                             .font(.caption)
                             .fontWeight(.medium)
-                            .foregroundColor(Color(hex: "0F1A2E"))
+                            .foregroundColor(Color.tasukiPrimary)
                             .padding(.horizontal, 12)
                             .padding(.vertical, 6)
                             .background(
                                 RoundedRectangle(cornerRadius: 12)
-                                    .fill(Color(hex: "0F1A2E").opacity(0.1))
+                                    .fill(Color.tasukiPrimary.opacity(0.1))
                             )
                     }
                     .padding(.horizontal, 20)
@@ -129,7 +129,7 @@ struct UserProfileDetailView: View {
                         icon: "calendar",
                         title: "Schedule",
                         value: user.schedule,
-                        iconColor: Color(hex: "0F1A2E")
+                        iconColor: Color.tasukiPrimary
                     )
                     
                     // Next Race カード
@@ -138,7 +138,7 @@ struct UserProfileDetailView: View {
                             icon: "flag.fill",
                             title: "Next Race",
                             value: user.nextRace,
-                            iconColor: Color(hex: "2E5CFF")
+                            iconColor: Color.tasukiAccent
                         )
                     }
                     
@@ -158,7 +158,7 @@ struct UserProfileDetailView: View {
                 VStack(alignment: .leading, spacing: 16) {
                     Text("Running Stats")
                         .font(.headline)
-                        .foregroundColor(Color(hex: "0F1A2E"))
+                        .foregroundColor(Color.tasukiPrimary)
                         .padding(.horizontal, 20)
                     
                     // Avg Pace
@@ -168,7 +168,7 @@ struct UserProfileDetailView: View {
                             .foregroundColor(.gray)
                         Text(user.avgPace)
                             .font(.system(size: 32, weight: .bold))
-                            .foregroundColor(Color(hex: "0F1A2E"))
+                            .foregroundColor(Color.tasukiPrimary)
                     }
                     .padding(20)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -189,7 +189,7 @@ struct UserProfileDetailView: View {
                             Text("\(Int(user.monthlyDistance))km / \(Int(user.monthlyTarget))km (\(Int(monthlyProgress * 100))%)")
                                 .font(.caption)
                                 .fontWeight(.semibold)
-                                .foregroundColor(Color(hex: "0F1A2E"))
+                                .foregroundColor(Color.tasukiPrimary)
                         }
                         
                         // 進捗バー
@@ -203,7 +203,7 @@ struct UserProfileDetailView: View {
                                 // 進捗バー
                                 RoundedRectangle(cornerRadius: 8)
                                     .frame(width: geometry.size.width * monthlyProgress, height: 12)
-                                    .foregroundColor(Color(hex: "0F1A2E"))
+                                    .foregroundColor(Color.tasukiPrimary)
                                     .animation(.easeOut, value: monthlyProgress)
                             }
                         }
@@ -222,7 +222,7 @@ struct UserProfileDetailView: View {
                 VStack(alignment: .leading, spacing: 8) {
                     Text("自己紹介")
                         .font(.headline)
-                        .foregroundColor(Color(hex: "0F1A2E"))
+                        .foregroundColor(Color.tasukiPrimary)
                     
                     Text(user.bio)
                         .font(.body)
@@ -242,7 +242,7 @@ struct UserProfileDetailView: View {
             }
             .padding(.bottom, 20)
         }
-        .background(Color(uiColor: .systemGroupedBackground))
+        .background(Color.tasukiDarkBackground)
         .navigationBarTitleDisplayMode(.inline)
         .navigationBarBackButtonHidden(true)
         .toolbar {
@@ -250,7 +250,7 @@ struct UserProfileDetailView: View {
                 Button(action: { dismiss() }) {
                     Image(systemName: "chevron.left")
                         .font(.system(size: 16, weight: .semibold))
-                        .foregroundColor(Color(hex: "2E5CFF"))
+                        .foregroundColor(Color.tasukiAccent)
                 }
             }
         }
@@ -265,7 +265,7 @@ struct UserProfileDetailView: View {
                     .foregroundColor(.white)
                     .frame(maxWidth: .infinity)
                     .padding()
-                    .background(Color(hex: "0F1A2E"))
+                    .background(Color.tasukiPrimary)
                     .cornerRadius(30)
                     .shadow(color: Color.black.opacity(0.2), radius: 10, x: 0, y: 5)
             }
@@ -307,7 +307,7 @@ struct UserProfileDetailView: View {
                 Text(value)
                     .font(.body)
                     .fontWeight(.semibold)
-                    .foregroundColor(Color(hex: "0F1A2E"))
+                    .foregroundColor(Color.tasukiPrimary)
             }
             
             Spacer()

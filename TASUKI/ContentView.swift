@@ -64,7 +64,7 @@ struct ContentView: View {
                 // TASUKIロゴテキスト（前面）
                 Text("TASUKI")
                     .font(.system(size: 40, weight: .semibold, design: .default))
-                    .foregroundColor(Color(hex: "0F1A2E"))
+                    .foregroundColor(Color.tasukiPrimary)
                     .tracking(2)
             }
             

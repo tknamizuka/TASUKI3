@@ -90,7 +90,7 @@ struct CoachProfileView: View {
                 )
                 .shadow(radius: 2)
                 .background(
-                    Circle().fill(Color(hex: "F5F7FA"))
+                    Circle().fill(Color.tasukiDarkCardSecondary)
                         .frame(width: 124, height: 124)
                 )
             

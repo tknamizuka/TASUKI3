@@ -55,11 +55,11 @@ struct PartnerDetailView: View {
                         }) {
                             Image(systemName: "xmark")
                                 .font(.system(size: 20, weight: .medium))
-                                .foregroundColor(Color(hex: "0F1A2E"))
+                                .foregroundColor(Color.tasukiPrimary)
                                 .frame(width: 44, height: 44)
                                 .background(
                                     Circle()
-                                        .fill(Color(hex: "F5F7FA"))
+                                        .fill(Color.tasukiDarkCardSecondary)
                                 )
                         }
                         Spacer()
@@ -83,12 +83,12 @@ struct PartnerDetailView: View {
                         } else {
                             Image(systemName: "person.circle.fill")
                                 .font(.system(size: 120))
-                                .foregroundColor(Color(hex: "0F1A2E"))
+                                .foregroundColor(Color.tasukiPrimary)
                                 .saturation(0)
                                 .frame(width: 180, height: 180)
                                 .background(
                                     Circle()
-                                        .fill(Color(hex: "F5F7FA"))
+                                        .fill(Color.tasukiDarkCardSecondary)
                                 )
                                 .overlay(
                                     Circle()
@@ -101,7 +101,7 @@ struct PartnerDetailView: View {
                             HStack(spacing: 8) {
                                 Text(user.name)
                                     .font(.system(size: 28, weight: .bold))
-                                    .foregroundColor(Color(hex: "0F1A2E"))
+                                    .foregroundColor(Color.tasukiPrimary)
                                 if let tier = PointBadgeHelper.tier(forTotalPoints: user.totalPoints) {
                                     Image(systemName: tier.iconName)
                                         .font(.system(size: 18, weight: .semibold))
@@ -109,11 +109,11 @@ struct PartnerDetailView: View {
                                 }
                                 Text("(\(user.age))")
                                     .font(.system(size: 24, weight: .regular))
-                                    .foregroundColor(Color(hex: "0F1A2E").opacity(0.7))
+                                    .foregroundColor(Color.tasukiPrimary.opacity(0.7))
                                 
                                 Text("•")
                                     .font(.system(size: 20, weight: .regular))
-                                    .foregroundColor(Color(hex: "0F1A2E").opacity(0.5))
+                                    .foregroundColor(Color.tasukiPrimary.opacity(0.5))
                                 
                                 Text("Rank \(user.rank)")
                                     .font(.system(size: 20, weight: .semibold))
@@ -128,7 +128,7 @@ struct PartnerDetailView: View {
                                 
                                 Text(user.isOnline ? "オンライン" : "オフライン")
                                     .font(.system(size: 14, weight: .regular))
-                                    .foregroundColor(Color(hex: "0F1A2E").opacity(0.7))
+                                    .foregroundColor(Color.tasukiPrimary.opacity(0.7))
                             }
                         }
                     }
@@ -140,7 +140,7 @@ struct PartnerDetailView: View {
                         HStack {
                             Text("目的")
                                 .font(.system(size: 14, weight: .semibold))
-                                .foregroundColor(Color(hex: "0F1A2E").opacity(0.7))
+                                .foregroundColor(Color.tasukiPrimary.opacity(0.7))
                             Spacer()
                         }
                         
@@ -154,7 +154,7 @@ struct PartnerDetailView: View {
                             HStack {
                                 Text("よく走る場所")
                                     .font(.system(size: 14, weight: .semibold))
-                                    .foregroundColor(Color(hex: "0F1A2E").opacity(0.7))
+                                    .foregroundColor(Color.tasukiPrimary.opacity(0.7))
                                 Spacer()
                             }
                             .padding(.top, 8)
@@ -204,7 +204,7 @@ struct PartnerDetailView: View {
                     VStack(alignment: .leading, spacing: 12) {
                         Text("ランニング統計")
                             .font(.system(size: 18, weight: .bold))
-                            .foregroundColor(Color(hex: "0F1A2E"))
+                            .foregroundColor(Color.tasukiPrimary)
                             .padding(.horizontal, 20)
                         
                         LazyVGrid(columns: [
@@ -255,7 +255,7 @@ struct PartnerDetailView: View {
                 VStack(spacing: 8) {
                     Text("承認されるとメッセージが可能になります")
                         .font(.system(size: 12, weight: .regular))
-                        .foregroundColor(Color(hex: "0F1A2E").opacity(0.6))
+                        .foregroundColor(Color.tasukiPrimary.opacity(0.6))
                     
                     Button(action: {
                         showRequestAlert = true
@@ -283,7 +283,7 @@ struct PartnerDetailView: View {
                         Spacer()
                         Text("申請中")
                             .font(.system(size: 16, weight: .semibold))
-                            .foregroundColor(Color(hex: "0F1A2E").opacity(0.5))
+                            .foregroundColor(Color.tasukiPrimary.opacity(0.5))
                         Spacer()
                     }
                     .frame(height: 50)
@@ -303,7 +303,7 @@ struct PartnerDetailView: View {
                     }) {
                         Text("拒否")
                             .font(.system(size: 14, weight: .semibold))
-                            .foregroundColor(Color(hex: "0F1A2E").opacity(0.7))
+                            .foregroundColor(Color.tasukiPrimary.opacity(0.7))
                             .frame(height: 50)
                             .frame(maxWidth: .infinity)
                             .background(
@@ -358,12 +358,12 @@ struct PartnerDetailView: View {
     private func tagView(text: String, isPrimary: Bool) -> some View {
         Text(text)
             .font(.system(size: 14, weight: .medium))
-            .foregroundColor(isPrimary ? .white : Color(hex: "0F1A2E"))
+            .foregroundColor(isPrimary ? .white : Color.tasukiPrimary)
             .padding(.horizontal, 16)
             .padding(.vertical, 8)
             .background(
                 Capsule()
-                    .fill(isPrimary ? Color.royalBlue : Color(hex: "F5F7FA"))
+                    .fill(isPrimary ? Color.royalBlue : Color.tasukiDarkCardSecondary)
             )
     }
     
@@ -382,11 +382,11 @@ struct PartnerDetailView: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text(title)
                     .font(.system(size: 12, weight: .regular))
-                    .foregroundColor(Color(hex: "0F1A2E").opacity(0.6))
+                    .foregroundColor(Color.tasukiPrimary.opacity(0.6))
                 
                 Text(value)
                     .font(.system(size: 16, weight: .semibold))
-                    .foregroundColor(Color(hex: "0F1A2E"))
+                    .foregroundColor(Color.tasukiPrimary)
             }
             
             Spacer()
@@ -404,12 +404,12 @@ struct PartnerDetailView: View {
         VStack(alignment: .leading, spacing: 8) {
             Text(title)
                 .font(.system(size: 12, weight: .regular, design: .default))
-                .foregroundColor(Color(hex: "0F1A2E").opacity(0.6))
+                .foregroundColor(Color.tasukiPrimary.opacity(0.6))
                 .tracking(0.5)
             
             Text(value)
                 .font(.system(size: 18, weight: .semibold, design: .default))
-                .foregroundColor(Color(hex: "0F1A2E"))
+                .foregroundColor(Color.tasukiPrimary)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(16)

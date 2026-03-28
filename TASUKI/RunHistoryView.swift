@@ -280,7 +280,7 @@ struct RunHistoryMapView: View {
         Map(initialPosition: .region(region), interactionModes: .all) {
             if coordinates.count >= 2 {
                 MapPolyline(coordinates: coordinates)
-                    .stroke(Color(hex: "2E5CFF"), lineWidth: 4)
+                    .stroke(Color.tasukiAccent, lineWidth: 4)
             }
             ForEach(Array(coordinates.enumerated()), id: \.offset) { index, coord in
                 if index == 0 {

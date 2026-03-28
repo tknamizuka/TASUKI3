@@ -1,24 +1,39 @@
 import SwiftUI
+import UIKit
 
 extension Color {
-    // 1. カラーパレット定義（ここに追加しました！）
-    static let tasukiBase = Color(hex: "FFFFFF")      // Pure White
-    static let tasukiPrimary = Color(hex: "0D1B40")   // Navy (Text)
-    static let tasukiSurface = Color(hex: "F5F7FA")   // Light Gray (Card Background)
-    static let tasukiAccent = Color(hex: "2E5CFF")    // Royal Blue
-    static let tasukiDanger = Color(hex: "FF453A")    // System Red
-    // 以前のダーク名を残しつつ、白ベース＋紺系トーンにマップ
-    static let tasukiDarkBackground = Color(hex: "FFFFFF")
+    /// 駅伝ブランド黄（全面背景ではなくアクセント専用・この1値のみ）
+    static let tasukiBrandYellow = Color(hex: "E8FF00")
+
+    /// 画面全面の下地（白に近い薄ラベンダー。黄は使わない）
+    static let tasukiBase = Color(hex: "F7F5FB")
+    static let tasukiDarkBackground = Color(hex: "F7F5FB")
+
+    /// 本文・アイコン主色（ディープパープル）
+    static let tasukiPrimary = Color(hex: "2A0F45")
+    /// インタラクティブ・リンク・強調
+    static let tasukiAccent = Color(hex: "5D2D91")
+    static let tasukiDanger = Color(hex: "FF453A")
+
+    /// カード・モーダル上面（白の島）
+    static let tasukiSurface = Color(hex: "FFFFFF")
     static let tasukiDarkCard = Color(hex: "FFFFFF")
-    static let tasukiDarkCardSecondary = Color(hex: "F5F7FA")
-    static let tasukiMutedText = Color(hex: "6B7280")
-    static let tasukiAccentOrange = Color(hex: "2E5CFF")
-    
-    // 互換性のためのエイリアス（既存コードとの互換性を保つため）
-    static let royalBlue = Color(hex: "2E5CFF")       // Accent (tasukiAccentと同じ)
-    static let midnightNavy = Color(hex: "050A14")    // Background
-    static let pureWhite = Color(hex: "FFFFFF")       // Main Text (tasukiBaseと同じ)
-    static let deepNavy = Color(hex: "0F1A2E")        // Card Background
+    /// 黄／白カード上の区切り・薄い沈み
+    static let tasukiDarkCardSecondary = Color(hex: "EFEAF5")
+
+    static let tasukiMutedText = Color(hex: "5C486E")
+
+    static let tasukiAccentOrange = tasukiAccent
+
+    static let royalBlue = tasukiAccent
+    /// 最も暗い紫トーン（強調テキスト・極小要素）
+    static let midnightNavy = Color(hex: "1A0A2E")
+    static let pureWhite = Color(hex: "FFFFFF")
+    /// 旧「deep navy」呼称の互換（現主色と同一）
+    static let deepNavy = tasukiPrimary
+
+    /// 浮いたタブバー上で選択ピルが白背景に溶けないようにする薄紫ハイライト
+    static let tasukiTabSelectionFill = tasukiAccent.opacity(0.14)
 
     // 2. Hex変換用イニシャライザ
     init(hex: String) {
@@ -46,6 +61,11 @@ extension Color {
     }
 }
 
+extension UIColor {
+    static let tasukiBrandYellowUI = UIColor(red: 232 / 255, green: 255 / 255, blue: 0 / 255, alpha: 1)
+    static let tasukiTabSelectedPurple = UIColor(red: 93 / 255, green: 45 / 255, blue: 145 / 255, alpha: 1)
+}
+
 enum TasukiUI {
     static let cardCorner: CGFloat = 16
     static let cardPadding: CGFloat = 16
@@ -59,8 +79,8 @@ extension View {
             .padding(TasukiUI.cardPadding)
             .background(
                 RoundedRectangle(cornerRadius: corner)
-                    .fill(Color.white)
-                    .shadow(color: Color.black.opacity(0.06), radius: 8, x: 0, y: 3)
+                    .fill(Color.tasukiSurface)
+                    .shadow(color: Color.tasukiMutedText.opacity(0.12), radius: 8, x: 0, y: 3)
             )
     }
 }

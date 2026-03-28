@@ -25,7 +25,7 @@ struct LoginView: View {
 
     var body: some View {
         ZStack {
-            Color.white
+            Color.tasukiDarkBackground
                 .ignoresSafeArea()
             
             VStack(spacing: 32) {
@@ -33,7 +33,7 @@ struct LoginView: View {
                 VStack(spacing: 8) {
                     Text("TASUKI")
                         .font(.system(size: 40, weight: .heavy))
-                        .foregroundColor(Color(hex: "0F1A2E"))
+                        .foregroundColor(Color.tasukiPrimary)
                         .tracking(6)
                     
                     Text("ログインして、仲間と走ろう")
@@ -52,7 +52,7 @@ struct LoginView: View {
                         .padding()
                         .background(
                             RoundedRectangle(cornerRadius: 12)
-                                .fill(Color(hex: "F5F7FA"))
+                                .fill(Color.tasukiDarkCardSecondary)
                         )
                     
                     SecureField("パスワード", text: $password)
@@ -62,7 +62,7 @@ struct LoginView: View {
                         .padding()
                         .background(
                             RoundedRectangle(cornerRadius: 12)
-                                .fill(Color(hex: "F5F7FA"))
+                                .fill(Color.tasukiDarkCardSecondary)
                         )
                 }
                 .padding(.horizontal, 24)
@@ -77,7 +77,7 @@ struct LoginView: View {
                             .foregroundColor(.white)
                             .frame(maxWidth: .infinity)
                             .padding()
-                            .background(Color(hex: "0F1A2E"))
+                            .background(Color.tasukiPrimary)
                             .cornerRadius(24)
                     }
                     .disabled(authManager.isLoading)
@@ -87,12 +87,12 @@ struct LoginView: View {
                     }) {
                         Text("新規登録")
                             .font(.system(size: 16, weight: .bold))
-                            .foregroundColor(Color(hex: "0F1A2E"))
+                            .foregroundColor(Color.tasukiPrimary)
                             .frame(maxWidth: .infinity)
                             .padding()
                             .background(
                                 RoundedRectangle(cornerRadius: 24)
-                                    .stroke(Color(hex: "0F1A2E"), lineWidth: 1)
+                                    .stroke(Color.tasukiPrimary, lineWidth: 1)
                             )
                     }
                     .disabled(authManager.isLoading)
@@ -238,12 +238,12 @@ struct LoginView: View {
                     .font(.system(size: 15, weight: .semibold))
                 Spacer()
             }
-            .foregroundColor(Color(hex: "0F1A2E"))
+            .foregroundColor(Color.tasukiPrimary)
             .padding(.vertical, 12)
             .padding(.horizontal, 14)
             .background(
                 RoundedRectangle(cornerRadius: 12)
-                    .fill(Color(hex: "F5F7FA"))
+                    .fill(Color.tasukiDarkCardSecondary)
             )
         }
         .disabled(authManager.isLoading)

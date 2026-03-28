@@ -428,5 +428,33 @@ final class HealthKitManager {
             self.healthStore.execute(workoutQuery)
         }
     }
+
+    /// 直近のランニングワークアウト日からの経過日数（同日なら0）。記録が無い場合は nil。
+    func fetchDaysSinceLastRunningWorkout(completion: @escaping (Int?) -> Void) {
+        guard HKHealthStore.isHealthDataAvailable() else {
+            DispatchQueue.main.async { completion(nil) }
+            return
+        }
+        let workoutType = HKObjectType.workoutType()
+        let runningPredicate = HKQuery.predicateForWorkouts(with: .running)
+        let sort = NSSortDescriptor(key: HKSampleSortIdentifierEndDate, ascending: false)
+        let query = HKSampleQuery(
+            sampleType: workoutType,
+            predicate: runningPredicate,
+            limit: 1,
+            sortDescriptors: [sort]
+        ) { _, samples, _ in
+            guard let workout = samples?.first as? HKWorkout else {
+                DispatchQueue.main.async { completion(nil) }
+                return
+            }
+            let cal = Calendar.current
+            let lastDay = cal.startOfDay(for: workout.endDate)
+            let today = cal.startOfDay(for: Date())
+            let days = cal.dateComponents([.day], from: lastDay, to: today).day ?? 0
+            DispatchQueue.main.async { completion(days) }
+        }
+        healthStore.execute(query)
+    }
 }
 

@@ -94,7 +94,7 @@ struct ProfileEditView: View {
                         TextField("ニックネーム", text: $name, prompt: Text("例: けんじ, RunLover"))
                         Text("※本名は公開されません。ニックネームで登録してください。")
                             .font(.caption)
-                            .foregroundColor(Color(hex: "0F1A2E").opacity(0.6))
+                            .foregroundColor(Color.tasukiPrimary.opacity(0.6))
                     }
                     TextField("年齢", text: $age)
                         .keyboardType(.numberPad)
@@ -109,11 +109,11 @@ struct ProfileEditView: View {
                         Text("Rank")
                         Spacer()
                         Text(rank)
-                            .foregroundColor(Color(hex: "0F1A2E").opacity(0.6))
+                            .foregroundColor(Color.tasukiPrimary.opacity(0.6))
                     }
                     Text("※ランクは登録時のタイムに基づいて決まります。変更するにはプロフィール登録し直してください。")
                         .font(.caption)
-                        .foregroundColor(Color(hex: "0F1A2E").opacity(0.5))
+                        .foregroundColor(Color.tasukiPrimary.opacity(0.5))
                 }
                 
                 // Section 2: Running Style
@@ -149,7 +149,7 @@ struct ProfileEditView: View {
                                 .font(.system(size: 15, weight: .semibold))
                             Text("推奨精度向上のために、画面利用やランニング関連イベントを収集します。")
                                 .font(.system(size: 12))
-                                .foregroundColor(Color(hex: "0F1A2E").opacity(0.6))
+                                .foregroundColor(Color.tasukiPrimary.opacity(0.6))
                         }
                     }
                     .tint(Color.tasukiAccent)
@@ -172,7 +172,7 @@ struct ProfileEditView: View {
                     }
                     Text("選択したサービスの記録がAppleヘルスへ同期されている場合、TASUKIで読み取りできます。")
                         .font(.caption)
-                        .foregroundColor(Color(hex: "0F1A2E").opacity(0.6))
+                        .foregroundColor(Color.tasukiPrimary.opacity(0.6))
 
                     ForEach(companionSources) { source in
                         Button {

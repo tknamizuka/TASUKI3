@@ -565,7 +565,7 @@ struct TeamView: View {
                         .fill(
                             LinearGradient(
                                 gradient: Gradient(colors: [
-                                    Color(hex: "2E5CFF"),
+                                    Color.tasukiAccent,
                                     Color.tasukiAccentOrange
                                 ]),
                                 startPoint: .leading,
@@ -917,7 +917,7 @@ struct TeamView: View {
                     )
             } else {
                 Circle()
-                    .fill(Color(hex: "F5F7FA"))
+                    .fill(Color.tasukiDarkCardSecondary)
                     .frame(width: 36, height: 36)
                     .overlay(
                         Circle()
@@ -1010,7 +1010,7 @@ struct TeamView: View {
                         .fill(
                             LinearGradient(
                                 gradient: Gradient(colors: [
-                                    Color(hex: "2E5CFF"),
+                                    Color.tasukiAccent,
                                     Color.tasukiAccentOrange
                                 ]),
                                 startPoint: .leading,

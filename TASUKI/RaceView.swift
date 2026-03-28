@@ -25,7 +25,7 @@ struct RaceEntryView: View {
             VStack(spacing: 32) {
                 Text("対戦する距離を選んでください")
                     .font(.headline)
-                    .foregroundColor(Color(hex: "0F1A2E"))
+                    .foregroundColor(Color.tasukiPrimary)
                 
                 ForEach(LiveRaceCategory.allCases) { cat in
                     Button(action: {
@@ -36,7 +36,7 @@ struct RaceEntryView: View {
                             Text(cat.displayName)
                                 .font(.title2)
                                 .fontWeight(.semibold)
-                                .foregroundColor(Color(hex: "0F1A2E"))
+                                .foregroundColor(Color.tasukiPrimary)
                             Spacer()
                             Image(systemName: "chevron.right")
                                 .foregroundColor(.gray)
@@ -44,7 +44,7 @@ struct RaceEntryView: View {
                         .padding()
                         .background(
                             RoundedRectangle(cornerRadius: 12)
-                                .fill(selectedCategory == cat ? Color(hex: "2E5CFF").opacity(0.15) : Color(hex: "F5F7FA"))
+                                .fill(selectedCategory == cat ? Color.tasukiAccent.opacity(0.15) : Color.tasukiDarkCardSecondary)
                         )
                     }
                     .disabled(isMatching)
@@ -68,7 +68,7 @@ struct RaceEntryView: View {
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
                     Button("閉じる") { dismiss() }
-                        .foregroundColor(Color(hex: "0F1A2E"))
+                        .foregroundColor(Color.tasukiPrimary)
                 }
             }
             .navigationDestination(item: $matchedRaceId) { rid in
@@ -152,7 +152,7 @@ struct RaceLobbyView: View {
                 Text(race.category?.displayName ?? race.distanceCategory)
                     .font(.title)
                     .fontWeight(.bold)
-                    .foregroundColor(Color(hex: "0F1A2E"))
+                    .foregroundColor(Color.tasukiPrimary)
                 Text("\(race.targetDistanceKm) km でタイムを競います")
                     .font(.subheadline)
                     .foregroundColor(.gray)
@@ -176,7 +176,7 @@ struct RaceLobbyView: View {
                         .foregroundColor(.white)
                         .frame(maxWidth: .infinity)
                         .padding()
-                        .background(Color(hex: "2E5CFF"))
+                        .background(Color.tasukiAccent)
                         .cornerRadius(12)
                 }
                 .padding(.horizontal)
@@ -212,11 +212,11 @@ struct RaceLobbyView: View {
             if let c = countdown, c > 0 {
                 Text("\(c)")
                     .font(.system(size: 72, weight: .bold))
-                    .foregroundColor(Color(hex: "2E5CFF"))
+                    .foregroundColor(Color.tasukiAccent)
             } else {
                 Text("Go!")
                     .font(.system(size: 64, weight: .bold))
-                    .foregroundColor(Color(hex: "0F1A2E"))
+                    .foregroundColor(Color.tasukiPrimary)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -293,11 +293,11 @@ struct RaceRunningView: View {
             Text(race.category?.displayName ?? race.distanceCategory)
                 .font(.title2)
                 .fontWeight(.bold)
-                .foregroundColor(Color(hex: "0F1A2E"))
+                .foregroundColor(Color.tasukiPrimary)
             
             Text(formatElapsed(elapsedSeconds))
                 .font(.system(size: 48, weight: .bold, design: .monospaced))
-                .foregroundColor(Color(hex: "0F1A2E"))
+                .foregroundColor(Color.tasukiPrimary)
             
             HStack(spacing: 32) {
                 VStack {
@@ -324,7 +324,7 @@ struct RaceRunningView: View {
                         .foregroundColor(.white)
                         .frame(maxWidth: .infinity)
                         .padding()
-                        .background(Color(hex: "2E5CFF"))
+                        .background(Color.tasukiAccent)
                         .cornerRadius(12)
                 }
                 .padding(.horizontal, 40)
@@ -332,7 +332,7 @@ struct RaceRunningView: View {
                 Button(action: submitFinish) {
                     Text("ゴールする（距離に達していなくても記録）")
                         .font(.subheadline)
-                        .foregroundColor(Color(hex: "2E5CFF"))
+                        .foregroundColor(Color.tasukiAccent)
                 }
             }
             
@@ -409,7 +409,7 @@ struct RaceResultsView: View {
             Text("結果")
                 .font(.title)
                 .fontWeight(.bold)
-                .foregroundColor(Color(hex: "0F1A2E"))
+                .foregroundColor(Color.tasukiPrimary)
             
             List(Array(ranked.enumerated()), id: \.element.id) { index, p in
                 HStack {
@@ -421,7 +421,7 @@ struct RaceResultsView: View {
                     if let t = p.finishTimeSeconds {
                         Text(formatTime(t))
                             .font(.body.monospacedDigit())
-                            .foregroundColor(Color(hex: "0F1A2E"))
+                            .foregroundColor(Color.tasukiPrimary)
                     }
                 }
             }
@@ -435,7 +435,7 @@ struct RaceResultsView: View {
                     .foregroundColor(.white)
                     .frame(maxWidth: .infinity)
                     .padding()
-                    .background(Color(hex: "0F1A2E"))
+                    .background(Color.tasukiPrimary)
                     .cornerRadius(12)
             }
             .padding()

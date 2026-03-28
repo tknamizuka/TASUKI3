@@ -32,7 +32,7 @@ struct PracticeDetailView: View {
                     Text(practice.title)
                         .font(.title)
                         .fontWeight(.heavy)
-                        .foregroundColor(Color(hex: "0F1A2E"))
+                        .foregroundColor(Color.tasukiPrimary)
                         .lineLimit(2)
                     
                     HStack(spacing: 15) {
@@ -55,7 +55,7 @@ struct PracticeDetailView: View {
                         Text(practice.pace)
                             .font(.headline)
                             .fontWeight(.bold)
-                            .foregroundColor(Color(hex: "0F1A2E"))
+                            .foregroundColor(Color.tasukiPrimary)
                     }
                     
                     Spacer()
@@ -76,7 +76,7 @@ struct PracticeDetailView: View {
                             .scaledToFill()
                             .frame(width: 45, height: 45)
                             .clipShape(Circle())
-                            .overlay(Circle().stroke(Color(hex: "0F1A2E"), lineWidth: 1))
+                            .overlay(Circle().stroke(Color.tasukiPrimary, lineWidth: 1))
                     }
                 }
                 
@@ -84,7 +84,7 @@ struct PracticeDetailView: View {
                 VStack(alignment: .leading, spacing: 10) {
                     Text("参加状況")
                         .font(.headline)
-                        .foregroundColor(Color(hex: "0F1A2E"))
+                        .foregroundColor(Color.tasukiPrimary)
                     
                     // 状況テキスト
                     HStack(alignment: .bottom) {
@@ -93,7 +93,7 @@ struct PracticeDetailView: View {
                             Text("募集中！")
                                 .font(.title2)
                                 .fontWeight(.bold)
-                                .foregroundColor(Color(hex: "0F1A2E"))
+                                .foregroundColor(Color.tasukiPrimary)
                             
                             Text("(あと \(totalMax - 1) 名)")
                                 .font(.subheadline)
@@ -103,7 +103,7 @@ struct PracticeDetailView: View {
                             // 誰かいたら実数を出す
                             Text("\(totalCurrent)")
                                 .font(.system(size: 34, weight: .bold))
-                                .foregroundColor(Color(hex: "0F1A2E"))
+                                .foregroundColor(Color.tasukiPrimary)
                             
                             Text("/ \(totalMax) 名")
                                 .font(.title3)
@@ -131,7 +131,7 @@ struct PracticeDetailView: View {
                             let ratio = CGFloat(totalCurrent) / CGFloat(totalMax)
                             RoundedRectangle(cornerRadius: 5)
                                 .frame(width: geometry.size.width * ratio, height: 10)
-                                .foregroundColor(Color(hex: "0F1A2E")) // TASUKI Navy
+                                .foregroundColor(Color.tasukiPrimary) // TASUKI Navy
                                 .animation(.easeOut, value: totalCurrent)
                         }
                     }
@@ -146,7 +146,7 @@ struct PracticeDetailView: View {
                 VStack(alignment: .leading, spacing: 10) {
                     Text("詳細")
                         .font(.headline)
-                        .foregroundColor(Color(hex: "0F1A2E"))
+                        .foregroundColor(Color.tasukiPrimary)
                     
                     Text(practice.description)
                         .font(.body)
@@ -159,7 +159,7 @@ struct PracticeDetailView: View {
                     VStack(alignment: .leading, spacing: 12) {
                         Text("練習会チャット")
                             .font(.headline)
-                            .foregroundColor(Color(hex: "0F1A2E"))
+                            .foregroundColor(Color.tasukiPrimary)
                         
                         VStack(alignment: .leading, spacing: 8) {
                             ForEach(chatMessages) { message in
@@ -170,11 +170,11 @@ struct PracticeDetailView: View {
                                     
                                     Text(message.text)
                                         .font(.system(size: 14))
-                                        .foregroundColor(message.isMe ? .white : Color(hex: "0F1A2E"))
+                                        .foregroundColor(message.isMe ? .white : Color.tasukiPrimary)
                                         .padding(10)
                                         .background(
                                             RoundedRectangle(cornerRadius: 12)
-                                                .fill(message.isMe ? Color(hex: "0F1A2E") : Color(hex: "F5F7FA"))
+                                                .fill(message.isMe ? Color.tasukiPrimary : Color.tasukiDarkCardSecondary)
                                         )
                                 }
                                 .frame(maxWidth: .infinity, alignment: message.isMe ? .trailing : .leading)
@@ -193,7 +193,7 @@ struct PracticeDetailView: View {
                                 chatInputText = ""
                             }) {
                                 Image(systemName: "paperplane.fill")
-                                    .foregroundColor(Color(hex: "0F1A2E"))
+                                    .foregroundColor(Color.tasukiPrimary)
                             }
                         }
                     }
@@ -205,7 +205,7 @@ struct PracticeDetailView: View {
                     VStack(alignment: .leading, spacing: 8) {
                         Text("練習会チャット")
                             .font(.headline)
-                            .foregroundColor(Color(hex: "0F1A2E"))
+                            .foregroundColor(Color.tasukiPrimary)
                         Text("参加すると、この練習会専用のチャットが利用できるようになります。")
                             .font(.caption)
                             .foregroundColor(.gray)
@@ -220,7 +220,7 @@ struct PracticeDetailView: View {
             }
             .padding()
         }
-        .background(Color(uiColor: .systemGroupedBackground)) // 背景を少しグレーに
+        .background(Color.tasukiDarkBackground)
         .overlay(alignment: .bottom) {
             // 5. アクションボタン
             Button(action: {
@@ -248,7 +248,7 @@ struct PracticeDetailView: View {
                     .foregroundColor(practice.isJoined ? .gray : .white)
                     .frame(maxWidth: .infinity)
                     .padding()
-                    .background(practice.isJoined ? Color.white : Color(hex: "0F1A2E"))
+                    .background(practice.isJoined ? Color.white : Color.tasukiPrimary)
                     .cornerRadius(30)
                     .shadow(color: practice.isJoined ? .clear : .black.opacity(0.2), radius: 10, x: 0, y: 5)
                     .overlay(
@@ -274,7 +274,7 @@ struct PracticeDetailView: View {
                 Button(action: { dismiss() }) {
                     Image(systemName: "chevron.left")
                         .font(.system(size: 16, weight: .semibold))
-                        .foregroundColor(Color(hex: "2E5CFF"))
+                        .foregroundColor(Color.tasukiAccent)
                 }
             }
         }

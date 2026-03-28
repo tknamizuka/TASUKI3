@@ -134,9 +134,15 @@ enum CompanionSuggestionEngine {
     static func suggestion(
         checkIn: Condition?,
         daysSinceLastRun: Int,
+        healthKitDaysSinceLastRun: Int? = nil,
         monthlyGoalKm: Double,
         monthToDateKm: Double
     ) -> CompanionSuggestion {
+        let mergedDaysSinceLastRun: Int = {
+            guard let hk = healthKitDaysSinceLastRun else { return daysSinceLastRun }
+            return max(daysSinceLastRun, hk)
+        }()
+
         if checkIn == nil {
             return CompanionSuggestion(
                 plan: .checkInNeeded,
@@ -181,7 +187,7 @@ enum CompanionSuggestionEngine {
             return micro
         }
 
-        if daysSinceLastRun >= 7 {
+        if mergedDaysSinceLastRun >= 7 {
             return CompanionSuggestion(
                 plan: .runEasy,
                 title: "久しぶりでも、まずは「戻ってこれた」が成功です",

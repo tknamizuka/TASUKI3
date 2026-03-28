@@ -21,6 +21,8 @@ struct HomeView: View {
     @State private var showPracticeCalendar = false
     @State private var showDailyCheckIn = false
     @State private var showRestAcknowledged = false
+    /// HealthKit 上の最終ランからの経過日。伴走提案でアプリ内記録と長い方を採用。
+    @State private var healthKitDaysSinceRun: Int? = nil
     @ObservedObject private var activityStore = RunActivityStore.shared
     @EnvironmentObject private var unreadProvider: UnreadCountProviderBase
     @EnvironmentObject private var joinedPracticesStore: JoinedPracticesStore
@@ -79,6 +81,7 @@ struct HomeView: View {
         CompanionSuggestionEngine.suggestion(
             checkIn: DailyCheckInStore.savedCheckInConditionForToday(),
             daysSinceLastRun: activityStore.daysSinceLastRun(),
+            healthKitDaysSinceLastRun: healthKitDaysSinceRun,
             monthlyGoalKm: goalDistance,
             monthToDateKm: currentDistance
         )
@@ -90,26 +93,6 @@ struct HomeView: View {
                 .ignoresSafeArea()
 
             VStack(spacing: 10) {
-                VStack(alignment: .center, spacing: 4) {
-                    Text("RUN DASHBOARD")
-                        .font(.caption)
-                        .fontWeight(.bold)
-                        .tracking(2)
-                        .foregroundColor(Color.tasukiMutedText)
-                    ZStack {
-                        Image("runner")
-                            .resizable()
-                            .scaledToFit()
-                            .frame(height: 70)
-                            .opacity(0.22)
-                        Text("TASUKI")
-                            .font(.system(size: 32, weight: .heavy))
-                            .tracking(4)
-                            .foregroundColor(Color.tasukiPrimary)
-                    }
-                }
-                .frame(maxWidth: .infinity, alignment: .center)
-
                 companionCard
 
                 Button {
@@ -136,7 +119,7 @@ struct HomeView: View {
                                     .trim(from: 0, to: progress)
                                     .stroke(
                                         LinearGradient(
-                                            colors: [Color.tasukiAccentOrange, Color.royalBlue],
+                                            colors: [Color.tasukiBrandYellow, Color.tasukiAccent],
                                             startPoint: .leading,
                                             endPoint: .trailing
                                         ),
@@ -165,6 +148,15 @@ struct HomeView: View {
                                     Text("ソース: \(selectedRunningDataSource.displayName)")
                                         .font(.caption2)
                                         .foregroundColor(Color.tasukiMutedText)
+                                    HStack(spacing: 6) {
+                                        Image(systemName: "flame.fill")
+                                            .font(.system(size: 14))
+                                            .foregroundColor(Color.tasukiBrandYellow)
+                                        Text("\(PointService.shared.currentTotalPoints()) pt")
+                                            .font(.system(size: 15, weight: .semibold))
+                                            .foregroundColor(Color.tasukiPrimary)
+                                    }
+                                    .padding(.top, 4)
                                 }
                             }
                             Spacer()
@@ -180,35 +172,27 @@ struct HomeView: View {
                     .padding(16)
                     .background(
                         RoundedRectangle(cornerRadius: 20)
-                            .fill(Color.white)
-                            .shadow(color: Color.black.opacity(0.06), radius: 8, x: 0, y: 3)
+                            .fill(Color.tasukiSurface)
+                            .shadow(color: Color.tasukiMutedText.opacity(0.12), radius: 8, x: 0, y: 3)
                     )
                 }
                 .buttonStyle(.plain)
                 .disabled(isHealthKitLoading)
 
-                HStack(spacing: 12) {
-                    quickMetricCard(
-                        title: "TOTAL POINTS",
-                        value: "\(PointService.shared.currentTotalPoints())",
-                        suffix: "pt",
-                        icon: "flame.fill"
-                    )
+                HStack(spacing: 10) {
                     NavigationLink(destination: CoachView()) {
                         quickActionCard(
                             title: "COACH",
-                            subtitle: "あなたのパーソナルコーチ",
+                            subtitle: "パーソナルコーチ",
                             icon: "graduationcap.fill"
                         )
                     }
                     .buttonStyle(.plain)
-                }
 
-                HStack(spacing: 10) {
                     NavigationLink(destination: RunRecordingView()) {
                         quickActionCard(
-                            title: "RUN RECORDER",
-                            subtitle: "走行を開始して記録",
+                            title: "RUN",
+                            subtitle: "記録を開始",
                             icon: "figure.run"
                         )
                     }
@@ -216,18 +200,13 @@ struct HomeView: View {
 
                     NavigationLink(destination: ChallengeHubView()) {
                         quickActionCard(
-                            title: "CHALLENGES",
-                            subtitle: "進捗は参考。休んだ日も歴史の一部",
+                            title: "CHALLENGE",
+                            subtitle: "進捗は参考",
                             icon: "flag.checkered.2.crossed"
                         )
                     }
                     .buttonStyle(.plain)
                 }
-
-                NavigationLink(destination: WeeklyReflectionView()) {
-                    weeklyReflectionShortcutCard
-                }
-                .buttonStyle(.plain)
 
                 if !reduceRankingPressure {
                     NavigationLink(destination: RankingView()) {
@@ -258,6 +237,7 @@ struct HomeView: View {
         } message: {
             Text("休む判断もトレーニングの一部です。また戻ってきてくださいね。")
         }
+        .navigationTitle("ホーム")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .topBarLeading) {
@@ -271,9 +251,9 @@ struct HomeView: View {
                         if joinedPracticesStore.scheduledCount > 0 {
                             Text("\(min(joinedPracticesStore.scheduledCount, 99))")
                                 .font(.system(size: 10, weight: .bold))
-                                .foregroundColor(.white)
+                                .foregroundColor(Color.tasukiPrimary)
                                 .padding(4)
-                                .background(Circle().fill(Color.tasukiAccentOrange))
+                                .background(Circle().fill(Color.tasukiBrandYellow))
                                 .offset(x: 8, y: -8)
                         }
                     }
@@ -288,9 +268,9 @@ struct HomeView: View {
                         if unreadProvider.unreadCount > 0 {
                             Text("\(min(unreadProvider.unreadCount, 99))")
                                 .font(.system(size: 10, weight: .bold))
-                                .foregroundColor(.white)
+                                .foregroundColor(Color.tasukiPrimary)
                                 .padding(4)
-                                .background(Circle().fill(Color.tasukiAccentOrange))
+                                .background(Circle().fill(Color.tasukiBrandYellow))
                                 .offset(x: 8, y: -8)
                         }
                     }
@@ -366,8 +346,8 @@ struct HomeView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: 20)
-                .fill(Color.white)
-                .shadow(color: Color.black.opacity(0.06), radius: 8, x: 0, y: 3)
+                .fill(Color.tasukiSurface)
+                .shadow(color: Color.tasukiMutedText.opacity(0.12), radius: 8, x: 0, y: 3)
         )
     }
 
@@ -404,63 +384,6 @@ struct HomeView: View {
         }
     }
 
-    private var weeklyReflectionShortcutCard: some View {
-        HStack(spacing: 10) {
-            Image(systemName: "calendar.badge.clock")
-                .font(.system(size: 18, weight: .semibold))
-                .foregroundColor(Color.tasukiAccent)
-                .frame(width: 30)
-            VStack(alignment: .leading, spacing: 2) {
-                Text("今週の振り返り")
-                    .font(.system(size: 13, weight: .bold))
-                    .foregroundColor(Color.tasukiPrimary)
-                Text("回数・休息も含めて振り返る")
-                    .font(.caption)
-                    .foregroundColor(Color.tasukiMutedText)
-            }
-            Spacer()
-            Image(systemName: "chevron.right")
-                .font(.caption)
-                .foregroundColor(Color.tasukiMutedText)
-        }
-        .padding(14)
-        .background(
-            RoundedRectangle(cornerRadius: 16)
-                .fill(Color.white)
-                .shadow(color: Color.black.opacity(0.06), radius: 8, x: 0, y: 3)
-        )
-    }
-
-    private func quickMetricCard(title: String, value: String, suffix: String, icon: String) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Image(systemName: icon)
-                .foregroundColor(Color.tasukiAccentOrange)
-            Text(title)
-                .font(.caption2)
-                .foregroundColor(Color.tasukiMutedText)
-                .tracking(1)
-            HStack(alignment: .firstTextBaseline, spacing: 4) {
-                Text(value)
-                    .font(.system(size: 20, weight: .bold))
-                    .foregroundColor(Color.tasukiPrimary)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.7)
-                if !suffix.isEmpty {
-                    Text(suffix)
-                        .font(.caption)
-                        .foregroundColor(Color.tasukiMutedText)
-                }
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(14)
-        .background(
-            RoundedRectangle(cornerRadius: 16)
-                .fill(Color.white)
-                .shadow(color: Color.black.opacity(0.06), radius: 8, x: 0, y: 3)
-        )
-    }
-
     private func quickActionCard(title: String, subtitle: String, icon: String) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             Image(systemName: icon)
@@ -479,8 +402,8 @@ struct HomeView: View {
         .padding(14)
         .background(
             RoundedRectangle(cornerRadius: 16)
-                .fill(Color.white)
-                .shadow(color: Color.black.opacity(0.06), radius: 8, x: 0, y: 3)
+                .fill(Color.tasukiSurface)
+                .shadow(color: Color.tasukiMutedText.opacity(0.12), radius: 8, x: 0, y: 3)
         )
     }
 
@@ -506,8 +429,8 @@ struct HomeView: View {
         .padding(14)
         .background(
             RoundedRectangle(cornerRadius: 16)
-                .fill(Color.white)
-                .shadow(color: Color.black.opacity(0.06), radius: 8, x: 0, y: 3)
+                .fill(Color.tasukiSurface)
+                .shadow(color: Color.tasukiMutedText.opacity(0.12), radius: 8, x: 0, y: 3)
         )
     }
     
@@ -518,6 +441,9 @@ struct HomeView: View {
                 isHealthKitLoading = false
                 healthKitError = "HealthKit の利用を許可してください"
                 return
+            }
+            HealthKitManager.shared.fetchDaysSinceLastRunningWorkout { days in
+                healthKitDaysSinceRun = days
             }
             HealthKitManager.shared.fetchRunningDistanceThisMonth(dataSource: selectedRunningDataSource) { result in
                 isHealthKitLoading = false

@@ -89,7 +89,7 @@ struct ChatView: View {
                 Button(action: { dismiss() }) {
                     Image(systemName: "chevron.left")
                         .font(.system(size: 16, weight: .semibold))
-                        .foregroundColor(Color(hex: "2E5CFF"))
+                        .foregroundColor(Color.tasukiAccent)
                 }
             }
         }
@@ -126,7 +126,7 @@ struct ChatView: View {
                 if let name = message.senderName, !name.isEmpty {
                     Text(name)
                         .font(.system(size: 12, weight: .semibold))
-                        .foregroundColor(Color(hex: "0F1A2E").opacity(0.7))
+                        .foregroundColor(Color.tasukiPrimary.opacity(0.7))
                 }
                 if let replyId = message.replyToMessageId,
                    let repliedTo = messages.first(where: { $0.id == replyId }) {
@@ -162,12 +162,12 @@ struct ChatView: View {
                     } label: {
                         Text(phrase)
                             .font(.system(size: 12, weight: .medium))
-                            .foregroundColor(Color(hex: "0F1A2E"))
+                            .foregroundColor(Color.tasukiPrimary)
                             .padding(.horizontal, 12)
                             .padding(.vertical, 8)
                             .background(
                                 Capsule()
-                                    .fill(Color(hex: "2E5CFF").opacity(0.12))
+                                    .fill(Color.tasukiAccent.opacity(0.12))
                             )
                     }
                     .buttonStyle(.plain)
