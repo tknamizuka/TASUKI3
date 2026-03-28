@@ -599,7 +599,8 @@ struct FindView: View {
                             }
                         }
                         .padding(.horizontal, 16)
-                        .padding(.bottom, 100)  // フローティングボタンのスペース
+                        // Practices: FAB（下パディング88＋直径56）の上に最終行が載るよう余白確保
+                        .padding(.bottom, selectedMode == "Practices" ? 168 : 100)
                     }
                 }
             }
@@ -700,7 +701,8 @@ struct FindView: View {
                             )
                     }
                     .padding(.trailing, 20)
-                    .padding(.bottom, 20)
+                    // MainTabView の customTabBar（safeAreaInset）と重ならないよう余白を確保（CoachView と同様）
+                    .padding(.bottom, 88)
                 }
             }
             .sheet(isPresented: $showRecruitmentSheet) {

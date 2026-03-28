@@ -258,7 +258,6 @@ struct HomeView: View {
         } message: {
             Text("休む判断もトレーニングの一部です。また戻ってきてくださいね。")
         }
-        .navigationTitle("Home")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .topBarLeading) {
