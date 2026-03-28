@@ -9,6 +9,10 @@ struct RunRecordingView: View {
     @State private var now = Date()
     @State private var latestSaved: RunActivity?
     @State private var showSavedToast = false
+    @State private var pendingSubjectiveActivityId: UUID?
+    @State private var showPostRunSubjective = false
+    @State private var draftEffort: Int = 3
+    @State private var draftMood: Int = 3
 
     private let elapsedTimer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
@@ -86,6 +90,91 @@ struct RunRecordingView: View {
                     .transition(.move(edge: .top).combined(with: .opacity))
             }
         }
+        .sheet(isPresented: $showPostRunSubjective) {
+            postRunSubjectiveSheet
+        }
+    }
+
+    private var postRunSubjectiveSheet: some View {
+        NavigationStack {
+            VStack(alignment: .leading, spacing: 20) {
+                Text("走り終えた今の感覚（任意）")
+                    .font(.system(size: 18, weight: .bold))
+                    .foregroundColor(Color.tasukiPrimary)
+                Text("スキップしても記録は残ります")
+                    .font(.subheadline)
+                    .foregroundColor(Color.tasukiMutedText)
+
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("きつさ \(draftEffort) / 5")
+                        .font(.subheadline)
+                        .fontWeight(.semibold)
+                        .foregroundColor(Color.tasukiPrimary)
+                    Slider(value: Binding(
+                        get: { Double(draftEffort) },
+                        set: { draftEffort = Int($0.rounded()) }
+                    ), in: 1...5, step: 1)
+                    .tint(Color.tasukiAccent)
+                }
+
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("気分 \(draftMood) / 5")
+                        .font(.subheadline)
+                        .fontWeight(.semibold)
+                        .foregroundColor(Color.tasukiPrimary)
+                    Slider(value: Binding(
+                        get: { Double(draftMood) },
+                        set: { draftMood = Int($0.rounded()) }
+                    ), in: 1...5, step: 1)
+                    .tint(Color.tasukiAccentOrange)
+                }
+
+                Spacer()
+
+                HStack(spacing: 12) {
+                    Button("スキップ") {
+                        showPostRunSubjective = false
+                        pendingSubjectiveActivityId = nil
+                    }
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundColor(Color.tasukiPrimary)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 12)
+                    .background(
+                        RoundedRectangle(cornerRadius: 12)
+                            .stroke(Color.tasukiDarkCardSecondary, lineWidth: 1)
+                    )
+
+                    Button("保存") {
+                        if let id = pendingSubjectiveActivityId {
+                            activityStore.updateActivitySubjective(
+                                id: id,
+                                perceivedEffort: draftEffort,
+                                postRunMood: draftMood
+                            )
+                        }
+                        showPostRunSubjective = false
+                        pendingSubjectiveActivityId = nil
+                    }
+                    .font(.system(size: 16, weight: .bold))
+                    .foregroundColor(.white)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 12)
+                    .background(RoundedRectangle(cornerRadius: 12).fill(Color.tasukiPrimary))
+                }
+            }
+            .padding(20)
+            .background(Color.tasukiBase.ignoresSafeArea())
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("閉じる") {
+                        showPostRunSubjective = false
+                        pendingSubjectiveActivityId = nil
+                    }
+                }
+            }
+        }
+        .presentationDetents([.medium])
     }
 
     private var trackingFocusedView: some View {
@@ -427,6 +516,10 @@ struct RunRecordingView: View {
         PointService.shared.addPointsToCurrentUser(amount: earnedPoints)
         tracker.reset()
         latestSaved = activity
+        draftEffort = 3
+        draftMood = 3
+        pendingSubjectiveActivityId = activity.id
+        showPostRunSubjective = true
         withAnimation(.easeInOut(duration: 0.2)) {
             showSavedToast = true
         }

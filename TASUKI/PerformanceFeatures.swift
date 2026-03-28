@@ -31,6 +31,10 @@ struct RunActivity: Identifiable, Codable {
     let distanceKm: Double
     let route: [CodableCoordinate]
     let source: String
+    /// 1〜5（主観のきつさ）。記録直後のアンケート任意。
+    var perceivedEffort: Int?
+    /// 1〜5（走後の気分）。記録直後のアンケート任意。
+    var postRunMood: Int?
 
     init(
         id: UUID = UUID(),
@@ -39,7 +43,9 @@ struct RunActivity: Identifiable, Codable {
         durationSeconds: TimeInterval,
         distanceKm: Double,
         route: [CodableCoordinate],
-        source: String
+        source: String,
+        perceivedEffort: Int? = nil,
+        postRunMood: Int? = nil
     ) {
         self.id = id
         self.startedAt = startedAt
@@ -48,6 +54,8 @@ struct RunActivity: Identifiable, Codable {
         self.distanceKm = distanceKm
         self.route = route
         self.source = source
+        self.perceivedEffort = perceivedEffort
+        self.postRunMood = postRunMood
     }
 
     var paceSecondsPerKm: Double? {
@@ -87,7 +95,9 @@ final class RunActivityStore: ObservableObject {
         distanceKm: Double,
         durationSeconds: TimeInterval,
         routeCoordinates: [CLLocationCoordinate2D],
-        source: String
+        source: String,
+        perceivedEffort: Int? = nil,
+        postRunMood: Int? = nil
     ) -> RunActivity {
         let sanitizedDistance = max(0, distanceKm)
         let sanitizedDuration = max(1, durationSeconds)
@@ -99,7 +109,9 @@ final class RunActivityStore: ObservableObject {
             durationSeconds: sanitizedDuration,
             distanceKm: sanitizedDistance,
             route: routeCoordinates.map(CodableCoordinate.init),
-            source: source
+            source: source,
+            perceivedEffort: perceivedEffort,
+            postRunMood: postRunMood
         )
         activities.insert(activity, at: 0)
         if activities.count > maxStoredCount {
@@ -107,6 +119,7 @@ final class RunActivityStore: ObservableObject {
         }
         save()
         uploadActivityIfPossible(activity)
+        EngagementSignals.touchSignificantInteraction()
         RealityMiningManager.shared.trackEvent(
             name: "run_activity_saved",
             properties: [
@@ -116,6 +129,26 @@ final class RunActivityStore: ObservableObject {
             ]
         )
         return activity
+    }
+
+    func updateActivitySubjective(id: UUID, perceivedEffort: Int?, postRunMood: Int?) {
+        guard let idx = activities.firstIndex(where: { $0.id == id }) else { return }
+        activities[idx].perceivedEffort = perceivedEffort
+        activities[idx].postRunMood = postRunMood
+        save()
+        uploadActivityIfPossible(activities[idx])
+        RealityMiningManager.shared.trackEvent(
+            name: "run_activity_subjective_updated",
+            properties: [:]
+        )
+    }
+
+    func daysSinceLastRun(now: Date = Date()) -> Int {
+        guard let last = activities.map(\.startedAt).max() else { return 0 }
+        let cal = Calendar.current
+        let a = cal.startOfDay(for: last)
+        let b = cal.startOfDay(for: now)
+        return cal.dateComponents([.day], from: a, to: b).day ?? 0
     }
 
     func activitiesInCurrentMonth(now: Date = Date()) -> [RunActivity] {
@@ -165,19 +198,22 @@ final class RunActivityStore: ObservableObject {
     private func uploadActivityIfPossible(_ activity: RunActivity) {
         guard let uid = Auth.auth().currentUser?.uid else { return }
         let route = activity.route.map { ["lat": $0.latitude, "lon": $0.longitude] }
+        var payload: [String: Any] = [
+            "id": activity.id.uuidString,
+            "startedAt": Timestamp(date: activity.startedAt),
+            "endedAt": Timestamp(date: activity.endedAt),
+            "durationSeconds": activity.durationSeconds,
+            "distanceKm": activity.distanceKm,
+            "route": route,
+            "source": activity.source
+        ]
+        if let e = activity.perceivedEffort { payload["perceivedEffort"] = e }
+        if let m = activity.postRunMood { payload["postRunMood"] = m }
         db.collection("users")
             .document(uid)
             .collection("activities")
             .document(activity.id.uuidString)
-            .setData([
-                "id": activity.id.uuidString,
-                "startedAt": Timestamp(date: activity.startedAt),
-                "endedAt": Timestamp(date: activity.endedAt),
-                "durationSeconds": activity.durationSeconds,
-                "distanceKm": activity.distanceKm,
-                "route": route,
-                "source": activity.source
-            ], merge: true)
+            .setData(payload, merge: true)
     }
 
     private func syncFromRemoteIfNeeded() {
@@ -207,6 +243,8 @@ final class RunActivityStore: ObservableObject {
                         return CodableCoordinate(latitude: lat, longitude: lon)
                     }
                     let source = data["source"] as? String ?? "unknown"
+                    let perceivedEffort = data["perceivedEffort"] as? Int
+                    let postRunMood = data["postRunMood"] as? Int
                     return RunActivity(
                         id: id,
                         startedAt: startedAt,
@@ -214,7 +252,9 @@ final class RunActivityStore: ObservableObject {
                         durationSeconds: durationSeconds,
                         distanceKm: distanceKm,
                         route: route,
-                        source: source
+                        source: source,
+                        perceivedEffort: perceivedEffort,
+                        postRunMood: postRunMood
                     )
                 }
                 if remote.isEmpty { return }

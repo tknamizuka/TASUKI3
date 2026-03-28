@@ -28,6 +28,8 @@ struct ProfileRegistrationView: View {
     @State private var selectedPurposes: [String] = []
     @State private var selectedDeviceSources: Set<RunningDataSource> = []
     @State private var integrationNotice: String?
+    @State private var selectedBarrier: ContinuityBarrier?
+    @State private var selectedLeaderboardComfort: LeaderboardComfort?
     
     // ステップ管理
     @State private var currentStep: Int = 0
@@ -48,7 +50,7 @@ struct ProfileRegistrationView: View {
     // よく走るエリアの候補（予測用）
     private let areaSuggestions = ["皇居", "代々木公園", "駒沢公園", "多摩川", "大阪城公園", "中之島公園", "大濠公園", "名古屋城", "みなとみらい"]
     
-    private var totalSteps: Int { 11 }
+    private var totalSteps: Int { 12 }
     private var progress: CGFloat {
         CGFloat(currentStep + 1) / CGFloat(totalSteps)
     }
@@ -135,7 +137,7 @@ struct ProfileRegistrationView: View {
                             }
                         }
                         ToolbarItem(placement: .navigationBarTrailing) {
-                            if currentStep == 10 {
+                            if currentStep == 11 {
                                 Button("スキップ") {
                                     handleNext()
                                 }
@@ -215,6 +217,8 @@ struct ProfileRegistrationView: View {
         case 9:
             return !selectedPurposes.isEmpty
         case 10:
+            return selectedBarrier != nil && selectedLeaderboardComfort != nil
+        case 11:
             return true
         default:
             return false
@@ -341,6 +345,27 @@ struct ProfileRegistrationView: View {
                     }
                 }
             case 10:
+                questionTitle("続けるときの障壁に近いものは？（ひとつ）")
+                let barrierColumns = [GridItem(.adaptive(minimum: 100), spacing: 10)]
+                LazyVGrid(columns: barrierColumns, alignment: .leading, spacing: 10) {
+                    ForEach(ContinuityBarrier.allCases) { barrier in
+                        selectableChip(title: barrier.displayName, isSelected: selectedBarrier == barrier) {
+                            selectedBarrier = barrier
+                        }
+                    }
+                }
+                questionTitle("順位やランキングは？")
+                VStack(alignment: .leading, spacing: 10) {
+                    ForEach(LeaderboardComfort.allCases) { comfort in
+                        selectableChip(title: comfort.displayName, isSelected: selectedLeaderboardComfort == comfort) {
+                            selectedLeaderboardComfort = comfort
+                        }
+                    }
+                }
+                Text("後から Me タブでも変更できます。")
+                    .font(.footnote)
+                    .foregroundColor(.gray)
+            case 11:
                 questionTitle("ウェアラブルデバイスを接続しますか？")
                 VStack(alignment: .leading, spacing: 16) {
                     Text("後から設定可能です。連携するサービスを選んでアプリを開き、Appleヘルス同期を有効にしてください。")
@@ -722,11 +747,22 @@ struct ProfileRegistrationView: View {
         }
     }
     
+    private func persistEngagementPreferences() {
+        if let b = selectedBarrier {
+            UserDefaults.standard.set(b.rawValue, forKey: "tasuki.continuityBarrier")
+        }
+        if let c = selectedLeaderboardComfort {
+            UserDefaults.standard.set(c.rawValue, forKey: "tasuki.leaderboardComfort")
+            UserDefaults.standard.set(c == .prefersSoft, forKey: "reduceRankingPressure")
+        }
+    }
+
     private func saveProfile() {
         guard let profileImage = profileImage else {
             saveErrorMessage = "プロフィール写真を選択してください。"
             return
         }
+        persistEngagementPreferences()
         persistSelectedDevices()
         
         isSaving = true
@@ -770,6 +806,7 @@ struct ProfileRegistrationView: View {
                     await MainActor.run {
                         self.isSaving = false
                         self.skipProfileRegistration = false
+                        EngagementSignals.touchSignificantInteraction()
                         // Firebase には保存せず、モック完了としてホームへ遷移
                         self.onComplete?()
                     }
@@ -850,6 +887,7 @@ struct ProfileRegistrationView: View {
                         self.isSaving = false
                         switch result {
                         case .success:
+                            EngagementSignals.touchSignificantInteraction()
                             self.onComplete?()
                         case .failure(let error):
                             self.saveErrorMessage = "保存に失敗しました。時間をおいて再度お試しください。（\(error.localizedDescription)）"

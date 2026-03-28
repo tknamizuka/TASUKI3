@@ -76,6 +76,12 @@ struct ChallengeHubView: View {
                                 .foregroundColor(Color.green)
                         }
                     }
+                    if !challenge.isCompleted {
+                        Text("未達の日があっても問題ありません。休む判断やペース調整も練習の一部です。")
+                            .font(.caption2)
+                            .foregroundColor(Color.tasukiMutedText.opacity(0.9))
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
                 }
                 .tasukiCard()
             }
@@ -87,6 +93,9 @@ struct ChallengeHubView: View {
             Text("CHALLENGE LEADERBOARD")
                 .font(.system(size: 15, weight: .bold))
                 .foregroundColor(Color.tasukiPrimary)
+            Text("順位は参考程度に。自分のペースを最優先にしてください。")
+                .font(.caption2)
+                .foregroundColor(Color.tasukiMutedText)
             ForEach(Array(leaderboard.enumerated()), id: \.element.id) { index, entry in
                 HStack {
                     Text("\(index + 1)")

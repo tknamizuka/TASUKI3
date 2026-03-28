@@ -4,6 +4,8 @@ struct MainTabView: View {
     @State private var selectedTab: Int = 0
     @State private var previousTabIndex: Int = 0
     @State private var tabEnterDate: Date = Date()
+    @State private var showReengagementSheet = false
+    @State private var reengagementGapDays = 0
     @EnvironmentObject private var unreadProvider: UnreadCountProviderBase
     
     private let tabItems: [(icon: String, label: String)] = [
@@ -43,6 +45,20 @@ struct MainTabView: View {
             previousTabIndex = selectedTab
             tabEnterDate = Date()
             RealityMiningManager.shared.trackScreenView(name: tabItems[selectedTab].label)
+            let gap = EngagementSignals.daysSinceSignificantInteraction()
+            if gap >= 3 {
+                reengagementGapDays = gap
+                showReengagementSheet = true
+                RealityMiningManager.shared.trackEvent(
+                    name: "reengagement_shown",
+                    properties: ["days_away": gap]
+                )
+            }
+        }
+        .fullScreenCover(isPresented: $showReengagementSheet) {
+            ReengagementSheetView(daysAway: reengagementGapDays) {
+                showReengagementSheet = false
+            }
         }
         .onChange(of: selectedTab) { newValue in
             let previousTabName = tabItems.indices.contains(previousTabIndex) ? tabItems[previousTabIndex].label : "unknown"

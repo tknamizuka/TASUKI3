@@ -42,7 +42,7 @@ struct ChatView: View {
     @State private var messageText: String = ""
     @FocusState private var isTextFieldFocused: Bool
     @AppStorage("myName") private var myName: String = "Hiro"
-    
+
     init(conversationId: String = "dummy-preview", partnerName: String = "Tanaka-san", isPractice: Bool = false) {
         self.conversationId = conversationId
         self.partnerName = partnerName
@@ -75,6 +75,8 @@ struct ChatView: View {
                 }
             }
             
+            companionQuickPhraseBar
+
             // 入力エリア（画面最下部に固定）
             inputAreaView
         }
@@ -151,6 +153,32 @@ struct ChatView: View {
         }
     }
     
+    private var companionQuickPhraseBar: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                ForEach(CompanionChatQuickPhrases.all, id: \.self) { phrase in
+                    Button {
+                        sendPresetMessage(phrase)
+                    } label: {
+                        Text(phrase)
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundColor(Color(hex: "0F1A2E"))
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 8)
+                            .background(
+                                Capsule()
+                                    .fill(Color(hex: "2E5CFF").opacity(0.12))
+                            )
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 8)
+        }
+        .background(Color.white)
+    }
+
     // MARK: - Input Area View
     private var inputAreaView: some View {
         HStack(spacing: 12) {
@@ -184,6 +212,28 @@ struct ChatView: View {
     }
     
     // MARK: - Helper Methods
+    private func sendPresetMessage(_ text: String) {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        let newMessage = ChatMessage(
+            text: trimmed,
+            isFromMe: true,
+            replyToMessageId: nil,
+            senderName: isPractice ? myName : nil
+        )
+        messages.append(newMessage)
+        isTextFieldFocused = false
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+            let replyMessage = ChatMessage(
+                text: "ありがとうございます！",
+                isFromMe: false,
+                replyToMessageId: nil,
+                senderName: isPractice ? "Kenji_Run" : nil
+            )
+            messages.append(replyMessage)
+        }
+    }
+
     private func sendMessage(replyToMessageId: String? = nil) {
         guard !messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             return

@@ -19,10 +19,14 @@ struct HomeView: View {
     
     @State private var showRunHistory = false
     @State private var showPracticeCalendar = false
+    @State private var showDailyCheckIn = false
+    @State private var showRestAcknowledged = false
+    @ObservedObject private var activityStore = RunActivityStore.shared
     @EnvironmentObject private var unreadProvider: UnreadCountProviderBase
     @EnvironmentObject private var joinedPracticesStore: JoinedPracticesStore
     @AppStorage("runningDataSource") private var runningDataSourceRaw: String = RunningDataSource.all.rawValue
     @AppStorage("myRank") private var myRank: String = "Rank E"
+    @AppStorage("reduceRankingPressure") private var reduceRankingPressure: Bool = false
     init(
         currentDistance: Double = 0.0,
         goalDistance: Double = 100.0,
@@ -70,6 +74,15 @@ struct HomeView: View {
     private var sameRankTotal: Int {
         max(sameRankUsers.count, 1)
     }
+
+    private var companionSuggestion: CompanionSuggestion {
+        CompanionSuggestionEngine.suggestion(
+            checkIn: DailyCheckInStore.savedCheckInConditionForToday(),
+            daysSinceLastRun: activityStore.daysSinceLastRun(),
+            monthlyGoalKm: goalDistance,
+            monthToDateKm: currentDistance
+        )
+    }
     
     var body: some View {
         ZStack {
@@ -96,6 +109,8 @@ struct HomeView: View {
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .center)
+
+                companionCard
 
                 Button {
                     if !isHealthKitLoading { showRunHistory = true }
@@ -202,17 +217,24 @@ struct HomeView: View {
                     NavigationLink(destination: ChallengeHubView()) {
                         quickActionCard(
                             title: "CHALLENGES",
-                            subtitle: "月間目標と順位",
+                            subtitle: "進捗は参考。休んだ日も歴史の一部",
                             icon: "flag.checkered.2.crossed"
                         )
                     }
                     .buttonStyle(.plain)
                 }
 
-                NavigationLink(destination: RankingView()) {
-                    rankingShortcutCard
+                NavigationLink(destination: WeeklyReflectionView()) {
+                    weeklyReflectionShortcutCard
                 }
                 .buttonStyle(.plain)
+
+                if !reduceRankingPressure {
+                    NavigationLink(destination: RankingView()) {
+                        rankingShortcutCard
+                    }
+                    .buttonStyle(.plain)
+                }
 
                 Spacer(minLength: 0)
             }
@@ -225,6 +247,16 @@ struct HomeView: View {
         }
         .sheet(isPresented: $showPracticeCalendar) {
             PracticeScheduleCalendarView(store: joinedPracticesStore)
+        }
+        .sheet(isPresented: $showDailyCheckIn) {
+            DailyCheckInSheet { condition in
+                DailyCheckInStore.saveCheckIn(condition)
+            }
+        }
+        .alert("今日は休みましょう", isPresented: $showRestAcknowledged) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text("休む判断もトレーニングの一部です。また戻ってきてくださいね。")
         }
         .navigationTitle("Home")
         .navigationBarTitleDisplayMode(.inline)
@@ -274,7 +306,130 @@ struct HomeView: View {
                 isHealthKitLoading = false
             }
             unreadProvider.refreshUnreadCount()
+            activityStore.refreshFromRemote()
         }
+    }
+
+    private var companionCard: some View {
+        let s = companionSuggestion
+        return VStack(alignment: .leading, spacing: 12) {
+            Text("TODAY · 伴走")
+                .font(.caption)
+                .fontWeight(.bold)
+                .tracking(1.5)
+                .foregroundColor(Color.tasukiMutedText)
+            Text(s.title)
+                .font(.system(size: 17, weight: .bold))
+                .foregroundColor(Color.tasukiPrimary)
+                .fixedSize(horizontal: false, vertical: true)
+            Text(s.reason)
+                .font(.footnote)
+                .foregroundColor(Color.tasukiMutedText)
+                .fixedSize(horizontal: false, vertical: true)
+
+            HStack(spacing: 10) {
+                if s.plan == .checkInNeeded {
+                    Button {
+                        showDailyCheckIn = true
+                    } label: {
+                        companionButtonLabel(s.primaryCTALabel, style: .primary)
+                    }
+                    .buttonStyle(.plain)
+                } else {
+                    NavigationLink(destination: RunRecordingView()) {
+                        companionButtonLabel(s.primaryCTALabel, style: .primary)
+                    }
+                    .buttonStyle(.plain)
+                }
+
+                if let secondary = s.secondaryCTALabel {
+                    Button {
+                        handleCompanionSecondary(plan: s.plan, label: secondary)
+                    } label: {
+                        companionButtonLabel(secondary, style: .secondary)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+
+            if DailyCheckInStore.hasCheckedInToday() {
+                Button {
+                    showDailyCheckIn = true
+                } label: {
+                    Text("コンディションを記録し直す")
+                        .font(.caption)
+                        .foregroundColor(Color.tasukiAccent)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 20)
+                .fill(Color.white)
+                .shadow(color: Color.black.opacity(0.06), radius: 8, x: 0, y: 3)
+        )
+    }
+
+    private enum CompanionButtonStyle {
+        case primary
+        case secondary
+    }
+
+    private func companionButtonLabel(_ title: String, style: CompanionButtonStyle) -> some View {
+        Text(title)
+            .font(.system(size: 14, weight: .semibold))
+            .foregroundColor(style == .primary ? .white : Color.tasukiPrimary)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 12)
+            .background(
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(style == .primary ? Color.tasukiPrimary : Color.clear)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 12)
+                            .stroke(Color.tasukiDarkCardSecondary, lineWidth: style == .primary ? 0 : 1)
+                    )
+            )
+    }
+
+    private func handleCompanionSecondary(plan: TodayPlan, label: String) {
+        if label.contains("休む") || plan == .rest {
+            EngagementSignals.touchSignificantInteraction()
+            showRestAcknowledged = true
+            RealityMiningManager.shared.trackEvent(name: "companion_rest_chosen", properties: [:])
+            return
+        }
+        if label.contains("歩く") || plan == .microWalk {
+            RealityMiningManager.shared.trackEvent(name: "companion_micro_walk_hint", properties: [:])
+        }
+    }
+
+    private var weeklyReflectionShortcutCard: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "calendar.badge.clock")
+                .font(.system(size: 18, weight: .semibold))
+                .foregroundColor(Color.tasukiAccent)
+                .frame(width: 30)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("今週の振り返り")
+                    .font(.system(size: 13, weight: .bold))
+                    .foregroundColor(Color.tasukiPrimary)
+                Text("回数・休息も含めて振り返る")
+                    .font(.caption)
+                    .foregroundColor(Color.tasukiMutedText)
+            }
+            Spacer()
+            Image(systemName: "chevron.right")
+                .font(.caption)
+                .foregroundColor(Color.tasukiMutedText)
+        }
+        .padding(14)
+        .background(
+            RoundedRectangle(cornerRadius: 16)
+                .fill(Color.white)
+                .shadow(color: Color.black.opacity(0.06), radius: 8, x: 0, y: 3)
+        )
     }
 
     private func quickMetricCard(title: String, value: String, suffix: String, icon: String) -> some View {
@@ -340,7 +495,7 @@ struct HomeView: View {
                 Text("RANKING")
                     .font(.system(size: 13, weight: .bold))
                     .foregroundColor(Color.tasukiPrimary)
-                Text("総合ランキングへ移動 · 現在 \(myRank) · 同ランク \(sameRankPosition)位/\(sameRankTotal)人")
+                Text("総合ランキング · 現在 \(myRank) · 同ランク内 \(sameRankPosition)/\(sameRankTotal)（順位はあくまで参考）")
                     .font(.caption)
                     .foregroundColor(Color.tasukiMutedText)
             }
@@ -379,6 +534,58 @@ struct HomeView: View {
                     RankPromotionManager.shared.evaluateMonthlyDistancePromotion(monthlyKm: km)
                 case .failure(let err):
                     healthKitError = err.localizedDescription
+                }
+            }
+        }
+    }
+}
+
+// MARK: - Daily check-in
+
+private struct DailyCheckInSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    let onPick: (Condition) -> Void
+
+    var body: some View {
+        NavigationStack {
+            VStack(alignment: .leading, spacing: 16) {
+                Text("今日のコンディション")
+                    .font(.system(size: 20, weight: .bold))
+                    .foregroundColor(Color.tasukiPrimary)
+                Text("ひとつだけ選べばOKです")
+                    .font(.subheadline)
+                    .foregroundColor(Color.tasukiMutedText)
+
+                VStack(spacing: 10) {
+                    ForEach(Condition.allCases, id: \.self) { condition in
+                        Button {
+                            onPick(condition)
+                            dismiss()
+                        } label: {
+                            HStack {
+                                Image(systemName: condition.icon)
+                                    .foregroundColor(Color(hex: condition.colorHex))
+                                Text(condition.rawValue)
+                                    .font(.system(size: 16, weight: .semibold))
+                                    .foregroundColor(Color.tasukiPrimary)
+                                Spacer()
+                            }
+                            .padding(14)
+                            .background(
+                                RoundedRectangle(cornerRadius: 14)
+                                    .fill(Color.tasukiSurface)
+                            )
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                Spacer()
+            }
+            .padding(20)
+            .background(Color.tasukiDarkBackground.ignoresSafeArea())
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("閉じる") { dismiss() }
                 }
             }
         }

@@ -16,6 +16,7 @@ struct MyProfileView: View {
     @AppStorage("myMonthlyDist") private var monthlyDist: String = "150km"
     @AppStorage("myTotalPoints") private var myTotalPoints: Int = 0
     @AppStorage("myBio") private var bio: String = "平日は仕事終わりに5-10km走ってます！週末は距離走やりたいです。"
+    @AppStorage("reduceRankingPressure") private var reduceRankingPressure: Bool = false
 
     @State private var userUUID: String = ""
     @State private var showCopiedToast: Bool = false
@@ -39,6 +40,7 @@ struct MyProfileView: View {
                 ScrollView {
                     VStack(spacing: TasukiUI.sectionSpacing) {
                         heroCard
+                        engagementPreferenceCard
                         activityGraphCard
                         statsCard
                         profileCard
@@ -137,6 +139,26 @@ struct MyProfileView: View {
         }
         .frame(maxWidth: .infinity)
         .tasukiCard(corner: 20)
+    }
+
+    private var engagementPreferenceCard: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("継続のしかた")
+                .font(.system(size: 18, weight: .bold))
+                .foregroundColor(Color.tasukiPrimary)
+            Toggle(isOn: $reduceRankingPressure) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("ホームのランキングショートカットを隠す")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundColor(Color.tasukiPrimary)
+                    Text("順位のプレッシャーを減らしたいときにオンにしてください。")
+                        .font(.caption)
+                        .foregroundColor(Color.tasukiMutedText)
+                }
+            }
+            .tint(Color.tasukiAccent)
+        }
+        .tasukiCard()
     }
 
     private var statsCard: some View {

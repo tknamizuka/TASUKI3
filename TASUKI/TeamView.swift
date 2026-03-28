@@ -1132,6 +1132,29 @@ struct TeamChatSheetView: View {
                         }
                     }
                     
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 8) {
+                            ForEach(CompanionChatQuickPhrases.all, id: \.self) { phrase in
+                                Button {
+                                    sendQuickPhrase(phrase)
+                                } label: {
+                                    Text(phrase)
+                                        .font(.system(size: 11, weight: .medium))
+                                        .foregroundColor(Color.tasukiPrimary)
+                                        .padding(.horizontal, 10)
+                                        .padding(.vertical, 7)
+                                        .background(
+                                            Capsule()
+                                                .fill(Color.tasukiAccentOrange.opacity(0.2))
+                                        )
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 6)
+                    }
+                    
                     HStack(spacing: 12) {
                         TextField("メッセージを入力...", text: $messageText, axis: .vertical)
                             .textFieldStyle(.plain)
@@ -1291,6 +1314,11 @@ struct TeamChatSheetView: View {
                 }
             }
         }
+    }
+    
+    private func sendQuickPhrase(_ phrase: String) {
+        messageText = phrase
+        sendMessage()
     }
     
     private func sendMessage() {
