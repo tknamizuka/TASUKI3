@@ -74,10 +74,10 @@ struct LoginView: View {
                     }) {
                         Text("ログイン")
                             .font(.system(size: 16, weight: .bold))
-                            .foregroundColor(.white)
+                            .foregroundColor(Color.tasukiOnBrandYellow)
                             .frame(maxWidth: .infinity)
                             .padding()
-                            .background(Color.tasukiPrimary)
+                            .background(Color.tasukiPrimaryButtonFill)
                             .cornerRadius(24)
                     }
                     .disabled(authManager.isLoading)

@@ -78,16 +78,23 @@ struct MainTabView: View {
         }
     }
     
-    private func tabIconAndLabelColor(index: Int) -> Color {
-        selectedTab == index ? Color.tasukiPrimary : Color.tasukiMutedText
+    private func tabLabelColor(index: Int) -> Color {
+        selectedTab == index ? Color.tasukiOnBrandYellow : .black
     }
 
-    /// EKIDEN（index 2）は常に薄い黄の下地。選択中は少し濃い黄。他タブは従来の紫系ハイライトのみ。
-    private func tabSelectionBackground(for index: Int) -> Color {
-        if index == 2 {
-            return Color.tasukiBrandYellow.opacity(selectedTab == 2 ? 0.30 : 0.14)
+    @ViewBuilder
+    private func tabBarIcon(systemName: String, index: Int) -> some View {
+        if selectedTab == index {
+            TasukiBrandOutlinedSymbol(systemName: systemName, size: 18, weight: .semibold)
+        } else {
+            Image(systemName: systemName)
+                .font(.system(size: 18, weight: .semibold))
+                .foregroundStyle(.black)
         }
-        return selectedTab == index ? Color.tasukiTabSelectionFill : .clear
+    }
+
+    private func tabSelectionBackground(for index: Int) -> Color {
+        selectedTab == index ? Color.tasukiTabSelectionFill : .clear
     }
     
     private var customTabBar: some View {
@@ -95,14 +102,12 @@ struct MainTabView: View {
             ForEach(0..<tabItems.count, id: \.self) { index in
                 Button(action: { selectedTab = index }) {
                     VStack(spacing: 2) {
-                        Image(systemName: tabItems[index].icon)
-                            .font(.system(size: 18, weight: .semibold))
-                            .foregroundColor(tabIconAndLabelColor(index: index))
+                        tabBarIcon(systemName: tabItems[index].icon, index: index)
                         Text(tabItems[index].label)
-                            .font(.system(size: index == 2 ? 10 : 9, weight: index == 2 ? .bold : .regular))
+                            .font(.system(size: 9, weight: selectedTab == index ? .semibold : .regular))
                             .lineLimit(1)
                             .minimumScaleFactor(0.7)
-                            .foregroundColor(tabIconAndLabelColor(index: index))
+                            .foregroundColor(tabLabelColor(index: index))
                     }
                     .padding(.vertical, 8)
                     .frame(maxWidth: .infinity)

@@ -82,10 +82,10 @@ struct RunRecordingView: View {
             if showSavedToast, let latestSaved {
                 Text("保存完了: \(String(format: "%.1f", latestSaved.distanceKm))km")
                     .font(.system(size: 13, weight: .semibold))
-                    .foregroundColor(.white)
+                    .foregroundColor(Color.tasukiOnBrandYellow)
                     .padding(.horizontal, 14)
                     .padding(.vertical, 8)
-                    .background(RoundedRectangle(cornerRadius: 10).fill(Color.tasukiPrimary))
+                    .background(RoundedRectangle(cornerRadius: 10).fill(Color.tasukiPrimaryButtonFill))
                     .padding(.top, 8)
                     .transition(.move(edge: .top).combined(with: .opacity))
             }
@@ -157,10 +157,10 @@ struct RunRecordingView: View {
                         pendingSubjectiveActivityId = nil
                     }
                     .font(.system(size: 16, weight: .bold))
-                    .foregroundColor(.white)
+                    .foregroundColor(Color.tasukiOnBrandYellow)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 12)
-                    .background(RoundedRectangle(cornerRadius: 12).fill(Color.tasukiPrimary))
+                    .background(RoundedRectangle(cornerRadius: 12).fill(Color.tasukiPrimaryButtonFill))
                 }
             }
             .padding(20)
@@ -230,10 +230,10 @@ struct RunRecordingView: View {
                         Text(tracker.isPaused ? "再開" : "一時停止")
                     }
                     .font(.system(size: 24, weight: .bold))
-                    .foregroundColor(.white)
+                    .foregroundColor(Color.tasukiOnBrandYellow)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 18)
-                    .background(Capsule().fill(Color.tasukiAccentOrange))
+                    .background(Capsule().fill(Color.tasukiPrimaryButtonFill))
                 }
                 .buttonStyle(.plain)
 
@@ -245,10 +245,10 @@ struct RunRecordingView: View {
                         Text("終了")
                     }
                     .font(.system(size: 24, weight: .bold))
-                    .foregroundColor(.white)
+                    .foregroundColor(Color.tasukiOnBrandYellow)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 18)
-                    .background(Capsule().fill(Color.tasukiPrimary))
+                    .background(Capsule().fill(Color.tasukiPrimaryButtonFill))
                 }
                 .buttonStyle(.plain)
             }
@@ -306,10 +306,10 @@ struct RunRecordingView: View {
                 } label: {
                     Text("走行を終了して保存")
                         .font(.system(size: 16, weight: .bold))
-                        .foregroundColor(.white)
+                        .foregroundColor(Color.tasukiOnBrandYellow)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 14)
-                        .background(RoundedRectangle(cornerRadius: 12).fill(Color.tasukiAccent))
+                        .background(RoundedRectangle(cornerRadius: 12).fill(Color.tasukiPrimaryButtonFill))
                 }
                 .buttonStyle(.plain)
 
@@ -335,10 +335,10 @@ struct RunRecordingView: View {
                 } label: {
                     Text("走行を開始")
                         .font(.system(size: 16, weight: .bold))
-                        .foregroundColor(.white)
+                        .foregroundColor(Color.tasukiOnBrandYellow)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 14)
-                        .background(RoundedRectangle(cornerRadius: 12).fill(Color.tasukiPrimary))
+                        .background(RoundedRectangle(cornerRadius: 12).fill(Color.tasukiPrimaryButtonFill))
                 }
                 .buttonStyle(.plain)
             }

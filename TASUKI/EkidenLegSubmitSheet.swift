@@ -134,10 +134,10 @@ struct EkidenLegSubmitSheet: View {
                     Text(EkidenSubmitSource.appRecord.rawValue)
                 }
                 .font(.system(size: 16, weight: .bold))
-                .foregroundColor(.white)
+                .foregroundColor(Color.tasukiOnBrandYellow)
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 16)
-                .background(RoundedRectangle(cornerRadius: 12).fill(Color.tasukiPrimary))
+                .background(RoundedRectangle(cornerRadius: 12).fill(Color.tasukiPrimaryButtonFill))
             }
             .buttonStyle(.plain)
 
@@ -149,10 +149,10 @@ struct EkidenLegSubmitSheet: View {
                     Text(EkidenSubmitSource.runRecording.rawValue)
                 }
                 .font(.system(size: 16, weight: .bold))
-                .foregroundColor(.white)
+                .foregroundColor(Color.tasukiOnBrandYellow)
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 16)
-                .background(RoundedRectangle(cornerRadius: 12).fill(Color.tasukiAccent))
+                .background(RoundedRectangle(cornerRadius: 12).fill(Color.tasukiPrimaryButtonFill))
             }
             .buttonStyle(.plain)
 
@@ -165,10 +165,10 @@ struct EkidenLegSubmitSheet: View {
                     Text(EkidenSubmitSource.deviceRecord.rawValue)
                 }
                 .font(.system(size: 16, weight: .bold))
-                .foregroundColor(.white)
+                .foregroundColor(Color.tasukiOnBrandYellow)
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 16)
-                .background(RoundedRectangle(cornerRadius: 12).fill(Color.tasukiAccentOrange))
+                .background(RoundedRectangle(cornerRadius: 12).fill(Color.tasukiPrimaryButtonFill))
             }
             .buttonStyle(.plain)
             
@@ -355,18 +355,18 @@ struct EkidenLegSubmitSheet: View {
                 } label: {
                     if isSubmitting {
                         ProgressView()
-                            .tint(.white)
+                            .tint(Color.black)
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 14)
                     } else {
                         Text("提出する")
                             .font(.system(size: 16, weight: .bold))
-                            .foregroundColor(.white)
+                            .foregroundColor(Color.tasukiOnBrandYellow)
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 14)
                     }
                 }
-                .background(RoundedRectangle(cornerRadius: 12).fill(Color.tasukiPrimary))
+                .background(RoundedRectangle(cornerRadius: 12).fill(Color.tasukiPrimaryButtonFill))
                 .disabled(isSubmitting)
                 .buttonStyle(.plain)
             }
@@ -436,10 +436,10 @@ struct EkidenLegSubmitSheet: View {
                                 Text(tracker.isPaused ? "再開" : "一時停止")
                             }
                             .font(.system(size: 24, weight: .bold))
-                            .foregroundColor(.white)
+                            .foregroundColor(Color.tasukiOnBrandYellow)
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 18)
-                            .background(Capsule().fill(Color.tasukiAccentOrange))
+                            .background(Capsule().fill(Color.tasukiPrimaryButtonFill))
                         }
                         .buttonStyle(.plain)
 
@@ -451,10 +451,10 @@ struct EkidenLegSubmitSheet: View {
                                 Text("終了して提出")
                             }
                             .font(.system(size: 24, weight: .bold))
-                            .foregroundColor(.white)
+                            .foregroundColor(Color.tasukiOnBrandYellow)
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 18)
-                            .background(Capsule().fill(Color.tasukiPrimary))
+                            .background(Capsule().fill(Color.tasukiPrimaryButtonFill))
                         }
                         .buttonStyle(.plain)
                     }
@@ -472,10 +472,10 @@ struct EkidenLegSubmitSheet: View {
                     } label: {
                         Text("記録を開始")
                             .font(.system(size: 16, weight: .bold))
-                            .foregroundColor(.white)
+                            .foregroundColor(Color.tasukiOnBrandYellow)
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 14)
-                            .background(RoundedRectangle(cornerRadius: 12).fill(Color.tasukiPrimary))
+                            .background(RoundedRectangle(cornerRadius: 12).fill(Color.tasukiPrimaryButtonFill))
                     }
                     .buttonStyle(.plain)
                 }

@@ -238,10 +238,10 @@ struct TimeTrialRoomView: View {
                                     Image(systemName: "chart.bar.fill")
                                 }
                                 .font(.headline)
-                                .foregroundColor(.white)
+                                .foregroundColor(Color.tasukiOnBrandYellow)
                                 .frame(maxWidth: .infinity)
                                 .padding()
-                                .background(Color.tasukiAccentOrange)
+                                .background(Color.tasukiPrimaryButtonFill)
                                 .cornerRadius(12)
                             }
                         } else {
@@ -251,10 +251,10 @@ struct TimeTrialRoomView: View {
                                     Image(systemName: "stopwatch.fill")
                                 }
                                 .font(.headline)
-                                .foregroundColor(.white)
+                                .foregroundColor(Color.tasukiOnBrandYellow)
                                 .frame(maxWidth: .infinity)
                                 .padding()
-                                .background(Color.tasukiPrimary)
+                                .background(Color.tasukiPrimaryButtonFill)
                                 .cornerRadius(12)
                             }
                         }
@@ -364,10 +364,10 @@ struct TimeTrialRoomView: View {
                     Text("アプリで記録する（地図/GPS）")
                 }
                 .font(.headline)
-                .foregroundColor(.white)
+                .foregroundColor(Color.tasukiOnBrandYellow)
                 .frame(maxWidth: .infinity)
                 .padding()
-                .background(Color.tasukiPrimary)
+                .background(Color.tasukiPrimaryButtonFill)
                 .cornerRadius(12)
             }
             .padding(.horizontal, 24)
@@ -387,10 +387,10 @@ struct TimeTrialRoomView: View {
                     Text(healthKitSourceButtonTitle)
                 }
                 .font(.headline)
-                .foregroundColor(.white)
+                .foregroundColor(Color.tasukiOnBrandYellow)
                 .frame(maxWidth: .infinity)
                 .padding()
-                .background(Color.tasukiAccentOrange)
+                .background(Color.tasukiPrimaryButtonFill)
                 .cornerRadius(12)
             }
             .padding(.horizontal, 24)
@@ -591,10 +591,10 @@ struct TimeTrialRoomView: View {
                             } label: {
                                 Text("タイムを提出")
                                     .font(.system(size: 16, weight: .bold))
-                                    .foregroundColor(.white)
+                                    .foregroundColor(Color.tasukiOnBrandYellow)
                                     .frame(maxWidth: .infinity)
                                     .padding(.vertical, 14)
-                                    .background(RoundedRectangle(cornerRadius: 12).fill(Color.tasukiPrimary))
+                                    .background(RoundedRectangle(cornerRadius: 12).fill(Color.tasukiPrimaryButtonFill))
                             }
                             .buttonStyle(.plain)
                         } else {
@@ -603,10 +603,10 @@ struct TimeTrialRoomView: View {
                             } label: {
                                 Text("計測を再開する")
                                     .font(.system(size: 16, weight: .semibold))
-                                    .foregroundColor(.white)
+                                    .foregroundColor(Color.tasukiOnBrandYellow)
                                     .frame(maxWidth: .infinity)
                                     .padding(.vertical, 14)
-                                    .background(RoundedRectangle(cornerRadius: 12).fill(Color.tasukiAccentOrange))
+                                    .background(RoundedRectangle(cornerRadius: 12).fill(Color.tasukiPrimaryButtonFill))
                             }
                             .buttonStyle(.plain)
                         }
@@ -684,10 +684,10 @@ struct TimeTrialRoomView: View {
                                 Text(tracker.isPaused ? "再開" : "一時停止")
                             }
                             .font(.system(size: 24, weight: .bold))
-                            .foregroundColor(.white)
+                            .foregroundColor(Color.tasukiOnBrandYellow)
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 18)
-                            .background(Capsule().fill(Color.tasukiAccentOrange))
+                            .background(Capsule().fill(Color.tasukiPrimaryButtonFill))
                         }
                         .buttonStyle(.plain)
 
@@ -699,10 +699,10 @@ struct TimeTrialRoomView: View {
                                 Text("終了")
                             }
                             .font(.system(size: 24, weight: .bold))
-                            .foregroundColor(.white)
+                            .foregroundColor(Color.tasukiOnBrandYellow)
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 18)
-                            .background(Capsule().fill(Color.tasukiPrimary))
+                            .background(Capsule().fill(Color.tasukiPrimaryButtonFill))
                         }
                         .buttonStyle(.plain)
                     }
@@ -749,10 +749,10 @@ struct TimeTrialRoomView: View {
                     } label: {
                         Text("ランニングを記録する")
                             .font(.system(size: 16, weight: .bold))
-                            .foregroundColor(.white)
+                            .foregroundColor(Color.tasukiOnBrandYellow)
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 14)
-                            .background(RoundedRectangle(cornerRadius: 12).fill(Color.tasukiPrimary))
+                            .background(RoundedRectangle(cornerRadius: 12).fill(Color.tasukiPrimaryButtonFill))
                     }
                     .buttonStyle(.plain)
                     .tasukiCard()

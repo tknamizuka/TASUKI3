@@ -245,3 +245,118 @@ extension EkidenSubmission {
         )
     }
 }
+
+// MARK: - 区間賞（leg_rankings スナップショット）
+
+/// Cloud Functions が `ekiden_events/{eventId}/leg_rankings/{legIndex}` に書き込む1区間分のランキング
+struct EkidenLegRankingRow: Identifiable {
+    var id: String { "\(rank)-\(entryId)" }
+    let rank: Int
+    let entryId: String
+    let teamId: String
+    let runnerUid: String
+    let elapsedSeconds: Double
+    let displayName: String
+}
+
+struct EkidenLegRankingSnapshot {
+    let legIndex: Int
+    let top: [EkidenLegRankingRow]
+    let ranksByEntryId: [String: Int]
+    let totalFinishers: Int
+    let updatedAt: Date?
+
+    /// 自チームのエントリーが上位表にいない場合でも `ranksByEntryId` で順位を表示
+    func rank(forEntryId entryId: String) -> Int? {
+        ranksByEntryId[entryId]
+    }
+
+    static func parse(legIndex: Int, data: [String: Any]) -> EkidenLegRankingSnapshot? {
+        let topRaw = data["top"] as? [[String: Any]] ?? []
+        var rankMap = data["ranksByEntryId"] as? [String: Int] ?? [:]
+        if rankMap.isEmpty, let nested = data["ranksByEntryId"] as? [String: Any] {
+            for (k, v) in nested {
+                if let i = v as? Int {
+                    rankMap[k] = i
+                } else if let d = v as? Double {
+                    rankMap[k] = Int(d)
+                }
+            }
+        }
+        let total = data["totalFinishers"] as? Int ?? rankMap.count
+        let updatedAt = (data["updatedAt"] as? Timestamp)?.dateValue()
+        let top: [EkidenLegRankingRow] = topRaw.compactMap { row in
+            guard let entryId = row["entryId"] as? String,
+                  let teamId = row["teamId"] as? String,
+                  let runnerUid = row["runnerUid"] as? String else { return nil }
+            let rank = row["rank"] as? Int ?? 0
+            let elapsed = row["elapsedSeconds"] as? Double ?? Double(row["elapsedSeconds"] as? Int ?? 0)
+            let name = row["displayName"] as? String ?? runnerUid
+            return EkidenLegRankingRow(
+                rank: rank,
+                entryId: entryId,
+                teamId: teamId,
+                runnerUid: runnerUid,
+                elapsedSeconds: elapsed,
+                displayName: name
+            )
+        }
+        return EkidenLegRankingSnapshot(
+            legIndex: legIndex,
+            top: top,
+            ranksByEntryId: rankMap,
+            totalFinishers: total,
+            updatedAt: updatedAt
+        )
+    }
+
+    /// サンプルチーム用: 同一 `EkidenViewState` からデモ用ランキングを合成
+    static func buildMock(from state: EkidenViewState, legIndex: Int) -> EkidenLegRankingSnapshot {
+        guard legIndex >= 0, legIndex < state.legs.count else {
+            return EkidenLegRankingSnapshot(legIndex: legIndex, top: [], ranksByEntryId: [:], totalFinishers: 0, updatedAt: Date())
+        }
+        let leg = state.legs[legIndex]
+        guard leg.status == .submitted, !leg.isPass,
+              let myElapsed = leg.splitAtTargetSeconds ?? leg.elapsedSeconds else {
+            return EkidenLegRankingSnapshot(legIndex: legIndex, top: [], ranksByEntryId: [:], totalFinishers: 0, updatedAt: Date())
+        }
+        let uid = leg.assignedUid ?? ""
+        let myName = state.memberNames[uid] ?? "あなた"
+        var rows: [(entryId: String, teamId: String, runnerUid: String, elapsed: Double, name: String)] = []
+        rows.append((state.entry.id, state.entry.teamId, uid, myElapsed, myName))
+        var h = Hasher()
+        h.combine(state.event.id)
+        h.combine(legIndex)
+        let baseSeed = UInt64(truncatingIfNeeded: h.finalize())
+        for i in 0..<9 {
+            let jitter = Double((baseSeed &+ UInt64(i) * 7919) % 240) - 120.0
+            let t = max(120, myElapsed + jitter)
+            rows.append(("mock_e_\(i)", "mock_t_\(i)", "mock_u_\(i)", t, "ランナー \(i + 1)"))
+        }
+        rows.sort { a, b in
+            if a.elapsed != b.elapsed { return a.elapsed < b.elapsed }
+            return a.entryId < b.entryId
+        }
+        let top = rows.enumerated().map { idx, r in
+            EkidenLegRankingRow(
+                rank: idx + 1,
+                entryId: r.entryId,
+                teamId: r.teamId,
+                runnerUid: r.runnerUid,
+                elapsedSeconds: r.elapsed,
+                displayName: r.name
+            )
+        }
+        var ranks: [String: Int] = [:]
+        for (idx, r) in rows.enumerated() {
+            ranks[r.entryId] = idx + 1
+        }
+        return EkidenLegRankingSnapshot(
+            legIndex: legIndex,
+            top: top,
+            ranksByEntryId: ranks,
+            totalFinishers: rows.count,
+            updatedAt: Date()
+        )
+    }
+}

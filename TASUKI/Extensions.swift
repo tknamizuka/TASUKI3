@@ -4,6 +4,10 @@ import UIKit
 extension Color {
     /// 駅伝ブランド黄（全面背景ではなくアクセント専用・この1値のみ）
     static let tasukiBrandYellow = Color(hex: "E8FF00")
+    /// 黄塗りボタン上のラベル（白字は使わない）
+    static let tasukiOnBrandYellow = Color(hex: "0D0D0D")
+    /// 主 CTA の塗り（`tasukiBrandYellow` と同一・意味で検索しやすくする）
+    static let tasukiPrimaryButtonFill = tasukiBrandYellow
 
     /// 画面全面の下地（白に近い薄ラベンダー。黄は使わない）
     static let tasukiBase = Color(hex: "F7F5FB")
@@ -71,6 +75,34 @@ enum TasukiUI {
     static let cardPadding: CGFloat = 16
     static let sectionSpacing: CGFloat = 14
     static let iconSize: CGFloat = 20
+}
+
+/// SF Symbol をブランド黄の塗り + `tasukiOnBrandYellow` の縁取り（8 方向オフセット）で表示する。
+struct TasukiBrandOutlinedSymbol: View {
+    let systemName: String
+    var size: CGFloat = 18
+    var weight: Font.Weight = .semibold
+    var outlineStep: CGFloat = 1
+
+    private static let outlineOffsets: [(CGFloat, CGFloat)] = [
+        (-1, 0), (1, 0), (0, -1), (0, 1),
+        (-1, -1), (1, -1), (-1, 1), (1, 1)
+    ]
+
+    var body: some View {
+        let font = Font.system(size: size, weight: weight)
+        ZStack {
+            ForEach(Array(Self.outlineOffsets.enumerated()), id: \.offset) { _, o in
+                Image(systemName: systemName)
+                    .font(font)
+                    .foregroundStyle(Color.tasukiOnBrandYellow)
+                    .offset(x: o.0 * outlineStep, y: o.1 * outlineStep)
+            }
+            Image(systemName: systemName)
+                .font(font)
+                .foregroundStyle(Color.tasukiBrandYellow)
+        }
+    }
 }
 
 extension View {

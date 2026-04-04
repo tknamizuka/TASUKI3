@@ -96,10 +96,10 @@ struct ProfileRegistrationView: View {
                             }) {
                                 Text(isSaving ? "保存中..." : (isLastStep ? "はじめる" : "次へ"))
                                     .font(.headline)
-                                    .foregroundColor(.white)
+                                    .foregroundColor(isCurrentStepValid ? Color.tasukiOnBrandYellow : Color.white)
                                     .frame(maxWidth: .infinity)
                                     .padding()
-                                    .background(isCurrentStepValid ? Color.tasukiPrimary : Color.gray.opacity(0.4))
+                                    .background(isCurrentStepValid ? Color.tasukiPrimaryButtonFill : Color.gray.opacity(0.4))
                                     .cornerRadius(12)
                             }
                             .padding(.horizontal, 20)
@@ -233,7 +233,7 @@ struct ProfileRegistrationView: View {
                     .frame(height: 6)
                 
                 RoundedRectangle(cornerRadius: 999)
-                    .fill(Color.tasukiPrimary)
+                    .fill(Color.tasukiPrimaryButtonFill)
                     .frame(width: geometry.size.width * progress, height: 6)
             }
         }
@@ -380,12 +380,12 @@ struct ProfileRegistrationView: View {
                             } label: {
                                 Text(source.displayName)
                                     .font(.system(size: 15, weight: .semibold))
-                                    .foregroundColor(selectedDeviceSources.contains(source) ? .white : Color.tasukiPrimary)
+                                    .foregroundColor(selectedDeviceSources.contains(source) ? Color.tasukiOnBrandYellow : Color.tasukiPrimary)
                                     .frame(maxWidth: .infinity)
                                     .padding(.vertical, 12)
                                     .background(
                                         RoundedRectangle(cornerRadius: 10)
-                                            .fill(selectedDeviceSources.contains(source) ? Color.tasukiPrimary : Color.gray.opacity(0.12))
+                                            .fill(selectedDeviceSources.contains(source) ? Color.tasukiPrimaryButtonFill : Color.gray.opacity(0.12))
                                     )
                             }
                             .buttonStyle(.plain)
@@ -540,12 +540,12 @@ struct ProfileRegistrationView: View {
         Button(action: action) {
             Text(title)
                 .font(.system(size: 16, weight: .semibold))
-                .foregroundColor(isSelected ? .white : Color.tasukiPrimary)
+                .foregroundColor(isSelected ? Color.tasukiOnBrandYellow : Color.tasukiPrimary)
                 .padding(.vertical, 10)
                 .padding(.horizontal, 18)
                 .background(
                     Capsule()
-                        .fill(isSelected ? Color.tasukiPrimary : Color.gray.opacity(0.15))
+                        .fill(isSelected ? Color.tasukiPrimaryButtonFill : Color.gray.opacity(0.15))
                 )
         }
         .buttonStyle(.plain)

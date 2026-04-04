@@ -470,10 +470,10 @@ struct RequestDetailView: View {
                 ) {
                     Text("承認してチャットを開始")
                         .font(.system(size: 16, weight: .semibold))
-                        .foregroundColor(.white)
+                        .foregroundColor(Color.tasukiOnBrandYellow)
                         .frame(maxWidth: .infinity)
                         .padding()
-                        .background(Color.tasukiPrimary)
+                        .background(Color.tasukiPrimaryButtonFill)
                         .cornerRadius(30)
                 }
                 

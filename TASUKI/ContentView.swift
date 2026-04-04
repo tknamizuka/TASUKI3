@@ -136,14 +136,14 @@ struct ContentView: View {
                 Spacer()
                 Text("パートナーを探す")
                     .font(.system(size: 16, weight: .semibold, design: .default))
-                    .foregroundColor(.tasukiBase)
+                    .foregroundColor(Color.tasukiOnBrandYellow)
                     .tracking(1)
                 Spacer()
             }
             .frame(height: 56)
             .background(
                 RoundedRectangle(cornerRadius: 12)
-                    .fill(Color.tasukiPrimary)
+                    .fill(Color.tasukiPrimaryButtonFill)
             )
         }
         .buttonStyle(PlainButtonStyle())

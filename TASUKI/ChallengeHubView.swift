@@ -51,12 +51,12 @@ struct ChallengeHubView: View {
                         Text("+\(challenge.rewardPoints)pt")
                             .font(.caption)
                             .fontWeight(.bold)
-                            .foregroundColor(challenge.isCompleted ? .white : Color.tasukiAccent)
+                            .foregroundColor(challenge.isCompleted ? Color.tasukiOnBrandYellow : Color.tasukiAccent)
                             .padding(.horizontal, 8)
                             .padding(.vertical, 4)
                             .background(
                                 Capsule()
-                                    .fill(challenge.isCompleted ? Color.tasukiAccent : Color.tasukiAccent.opacity(0.12))
+                                    .fill(challenge.isCompleted ? Color.tasukiPrimaryButtonFill : Color.tasukiAccent.opacity(0.12))
                             )
                     }
                     Text(challenge.description)

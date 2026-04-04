@@ -45,15 +45,15 @@ struct TeamJoinCreateView: View {
                 
                 VStack(spacing: 12) {
                     Button(action: { showSearchForm = true }) {
-                        HStack { Spacer(); Text("チームを探す").foregroundColor(.white); Spacer() }
+                        HStack { Spacer(); Text("チームを探す").foregroundColor(Color.tasukiOnBrandYellow); Spacer() }
                             .padding()
-                            .background(RoundedRectangle(cornerRadius: 10).fill(Color.tasukiAccentOrange))
+                            .background(RoundedRectangle(cornerRadius: 10).fill(Color.tasukiPrimaryButtonFill))
                     }
                     
                     Button(action: { showCreateForm = true }) {
-                        HStack { Spacer(); Text("チームをつくる").foregroundColor(.white); Spacer() }
+                        HStack { Spacer(); Text("チームをつくる").foregroundColor(Color.tasukiOnBrandYellow); Spacer() }
                             .padding()
-                            .background(RoundedRectangle(cornerRadius: 10).fill(Color.tasukiPrimary))
+                            .background(RoundedRectangle(cornerRadius: 10).fill(Color.tasukiPrimaryButtonFill))
                     }
                 }
                 .padding(.horizontal, 40)

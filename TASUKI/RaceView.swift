@@ -173,10 +173,10 @@ struct RaceLobbyView: View {
                 }) {
                     Text("スタート（5秒カウントダウン）")
                         .fontWeight(.semibold)
-                        .foregroundColor(.white)
+                        .foregroundColor(Color.tasukiOnBrandYellow)
                         .frame(maxWidth: .infinity)
                         .padding()
-                        .background(Color.tasukiAccent)
+                        .background(Color.tasukiPrimaryButtonFill)
                         .cornerRadius(12)
                 }
                 .padding(.horizontal)
@@ -321,10 +321,10 @@ struct RaceRunningView: View {
                 Button(action: submitFinish) {
                     Text("ゴールする")
                         .fontWeight(.semibold)
-                        .foregroundColor(.white)
+                        .foregroundColor(Color.tasukiOnBrandYellow)
                         .frame(maxWidth: .infinity)
                         .padding()
-                        .background(Color.tasukiAccent)
+                        .background(Color.tasukiPrimaryButtonFill)
                         .cornerRadius(12)
                 }
                 .padding(.horizontal, 40)
@@ -432,10 +432,10 @@ struct RaceResultsView: View {
             }) {
                 Text("閉じる")
                     .fontWeight(.semibold)
-                    .foregroundColor(.white)
+                    .foregroundColor(Color.tasukiOnBrandYellow)
                     .frame(maxWidth: .infinity)
                     .padding()
-                    .background(Color.tasukiPrimary)
+                    .background(Color.tasukiPrimaryButtonFill)
                     .cornerRadius(12)
             }
             .padding()

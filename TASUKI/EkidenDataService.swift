@@ -435,6 +435,21 @@ final class EkidenDataService {
         }
     }
 
+    /// 区間賞ランキング（`ekiden_events/{eventId}/leg_rankings/{legIndex}`）
+    func loadLegRankingSnapshot(eventId: String, legIndex: Int) async -> EkidenLegRankingSnapshot? {
+        guard legIndex >= 0 else { return nil }
+        do {
+            let doc = try await db.collection("ekiden_events").document(eventId)
+                .collection("leg_rankings")
+                .document("\(legIndex)")
+                .getDocument()
+            guard doc.exists, let data = doc.data() else { return nil }
+            return EkidenLegRankingSnapshot.parse(legIndex: legIndex, data: data)
+        } catch {
+            return nil
+        }
+    }
+
     /// 区間提出を実行
     /// - Parameters:
     ///   - teamId: チームID

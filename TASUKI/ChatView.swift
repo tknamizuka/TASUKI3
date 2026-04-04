@@ -197,11 +197,11 @@ struct ChatView: View {
             }) {
                 Image(systemName: "paperplane.fill")
                     .font(.system(size: 18, weight: .semibold))
-                    .foregroundColor(.white)
+                    .foregroundColor(messageText.isEmpty ? Color.white : Color.tasukiOnBrandYellow)
                     .frame(width: 44, height: 44)
                     .background(
                         Circle()
-                            .fill(messageText.isEmpty ? Color.gray : Color.royalBlue)
+                            .fill(messageText.isEmpty ? Color.gray : Color.tasukiPrimaryButtonFill)
                     )
             }
             .disabled(messageText.isEmpty)

@@ -41,10 +41,10 @@ struct ReengagementSheetView: View {
                 } label: {
                     Text("了解して続ける")
                         .font(.system(size: 16, weight: .bold))
-                        .foregroundColor(.white)
+                        .foregroundColor(Color.tasukiOnBrandYellow)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 14)
-                        .background(RoundedRectangle(cornerRadius: 12).fill(Color.tasukiPrimary))
+                        .background(RoundedRectangle(cornerRadius: 12).fill(Color.tasukiPrimaryButtonFill))
                 }
                 .buttonStyle(.plain)
             }

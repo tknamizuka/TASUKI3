@@ -60,6 +60,7 @@ struct TeamDetailView: View {
                         showingShare = true
                     }) {
                         Image(systemName: "square.and.arrow.up")
+                            .foregroundColor(Color.tasukiPrimary)
                     }
                     .padding(.leading, 8)
                 }
@@ -106,11 +107,11 @@ struct TeamDetailView: View {
                             Spacer()
                             Text("このチームに参加する")
                                 .font(.system(size: 16, weight: .semibold))
-                                .foregroundColor(.white)
+                                .foregroundColor(Color.tasukiOnBrandYellow)
                             Spacer()
                         }
                         .padding()
-                        .background(RoundedRectangle(cornerRadius: 12).fill(Color.tasukiAccentOrange))
+                        .background(RoundedRectangle(cornerRadius: 12).fill(Color.tasukiPrimaryButtonFill))
                     }
                     .padding(.horizontal, 20)
                     .padding(.top, 16)

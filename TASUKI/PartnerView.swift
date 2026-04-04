@@ -743,21 +743,21 @@ struct FilterView: View {
                                         HStack {
                                             Text(selectedRunSpot)
                                                 .font(.system(size: 14, weight: .medium))
-                                                .foregroundColor(.white)
+                                                .foregroundColor(Color.tasukiOnBrandYellow)
                                             
                                             Button(action: {
                                                 selectedRunSpot = ""
                                                 runSpotText = ""
                                             }) {
                                                 Image(systemName: "xmark.circle.fill")
-                                                    .foregroundColor(.white.opacity(0.8))
+                                                    .foregroundColor(Color.tasukiOnBrandYellow.opacity(0.75))
                                             }
                                         }
                                         .padding(.horizontal, 12)
                                         .padding(.vertical, 8)
                                         .background(
                                             Capsule()
-                                                .fill(Color.tasukiAccent)
+                                                .fill(Color.tasukiPrimaryButtonFill)
                                         )
                                     }
                                 }
@@ -896,13 +896,13 @@ struct FilterView: View {
                         Spacer()
                         Text("フィルターを適用")
                             .font(.system(size: 16, weight: .semibold))
-                            .foregroundColor(.white)
+                            .foregroundColor(Color.tasukiOnBrandYellow)
                         Spacer()
                     }
                     .frame(height: 50)
                     .background(
                         Capsule()
-                            .fill(Color.tasukiAccent)
+                            .fill(Color.tasukiPrimaryButtonFill)
                     )
                     .padding(.horizontal, 20)
                     .padding(.vertical, 16)
@@ -917,14 +917,14 @@ struct FilterView: View {
         Button(action: action) {
             Text(text)
                 .font(.system(size: 14, weight: .medium))
-                .foregroundColor(isSelected ? .white : Color.tasukiPrimary)
+                .foregroundColor(isSelected ? Color.tasukiOnBrandYellow : Color.tasukiPrimary)
                 .lineLimit(1)
                 .minimumScaleFactor(0.8)
                 .padding(.horizontal, 16)
                 .padding(.vertical, 8)
                 .background(
                     Capsule()
-                        .fill(isSelected ? Color.tasukiAccent : Color.tasukiDarkCardSecondary)
+                        .fill(isSelected ? Color.tasukiPrimaryButtonFill : Color.tasukiDarkCardSecondary)
                 )
         }
     }

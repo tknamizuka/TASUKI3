@@ -143,17 +143,8 @@ enum CompanionSuggestionEngine {
             return max(daysSinceLastRun, hk)
         }()
 
-        if checkIn == nil {
-            return CompanionSuggestion(
-                plan: .checkInNeeded,
-                title: "今日の体調をひとつ選ぶと、無理のない提案が出ます",
-                reason: "1日1回・すぐ終わります。続けるほうが先です。",
-                primaryCTALabel: "コンディションを記録",
-                secondaryCTALabel: nil
-            )
-        }
-
-        let condition = checkIn!
+        // ホームではチェックインUIを出さないため、未記録は「普通」相当で提案する
+        let condition = checkIn ?? .good
         let barrier = loadBarrier()
         let prefersSoft = loadLeaderboardComfort() == .prefersSoft
 

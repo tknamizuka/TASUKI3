@@ -148,11 +148,11 @@ struct EkidenLegAssignmentView: View {
                 }
                 Spacer()
             }
-            .foregroundColor(.white)
+            .foregroundColor(isSaving ? Color.white : Color.tasukiOnBrandYellow)
             .frame(height: 50)
             .background(
                 RoundedRectangle(cornerRadius: 12)
-                    .fill(isSaving ? Color.gray : Color.tasukiAccentOrange)
+                    .fill(isSaving ? Color.gray : Color.tasukiPrimaryButtonFill)
             )
         }
         .disabled(isSaving || !isValid)

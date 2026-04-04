@@ -41,7 +41,6 @@ struct MyProfileView: View {
                     VStack(spacing: TasukiUI.sectionSpacing) {
                         heroCard
                         engagementPreferenceCard
-                        integratedRunnerUXCard
                         activityGraphCard
                         statsCard
                         profileCard
@@ -105,10 +104,10 @@ struct MyProfileView: View {
 
             Text(rank)
                 .font(.system(size: 13, weight: .semibold))
-                .foregroundColor(.white)
+                .foregroundColor(Color.tasukiOnBrandYellow)
                 .padding(.horizontal, 12)
                 .padding(.vertical, 7)
-                .background(Capsule().fill(Color.tasukiPrimary))
+                .background(Capsule().fill(Color.tasukiPrimaryButtonFill))
 
             HStack(spacing: 5) {
                 Text("保有ポイント")
@@ -159,32 +158,6 @@ struct MyProfileView: View {
             }
             .tint(Color.tasukiAccent)
         }
-        .tasukiCard()
-    }
-
-    private var integratedRunnerUXCard: some View {
-        NavigationLink(destination: IntegratedRunnerUXGuideView()) {
-            HStack(spacing: 12) {
-                Image(systemName: "point.3.connected.trianglepath.dotted")
-                    .font(.system(size: 22, weight: .semibold))
-                    .foregroundColor(Color.tasukiAccentOrange)
-                    .frame(width: 36)
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("統合ランニング体験について")
-                        .font(.system(size: 16, weight: .bold))
-                        .foregroundColor(Color.tasukiPrimary)
-                    Text("HealthKit・伴走・コミュニティの考え方")
-                        .font(.caption)
-                        .foregroundColor(Color.tasukiMutedText)
-                }
-                Spacer()
-                Image(systemName: "chevron.right")
-                    .font(.caption)
-                    .foregroundColor(Color.tasukiMutedText)
-            }
-            .padding(16)
-        }
-        .buttonStyle(.plain)
         .tasukiCard()
     }
 
@@ -354,10 +327,10 @@ struct MyProfileView: View {
     private func tagView(text: String, isPrimary: Bool) -> some View {
         Text(text)
             .font(.system(size: 13, weight: .medium))
-            .foregroundColor(isPrimary ? .white : Color.tasukiPrimary)
+            .foregroundColor(isPrimary ? Color.tasukiOnBrandYellow : Color.tasukiPrimary)
             .padding(.horizontal, 14)
             .padding(.vertical, 8)
-            .background(Capsule().fill(isPrimary ? Color.tasukiAccent : Color.tasukiSurface))
+            .background(Capsule().fill(isPrimary ? Color.tasukiPrimaryButtonFill : Color.tasukiSurface))
     }
 
     private func infoRow(icon: String, title: String, value: String) -> some View {
@@ -430,6 +403,38 @@ private struct WeeklyActivityLineChart: View {
                 }
 
                 Path { path in
+                    guard !points.isEmpty else { return }
+                    for (index, point) in points.enumerated() {
+                        let x = leftPadding + plotWidth * CGFloat(index) / CGFloat(count - 1)
+                        let normalized = CGFloat(point.distanceKm / maxY)
+                        let y = topPadding + (1 - normalized) * plotHeight
+                        if index == 0 {
+                            path.move(to: CGPoint(x: x, y: y))
+                        } else {
+                            path.addLine(to: CGPoint(x: x, y: y))
+                        }
+                    }
+                    let lastIndex = points.count - 1
+                    let lastX = leftPadding + plotWidth * CGFloat(lastIndex) / CGFloat(count - 1)
+                    let firstX = leftPadding
+                    let bottomY = topPadding + plotHeight
+                    path.addLine(to: CGPoint(x: lastX, y: bottomY))
+                    path.addLine(to: CGPoint(x: firstX, y: bottomY))
+                    path.closeSubpath()
+                }
+                .fill(
+                    LinearGradient(
+                        colors: [
+                            Color.tasukiBrandYellow.opacity(0.42),
+                            Color.tasukiBrandYellow.opacity(0.14),
+                            Color.tasukiBrandYellow.opacity(0.03)
+                        ],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                )
+
+                Path { path in
                     for (index, point) in points.enumerated() {
                         let x = leftPadding + plotWidth * CGFloat(index) / CGFloat(count - 1)
                         let normalized = CGFloat(point.distanceKm / maxY)
@@ -441,7 +446,7 @@ private struct WeeklyActivityLineChart: View {
                         }
                     }
                 }
-                .stroke(Color.tasukiAccentOrange, style: StrokeStyle(lineWidth: 2.5, lineCap: .round, lineJoin: .round))
+                .stroke(Color.tasukiBrandYellow, style: StrokeStyle(lineWidth: 2.5, lineCap: .round, lineJoin: .round))
 
                 ForEach(Array(points.enumerated()), id: \.element.id) { index, point in
                     let x = leftPadding + plotWidth * CGFloat(index) / CGFloat(count - 1)
@@ -449,7 +454,11 @@ private struct WeeklyActivityLineChart: View {
                     let y = topPadding + (1 - normalized) * plotHeight
 
                     Circle()
-                        .fill(Color.tasukiAccentOrange)
+                        .fill(Color.tasukiBrandYellow)
+                        .overlay(
+                            Circle()
+                                .stroke(Color.tasukiOnBrandYellow.opacity(0.35), lineWidth: 1)
+                        )
                         .frame(width: 7, height: 7)
                         .position(x: x, y: y)
 

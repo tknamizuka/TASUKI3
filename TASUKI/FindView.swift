@@ -693,10 +693,10 @@ struct FindView: View {
                     }) {
                         Image(systemName: "plus.circle.fill")
                             .font(.system(size: 56, weight: .regular))
-                            .foregroundColor(.white)
+                            .foregroundColor(Color.tasukiOnBrandYellow)
                             .background(
                                 Circle()
-                                    .fill(Color.tasukiAccentOrange)
+                                    .fill(Color.tasukiPrimaryButtonFill)
                                     .frame(width: 56, height: 56)
                             )
                     }
@@ -1038,12 +1038,12 @@ struct FindView: View {
         Button(action: action) {
             Text(title)
                 .font(.system(size: 14, weight: .semibold))
-                .foregroundColor(isSelected ? .white : Color.tasukiMutedText)
+                .foregroundColor(isSelected ? Color.tasukiOnBrandYellow : Color.tasukiMutedText)
                 .padding(.horizontal, 16)
                 .padding(.vertical, 8)
                 .background(
                     Capsule()
-                        .fill(isSelected ? Color.tasukiAccentOrange : Color.clear)
+                        .fill(isSelected ? Color.tasukiPrimaryButtonFill : Color.clear)
                         .overlay(
                             Capsule()
                                 .stroke(isSelected ? Color.clear : Color.tasukiDarkCardSecondary, lineWidth: 1)
@@ -1720,10 +1720,10 @@ struct FilterDetailSheet: View {
                 }) {
                     Text("この条件で検索")
                         .font(.system(size: 16, weight: .semibold))
-                        .foregroundColor(.white)
+                        .foregroundColor(Color.tasukiOnBrandYellow)
                         .frame(maxWidth: .infinity)
                         .padding()
-                        .background(Color.tasukiAccent)
+                        .background(Color.tasukiPrimaryButtonFill)
                         .cornerRadius(12)
                         .padding(.horizontal, 16)
                         .padding(.bottom, 8)

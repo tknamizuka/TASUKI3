@@ -264,13 +264,13 @@ struct PartnerDetailView: View {
                             Spacer()
                             Text("リクエストを送る")
                                 .font(.system(size: 16, weight: .semibold))
-                                .foregroundColor(.white)
+                                .foregroundColor(Color.tasukiOnBrandYellow)
                             Spacer()
                         }
                         .frame(height: 50)
                         .background(
                             Capsule()
-                                .fill(Color.royalBlue)
+                                .fill(Color.tasukiPrimaryButtonFill)
                         )
                     }
                     .buttonStyle(PlainButtonStyle())
@@ -318,12 +318,12 @@ struct PartnerDetailView: View {
                     }) {
                         Text("承認")
                             .font(.system(size: 16, weight: .semibold))
-                            .foregroundColor(.white)
+                            .foregroundColor(Color.tasukiOnBrandYellow)
                             .frame(height: 50)
                             .frame(maxWidth: .infinity)
                             .background(
                                 Capsule()
-                                    .fill(Color.royalBlue)
+                                    .fill(Color.tasukiPrimaryButtonFill)
                             )
                     }
                     .buttonStyle(PlainButtonStyle())
@@ -358,12 +358,12 @@ struct PartnerDetailView: View {
     private func tagView(text: String, isPrimary: Bool) -> some View {
         Text(text)
             .font(.system(size: 14, weight: .medium))
-            .foregroundColor(isPrimary ? .white : Color.tasukiPrimary)
+            .foregroundColor(isPrimary ? Color.tasukiOnBrandYellow : Color.tasukiPrimary)
             .padding(.horizontal, 16)
             .padding(.vertical, 8)
             .background(
                 Capsule()
-                    .fill(isPrimary ? Color.royalBlue : Color.tasukiDarkCardSecondary)
+                    .fill(isPrimary ? Color.tasukiPrimaryButtonFill : Color.tasukiDarkCardSecondary)
             )
     }
     

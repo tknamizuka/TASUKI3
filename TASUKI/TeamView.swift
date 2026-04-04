@@ -28,6 +28,14 @@ struct TeamChatMessage: Identifiable {
     let timestamp: Date
 }
 
+/// `teams/{teamId}/spectator_cheers` の表示用
+struct SpectatorCheerDisplay: Identifiable {
+    let id: String
+    let nickname: String
+    let message: String
+    let timestamp: Date
+}
+
 /// 区間提出シート用。`sheet(isPresented:)` と optional の組み合わせでは中身が空になることがあるため `sheet(item:)` で渡す。
 private struct EkidenSubmitSheetItem: Identifiable {
     let id: String
@@ -74,6 +82,16 @@ struct TeamView: View {
     @State private var showPassTasukiConfirm = false
     @State private var passTasukiLegIndex: Int? = nil
     @State private var isPassingTasuki = false
+
+    /// 区間賞
+    @State private var showLegRankingSheet = false
+    @State private var legRankingSnapshot: EkidenLegRankingSnapshot?
+    @State private var legRankingSelectedLegIndex: Int = 0
+    /// 沿道応援（観客投稿・チーム内フィード）
+    @State private var showSpectatorCheerSheet = false
+    @State private var spectatorCheers: [SpectatorCheerDisplay] = []
+    @State private var spectatorCheerListener: ListenerRegistration?
+    @State private var spectatorCheersExpanded = false
     
     // チーム情報
     @State private var teamName: String = "皇居ランナーズ"
@@ -138,13 +156,13 @@ struct TeamView: View {
                 Spacer()
                 Text("調子を記録する")
                     .font(.system(size: 14, weight: .semibold))
-                    .foregroundColor(.white)
+                    .foregroundColor(Color.tasukiOnBrandYellow)
                 Spacer()
             }
             .frame(height: 40)
             .background(
                 RoundedRectangle(cornerRadius: 10)
-                    .fill(Color.tasukiAccentOrange)
+                    .fill(Color.tasukiPrimaryButtonFill)
             )
         }
     }
@@ -218,7 +236,14 @@ struct TeamView: View {
                             }
                             .padding(.horizontal, 20)
                             .padding(.top, 20)
-                            
+
+                            if let ekiden = ekidenViewState {
+                                ekidenEngagementRow(ekiden)
+                                    .padding(.horizontal, 20)
+                                spectatorCheerFeedSection
+                                    .padding(.horizontal, 20)
+                            }
+
                             if let ekiden = ekidenViewState {
                                 conditionRecordButton
                                     .padding(.horizontal, 20)
@@ -236,16 +261,16 @@ struct TeamView: View {
                                         Spacer()
                                         Text("メンバー管理")
                                             .font(.system(size: 16, weight: .semibold))
-                                            .foregroundColor(.white)
+                                            .foregroundColor(Color.tasukiOnBrandYellow)
                                         Image(systemName: "person.2.fill")
                                             .font(.system(size: 16))
-                                            .foregroundColor(.white)
+                                            .foregroundColor(Color.tasukiOnBrandYellow)
                                         Spacer()
                                     }
                                     .frame(height: 50)
                                     .background(
                                         RoundedRectangle(cornerRadius: 12)
-                                            .fill(Color.tasukiAccentOrange)
+                                            .fill(Color.tasukiPrimaryButtonFill)
                                     )
                                 }
                                 .padding(.horizontal, 20)
@@ -336,6 +361,30 @@ struct TeamView: View {
                         }
                     )
                 }
+                .sheet(isPresented: $showLegRankingSheet) {
+                    if let ekiden = ekidenViewState {
+                        EkidenLegRankingSheetView(
+                            state: ekiden,
+                            selectedLegIndex: $legRankingSelectedLegIndex,
+                            snapshot: $legRankingSnapshot,
+                            isSampleTeam: isSampleTeamFlow || selectedTeamId.hasPrefix("example"),
+                            myEntryId: ekiden.entry.id,
+                            currentUid: Auth.auth().currentUser?.uid,
+                            reload: { legIdx in
+                                await reloadLegRanking(legIndex: legIdx, state: ekiden)
+                            }
+                        )
+                    }
+                }
+                .sheet(isPresented: $showSpectatorCheerSheet) {
+                    if let ekiden = ekidenViewState {
+                        SpectatorCheerView(
+                            eventId: ekiden.event.id,
+                            teamId: selectedTeamId,
+                            teamName: teamName
+                        )
+                    }
+                }
                 .onAppear {
                     selectedCondition = myCondition
                     if !isSampleTeamFlow {
@@ -343,23 +392,31 @@ struct TeamView: View {
                     }
                     if let tid = userTeamId, !tid.isEmpty {
                         loadTeamOwner(teamId: tid)
+                        startSpectatorCheerListener(teamId: selectedTeamId.isEmpty ? tid : selectedTeamId)
                         Task { await loadEkidenState(teamId: tid) }
                     }
+                }
+                .onDisappear {
+                    stopSpectatorCheerListener()
                 }
                 .onChange(of: userTeamId) { _, newId in
                     if let tid = newId, !tid.isEmpty {
                         loadTeamOwner(teamId: tid)
+                        startSpectatorCheerListener(teamId: selectedTeamId.isEmpty ? tid : selectedTeamId)
                         Task { await loadEkidenState(teamId: tid) }
                     } else {
                         isTeamOwner = false
                         ekidenViewState = nil
+                        stopSpectatorCheerListener()
                     }
                 }
                 .onChange(of: selectedTeamId) { _, newId in
                     if !newId.isEmpty {
+                        startSpectatorCheerListener(teamId: newId)
                         Task { await loadEkidenState(teamId: newId) }
                     } else {
                         ekidenViewState = nil
+                        stopSpectatorCheerListener()
                     }
                 }
                 .alert("TASUKIをつなぐ", isPresented: $showPassTasukiConfirm) {
@@ -402,9 +459,180 @@ struct TeamView: View {
     private func loadEkidenState(teamId: String) async {
         let isSample = isSampleTeamFlow || teamId.hasPrefix("example")
         let state = await EkidenDataService.shared.loadEkidenState(teamId: teamId, isSampleTeam: isSample)
+        let defaultLegIdx: Int
+        if let s = state {
+            let maxIdx = max(0, s.event.legCount - 1)
+            defaultLegIdx = min(max(0, s.entry.currentLegIndex), maxIdx)
+        } else {
+            defaultLegIdx = 0
+        }
         await MainActor.run {
             ekidenViewState = state
+            legRankingSelectedLegIndex = defaultLegIdx
         }
+        guard let s = state else {
+            await MainActor.run { legRankingSnapshot = nil }
+            return
+        }
+        let snap: EkidenLegRankingSnapshot?
+        if isSample {
+            snap = EkidenLegRankingSnapshot.buildMock(from: s, legIndex: defaultLegIdx)
+        } else {
+            snap = await EkidenDataService.shared.loadLegRankingSnapshot(eventId: s.event.id, legIndex: defaultLegIdx)
+        }
+        await MainActor.run { legRankingSnapshot = snap }
+    }
+
+    private func reloadLegRanking(legIndex: Int, state: EkidenViewState) async {
+        let isSample = isSampleTeamFlow || selectedTeamId.hasPrefix("example")
+        let snap: EkidenLegRankingSnapshot?
+        if isSample {
+            snap = EkidenLegRankingSnapshot.buildMock(from: state, legIndex: legIndex)
+        } else {
+            snap = await EkidenDataService.shared.loadLegRankingSnapshot(eventId: state.event.id, legIndex: legIndex)
+        }
+        await MainActor.run { legRankingSnapshot = snap }
+    }
+
+    private func startSpectatorCheerListener(teamId: String) {
+        spectatorCheerListener?.remove()
+        spectatorCheerListener = nil
+        guard !teamId.isEmpty else {
+            spectatorCheers = []
+            return
+        }
+        if isSampleTeamFlow || teamId.hasPrefix("example") {
+            spectatorCheers = []
+            return
+        }
+        let db = Firestore.firestore()
+        spectatorCheerListener = db.collection("teams").document(teamId).collection("spectator_cheers")
+            .order(by: "timestamp", descending: true)
+            .limit(to: 30)
+            .addSnapshotListener { snapshot, _ in
+                guard let docs = snapshot?.documents else { return }
+                let list: [SpectatorCheerDisplay] = docs.compactMap { doc in
+                    let d = doc.data()
+                    let nick = d["nickname"] as? String ?? "沿道"
+                    let msg = d["message"] as? String ?? ""
+                    let ts = (d["timestamp"] as? Timestamp)?.dateValue() ?? Date()
+                    return SpectatorCheerDisplay(id: doc.documentID, nickname: nick, message: msg, timestamp: ts)
+                }
+                DispatchQueue.main.async {
+                    self.spectatorCheers = list
+                }
+            }
+    }
+
+    private func stopSpectatorCheerListener() {
+        spectatorCheerListener?.remove()
+        spectatorCheerListener = nil
+        spectatorCheers = []
+    }
+
+    private func ekidenEngagementRow(_ state: EkidenViewState) -> some View {
+        HStack(spacing: 10) {
+            Button {
+                showLegRankingSheet = true
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: "trophy.fill")
+                        .font(.system(size: 14))
+                    Text("区間賞")
+                        .font(.system(size: 14, weight: .semibold))
+                }
+                .foregroundColor(Color.tasukiPrimary)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 12)
+                .background(
+                    RoundedRectangle(cornerRadius: 12)
+                        .fill(Color.tasukiAccentOrange.opacity(0.2))
+                )
+            }
+            .buttonStyle(.plain)
+
+            Button {
+                showSpectatorCheerSheet = true
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: "hands.clap.fill")
+                        .font(.system(size: 14))
+                    Text("応援を送る")
+                        .font(.system(size: 14, weight: .semibold))
+                }
+                .foregroundColor(Color.tasukiPrimary)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 12)
+                .background(
+                    RoundedRectangle(cornerRadius: 12)
+                        .fill(Color.tasukiDarkCardSecondary)
+                )
+            }
+            .buttonStyle(.plain)
+        }
+    }
+
+    @ViewBuilder
+    private var spectatorCheerFeedSection: some View {
+        if spectatorCheers.isEmpty {
+            EmptyView()
+        } else {
+            VStack(alignment: .leading, spacing: 8) {
+                Button {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        spectatorCheersExpanded.toggle()
+                    }
+                } label: {
+                    HStack {
+                        Image(systemName: "heart.text.square.fill")
+                            .foregroundColor(Color.tasukiAccentOrange)
+                        Text("沿道からの応援")
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundColor(Color.tasukiPrimary)
+                        Spacer()
+                        Text("\(spectatorCheers.count)件")
+                            .font(.caption)
+                            .foregroundColor(Color.tasukiMutedText)
+                        Image(systemName: spectatorCheersExpanded ? "chevron.up" : "chevron.down")
+                            .font(.caption.weight(.semibold))
+                            .foregroundColor(Color.tasukiMutedText)
+                    }
+                }
+                .buttonStyle(.plain)
+
+                let visible = spectatorCheersExpanded ? spectatorCheers : Array(spectatorCheers.prefix(3))
+                ForEach(visible) { cheer in
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack {
+                            Text(cheer.nickname)
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundColor(Color.tasukiAccentOrange)
+                            Spacer()
+                            Text(shortRelativeTime(cheer.timestamp))
+                                .font(.system(size: 10))
+                                .foregroundColor(Color.tasukiMutedText)
+                        }
+                        Text(cheer.message)
+                            .font(.system(size: 13))
+                            .foregroundColor(Color.tasukiPrimary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    .padding(10)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(
+                        RoundedRectangle(cornerRadius: 10)
+                            .fill(Color.tasukiSurface.opacity(0.6))
+                    )
+                }
+            }
+        }
+    }
+
+    private func shortRelativeTime(_ date: Date) -> String {
+        let f = RelativeDateTimeFormatter()
+        f.locale = Locale(identifier: "ja_JP")
+        f.unitsStyle = .short
+        return f.localizedString(for: date, relativeTo: Date())
     }
     
     /// TASUKIをつなぐ（TASUKIだけ次へ、距離加算なし）
@@ -564,10 +792,11 @@ struct TeamView: View {
                     RoundedRectangle(cornerRadius: 12)
                         .fill(
                             LinearGradient(
-                                gradient: Gradient(colors: [
-                                    Color.tasukiAccent,
-                                    Color.tasukiAccentOrange
-                                ]),
+                                colors: [
+                                    Color(hex: "C5DB00"),
+                                    Color.tasukiBrandYellow,
+                                    Color(hex: "FFF59E")
+                                ],
                                 startPoint: .leading,
                                 endPoint: .trailing
                             )
@@ -1009,10 +1238,11 @@ struct TeamView: View {
                     RoundedRectangle(cornerRadius: 12)
                         .fill(
                             LinearGradient(
-                                gradient: Gradient(colors: [
-                                    Color.tasukiAccent,
-                                    Color.tasukiAccentOrange
-                                ]),
+                                colors: [
+                                    Color(hex: "C5DB00"),
+                                    Color.tasukiBrandYellow,
+                                    Color(hex: "FFF59E")
+                                ],
                                 startPoint: .leading,
                                 endPoint: .trailing
                             )
@@ -1080,6 +1310,103 @@ struct TeamView: View {
         )
         
         teamMessages.append(systemMessage)
+    }
+}
+
+// MARK: - 区間賞シート
+private struct EkidenLegRankingSheetView: View {
+    let state: EkidenViewState
+    @Binding var selectedLegIndex: Int
+    @Binding var snapshot: EkidenLegRankingSnapshot?
+    let isSampleTeam: Bool
+    let myEntryId: String
+    let currentUid: String?
+    let reload: (Int) async -> Void
+
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            ZStack {
+                Color.tasukiDarkBackground
+                    .ignoresSafeArea()
+                VStack(alignment: .leading, spacing: 12) {
+                    if state.event.legCount > 1 {
+                        Picker("区間", selection: $selectedLegIndex) {
+                            ForEach(0..<state.event.legCount, id: \.self) { i in
+                                Text("\(i + 1)区").tag(i)
+                            }
+                        }
+                        .pickerStyle(.segmented)
+                        .onChange(of: selectedLegIndex) { _, new in
+                            Task { await reload(new) }
+                        }
+                    }
+
+                    if let snap = snapshot {
+                        if let myRank = snap.rank(forEntryId: myEntryId), snap.totalFinishers > 0 {
+                            Text("あなたのチームの順位: \(myRank)位（完走 \(snap.totalFinishers)）")
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundColor(Color.tasukiAccentOrange)
+                        }
+
+                        if snap.top.isEmpty {
+                            Text(isSampleTeam ? "この区間はまだ記録がないか、デモでは完了済み区間のみ表示します。" : "この区間のランキングはまだありません。")
+                                .font(.footnote)
+                                .foregroundColor(Color.tasukiMutedText)
+                                .padding(.vertical, 8)
+                        }
+
+                        ScrollView {
+                            LazyVStack(alignment: .leading, spacing: 8) {
+                                ForEach(snap.top) { row in
+                                    let isMe = row.entryId == myEntryId || (currentUid.map { $0 == row.runnerUid } ?? false)
+                                    HStack(alignment: .top, spacing: 10) {
+                                        Text("\(row.rank)")
+                                            .font(.system(size: 14, weight: .bold))
+                                            .frame(width: 28, alignment: .leading)
+                                            .foregroundColor(Color.tasukiMutedText)
+                                        VStack(alignment: .leading, spacing: 2) {
+                                            Text(row.displayName)
+                                                .font(.system(size: 15, weight: .semibold))
+                                                .foregroundColor(isMe ? Color.tasukiAccentOrange : Color.tasukiPrimary)
+                                            Text(EkidenViewState.formatElapsed(row.elapsedSeconds))
+                                                .font(.caption)
+                                                .foregroundColor(Color.tasukiMutedText)
+                                        }
+                                        Spacer(minLength: 0)
+                                    }
+                                    .padding(12)
+                                    .background(
+                                        RoundedRectangle(cornerRadius: 10)
+                                            .fill(isMe ? Color.tasukiAccentOrange.opacity(0.12) : Color.tasukiDarkCardSecondary.opacity(0.5))
+                                    )
+                                }
+                            }
+                            .padding(.bottom, 16)
+                        }
+                    } else {
+                        Spacer()
+                        ProgressView()
+                        Spacer()
+                    }
+                }
+                .padding(16)
+            }
+            .navigationTitle("区間賞")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("閉じる") {
+                        dismiss()
+                    }
+                    .foregroundColor(Color.tasukiPrimary)
+                }
+            }
+            .task {
+                await reload(selectedLegIndex)
+            }
+        }
     }
 }
 
@@ -1174,11 +1501,11 @@ struct TeamChatSheetView: View {
                         }) {
                             Image(systemName: "paperplane.fill")
                                 .font(.system(size: 18, weight: .semibold))
-                                .foregroundColor(.white)
+                                .foregroundColor(messageText.isEmpty ? Color.white : Color.tasukiOnBrandYellow)
                                 .frame(width: 44, height: 44)
                                 .background(
                                     Circle()
-                                        .fill(messageText.isEmpty ? Color.gray : Color.tasukiAccentOrange)
+                                        .fill(messageText.isEmpty ? Color.gray : Color.tasukiPrimaryButtonFill)
                                 )
                         }
                         .disabled(messageText.isEmpty)
@@ -1299,12 +1626,12 @@ struct TeamChatSheetView: View {
                     
                     Text(message.content)
                         .font(.system(size: 15, weight: .regular))
-                        .foregroundColor(isFromMe ? .white : Color.tasukiPrimary)
+                        .foregroundColor(isFromMe ? Color.tasukiOnBrandYellow : Color.tasukiPrimary)
                         .padding(.horizontal, 14)
                         .padding(.vertical, 10)
                         .background(
                             RoundedRectangle(cornerRadius: 18)
-                                .fill(isFromMe ? Color.tasukiAccentOrange : Color.tasukiDarkCard)
+                                .fill(isFromMe ? Color.tasukiPrimaryButtonFill : Color.tasukiDarkCard)
                         )
                 }
                 .frame(maxWidth: UIScreen.main.bounds.width * 0.7, alignment: isFromMe ? .trailing : .leading)

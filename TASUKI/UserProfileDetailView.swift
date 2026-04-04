@@ -89,12 +89,12 @@ struct UserProfileDetailView: View {
                         Text(user.rank)
                             .font(.caption)
                             .fontWeight(.semibold)
-                            .foregroundColor(.white)
+                            .foregroundColor(Color.tasukiOnBrandYellow)
                             .padding(.horizontal, 12)
                             .padding(.vertical, 6)
                             .background(
                                 RoundedRectangle(cornerRadius: 12)
-                                    .fill(Color.tasukiPrimary)
+                                    .fill(Color.tasukiPrimaryButtonFill)
                             )
                         
                         // Purposeタグ
@@ -262,10 +262,10 @@ struct UserProfileDetailView: View {
                 Text("マッチングのリクエストを送る")
                     .font(.headline)
                     .fontWeight(.bold)
-                    .foregroundColor(.white)
+                    .foregroundColor(Color.tasukiOnBrandYellow)
                     .frame(maxWidth: .infinity)
                     .padding()
-                    .background(Color.tasukiPrimary)
+                    .background(Color.tasukiPrimaryButtonFill)
                     .cornerRadius(30)
                     .shadow(color: Color.black.opacity(0.2), radius: 10, x: 0, y: 5)
             }

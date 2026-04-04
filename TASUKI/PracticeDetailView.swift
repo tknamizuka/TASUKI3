@@ -170,11 +170,11 @@ struct PracticeDetailView: View {
                                     
                                     Text(message.text)
                                         .font(.system(size: 14))
-                                        .foregroundColor(message.isMe ? .white : Color.tasukiPrimary)
+                                        .foregroundColor(message.isMe ? Color.tasukiOnBrandYellow : Color.tasukiPrimary)
                                         .padding(10)
                                         .background(
                                             RoundedRectangle(cornerRadius: 12)
-                                                .fill(message.isMe ? Color.tasukiPrimary : Color.tasukiDarkCardSecondary)
+                                                .fill(message.isMe ? Color.tasukiPrimaryButtonFill : Color.tasukiDarkCardSecondary)
                                         )
                                 }
                                 .frame(maxWidth: .infinity, alignment: message.isMe ? .trailing : .leading)
@@ -245,10 +245,10 @@ struct PracticeDetailView: View {
                 Text(practice.isJoined ? "参加をキャンセル" : "参加する")
                     .font(.headline)
                     .fontWeight(.bold)
-                    .foregroundColor(practice.isJoined ? .gray : .white)
+                    .foregroundColor(practice.isJoined ? .gray : Color.tasukiOnBrandYellow)
                     .frame(maxWidth: .infinity)
                     .padding()
-                    .background(practice.isJoined ? Color.white : Color.tasukiPrimary)
+                    .background(practice.isJoined ? Color.white : Color.tasukiPrimaryButtonFill)
                     .cornerRadius(30)
                     .shadow(color: practice.isJoined ? .clear : .black.opacity(0.2), radius: 10, x: 0, y: 5)
                     .overlay(

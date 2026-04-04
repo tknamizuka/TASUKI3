@@ -97,10 +97,10 @@ struct CoachView: View {
                 }) {
                     Image(systemName: "plus.circle.fill")
                         .font(.system(size: 56, weight: .regular))
-                        .foregroundColor(.white)
+                        .foregroundColor(Color.tasukiOnBrandYellow)
                         .background(
                             Circle()
-                                .fill(Color.tasukiAccentOrange)
+                                .fill(Color.tasukiPrimaryButtonFill)
                                 .frame(width: 56, height: 56)
                         )
                 }
@@ -215,12 +215,12 @@ struct CoachView: View {
             HStack {
                 Text(item.category)
                     .font(.system(size: 12, weight: .semibold))
-                    .foregroundColor(.white)
+                    .foregroundColor(Color.tasukiOnBrandYellow)
                     .padding(.horizontal, 10)
                     .padding(.vertical, 4)
                     .background(
                         Capsule()
-                            .fill(Color.tasukiAccentOrange)
+                            .fill(Color.tasukiPrimaryButtonFill)
                     )
                 if isSample {
                     Text("サンプル")
