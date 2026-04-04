@@ -24,7 +24,7 @@ struct CoachView: View {
                 Color.tasukiDarkBackground
                     .ignoresSafeArea()
                 
-                ScrollView {
+                ScrollView(showsIndicators: false) {
                     VStack(spacing: 0) {
                         // ヘッダー
                         headerView
@@ -33,7 +33,11 @@ struct CoachView: View {
                             .padding(.bottom, 20)
 
                         NavigationLink(destination: WeeklyReflectionView()) {
-                            weeklyReflectionShortcutRow
+                            TasukiFlatHubRow(
+                                title: "今週の振り返り",
+                                subtitle: "回数・休息も含めて振り返る",
+                                systemImage: "calendar.badge.clock"
+                            )
                         }
                         .buttonStyle(.plain)
                         .padding(.horizontal, 20)
@@ -90,6 +94,13 @@ struct CoachView: View {
             }
             .navigationTitle("")
             .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .principal) {
+                    Text("Coach")
+                        .font(.system(size: 19, weight: .bold))
+                        .foregroundColor(Color.tasukiPrimary)
+                }
+            }
             .overlay(alignment: .bottomTrailing) {
                 // 質問ボタン（フローティング）
                 Button(action: {
@@ -131,33 +142,6 @@ struct CoachView: View {
         }
     }
     
-    private var weeklyReflectionShortcutRow: some View {
-        HStack(spacing: 10) {
-            Image(systemName: "calendar.badge.clock")
-                .font(.system(size: 18, weight: .semibold))
-                .foregroundColor(Color.tasukiAccent)
-                .frame(width: 30)
-            VStack(alignment: .leading, spacing: 2) {
-                Text("今週の振り返り")
-                    .font(.system(size: 13, weight: .bold))
-                    .foregroundColor(Color.tasukiPrimary)
-                Text("回数・休息も含めて振り返る")
-                    .font(.caption)
-                    .foregroundColor(Color.tasukiMutedText)
-            }
-            Spacer()
-            Image(systemName: "chevron.right")
-                .font(.caption)
-                .foregroundColor(Color.tasukiMutedText)
-        }
-        .padding(14)
-        .background(
-            RoundedRectangle(cornerRadius: 16)
-                .fill(Color.white)
-                .shadow(color: Color.black.opacity(0.06), radius: 8, x: 0, y: 3)
-        )
-    }
-
     // MARK: - Header View
     private var headerView: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -188,8 +172,7 @@ struct CoachView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(
                 RoundedRectangle(cornerRadius: 14)
-                    .fill(Color.tasukiDarkCard)
-                    .shadow(color: Color.black.opacity(0.06), radius: 8, x: 0, y: 3)
+                    .fill(Color.tasukiDarkCardSecondary)
             )
         }
     }

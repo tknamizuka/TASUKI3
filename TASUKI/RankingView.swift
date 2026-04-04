@@ -107,8 +107,15 @@ struct RankingView: View {
                 teamRankingList
             }
         }
-        .navigationTitle("ランキング")
+        .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .principal) {
+                Text("ランキング")
+                    .font(.system(size: 19, weight: .bold))
+                    .foregroundColor(Color.tasukiPrimary)
+            }
+        }
         .background(Color.tasukiDarkBackground)
         .onAppear(perform: fetchRemoteRankingIfPossible)
     }
@@ -178,7 +185,7 @@ struct RankingView: View {
                     }
                     Text(user.prefecture)
                         .font(.system(size: 12))
-                        .foregroundColor(.gray)
+                        .foregroundColor(Color.tasukiMutedText)
                 }
                 
                 Spacer()
@@ -190,7 +197,7 @@ struct RankingView: View {
                         .foregroundColor(Color.tasukiPrimary)
                     Text(period == .total ? "累計pt" : "月間pt")
                         .font(.system(size: 10))
-                        .foregroundColor(.gray)
+                        .foregroundColor(Color.tasukiMutedText)
                 }
             }
             .padding(.vertical, 4)
@@ -249,7 +256,7 @@ struct RankingView: View {
                     }
                     Text("\(team.prefecture) / \(team.memberCount)名")
                         .font(.system(size: 12))
-                        .foregroundColor(.gray)
+                        .foregroundColor(Color.tasukiMutedText)
                 }
                 
                 Spacer()
@@ -261,7 +268,7 @@ struct RankingView: View {
                         .foregroundColor(Color.tasukiPrimary)
                     Text(period == .total ? "累計pt" : "月間pt")
                         .font(.system(size: 10))
-                        .foregroundColor(.gray)
+                        .foregroundColor(Color.tasukiMutedText)
                 }
             }
             .padding(.vertical, 4)

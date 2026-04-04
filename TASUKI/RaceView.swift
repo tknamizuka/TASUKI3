@@ -22,50 +22,73 @@ struct RaceEntryView: View {
     
     var body: some View {
         NavigationStack {
-            VStack(spacing: 32) {
-                Text("対戦する距離を選んでください")
-                    .font(.headline)
-                    .foregroundColor(Color.tasukiPrimary)
+            ZStack {
+                Color.tasukiDarkBackground
+                    .ignoresSafeArea()
                 
-                ForEach(LiveRaceCategory.allCases) { cat in
-                    Button(action: {
-                        selectedCategory = cat
-                        startMatching()
-                    }) {
-                        HStack {
-                            Text(cat.displayName)
-                                .font(.title2)
-                                .fontWeight(.semibold)
-                                .foregroundColor(Color.tasukiPrimary)
-                            Spacer()
-                            Image(systemName: "chevron.right")
-                                .foregroundColor(.gray)
+                ScrollView(showsIndicators: false) {
+                    VStack(spacing: 0) {
+                        Text("LIVE RACE")
+                            .font(.system(size: 11, weight: .bold))
+                            .tracking(1.2)
+                            .foregroundColor(Color.tasukiMutedText)
+                            .multilineTextAlignment(.center)
+                            .frame(maxWidth: .infinity)
+                            .padding(.top, 8)
+                            .padding(.bottom, 8)
+                        
+                        Text("対戦する距離を選んでください")
+                            .font(.system(size: 15, weight: .semibold))
+                            .foregroundColor(Color.tasukiPrimary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.horizontal, 20)
+                            .padding(.bottom, 12)
+                        
+                        VStack(spacing: 0) {
+                            ForEach(LiveRaceCategory.allCases) { cat in
+                                Button(action: {
+                                    selectedCategory = cat
+                                    startMatching()
+                                }) {
+                                    TasukiFlatHubRow(
+                                        title: raceHubTitle(cat),
+                                        subtitle: "同時スタートでタイムを競う · タップでマッチング",
+                                        systemImage: "flag.checkered.2.crossed"
+                                    )
+                                }
+                                .buttonStyle(.plain)
+                                .disabled(isMatching)
+                                .opacity(isMatching && selectedCategory != cat ? 0.5 : 1)
+                            }
                         }
-                        .padding()
-                        .background(
-                            RoundedRectangle(cornerRadius: 12)
-                                .fill(selectedCategory == cat ? Color.tasukiAccent.opacity(0.15) : Color.tasukiDarkCardSecondary)
-                        )
+                        .padding(.horizontal, 20)
+                        
+                        if isMatching {
+                            ProgressView("マッチング中...")
+                                .padding(.top, 20)
+                        }
+                        if let err = matchError {
+                            Text(err)
+                                .font(.caption)
+                                .foregroundColor(Color.tasukiDanger)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(.horizontal, 20)
+                                .padding(.top, 8)
+                        }
+                        
+                        Spacer(minLength: 24)
                     }
-                    .disabled(isMatching)
+                    .padding(.bottom, 24)
                 }
-                
-                if isMatching {
-                    ProgressView("マッチング中...")
-                        .padding()
-                }
-                if let err = matchError {
-                    Text(err)
-                        .font(.caption)
-                        .foregroundColor(.red)
-                }
-                
-                Spacer()
             }
-            .padding()
-            .navigationTitle("対戦")
+            .navigationTitle("")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
+                ToolbarItem(placement: .principal) {
+                    Text("対戦")
+                        .font(.system(size: 19, weight: .bold))
+                        .foregroundColor(Color.tasukiPrimary)
+                }
                 ToolbarItem(placement: .navigationBarLeading) {
                     Button("閉じる") { dismiss() }
                         .foregroundColor(Color.tasukiPrimary)
@@ -77,6 +100,14 @@ struct RaceEntryView: View {
         }
         .onAppear {
             matchError = nil
+        }
+    }
+    
+    private func raceHubTitle(_ cat: LiveRaceCategory) -> String {
+        switch cat {
+        case .fiveK: return "5KM"
+        case .tenK: return "10KM"
+        case .half: return "ハーフ"
         }
     }
     
@@ -126,6 +157,7 @@ struct RaceLobbyView: View {
                 lobbyContent(race: raceManager.currentRace)
             }
         }
+        .background(Color.tasukiDarkBackground.ignoresSafeArea())
         .onAppear {
             raceManager.startListening(raceId: raceId)
             if let start = raceManager.currentRace?.startTime, Date() >= start {
@@ -155,17 +187,23 @@ struct RaceLobbyView: View {
                     .foregroundColor(Color.tasukiPrimary)
                 Text("\(race.targetDistanceKm) km でタイムを競います")
                     .font(.subheadline)
-                    .foregroundColor(.gray)
+                    .foregroundColor(Color.tasukiMutedText)
             }
             
             List(raceManager.participants) { p in
                 HStack {
                     Text(p.name)
-                    if let r = p.rank, !r.isEmpty { Text(r).font(.caption).foregroundColor(.gray) }
+                        .foregroundColor(Color.tasukiPrimary)
+                    if let r = p.rank, !r.isEmpty {
+                        Text(r).font(.caption).foregroundColor(Color.tasukiMutedText)
+                    }
                     Spacer()
                 }
+                .listRowBackground(Color.tasukiDarkCardSecondary.opacity(0.35))
             }
             .frame(maxHeight: 200)
+            .listStyle(.plain)
+            .scrollContentBackground(.hidden)
             
             if isHost && race?.status == .waiting {
                 Button(action: {
@@ -182,24 +220,29 @@ struct RaceLobbyView: View {
                 .padding(.horizontal)
             }
             
-            if race?.status == .starting, let start = race?.startTime {
+            if race?.status == .starting, race?.startTime != nil {
                 Text("まもなくスタート...")
-                    .foregroundColor(.gray)
+                    .foregroundColor(Color.tasukiMutedText)
             }
             
             Spacer()
         }
         .padding()
-        .navigationTitle("ロビー")
+        .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
         .navigationBarBackButtonHidden(true)
         .toolbar {
+            ToolbarItem(placement: .principal) {
+                Text("ロビー")
+                    .font(.system(size: 19, weight: .bold))
+                    .foregroundColor(Color.tasukiPrimary)
+            }
             ToolbarItem(placement: .navigationBarLeading) {
                 Button("退出") {
                     raceManager.stopListening()
                     dismiss()
                 }
-                .foregroundColor(.red)
+                .foregroundColor(Color.tasukiDanger)
             }
         }
     }
@@ -208,7 +251,7 @@ struct RaceLobbyView: View {
         VStack(spacing: 24) {
             Text("スタートまで")
                 .font(.headline)
-                .foregroundColor(.gray)
+                .foregroundColor(Color.tasukiMutedText)
             if let c = countdown, c > 0 {
                 Text("\(c)")
                     .font(.system(size: 72, weight: .bold))
@@ -221,6 +264,23 @@ struct RaceLobbyView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onAppear { startCountdown(until: start) }
+        .navigationTitle("")
+        .navigationBarTitleDisplayMode(.inline)
+        .navigationBarBackButtonHidden(true)
+        .toolbar {
+            ToolbarItem(placement: .principal) {
+                Text("カウントダウン")
+                    .font(.system(size: 19, weight: .bold))
+                    .foregroundColor(Color.tasukiPrimary)
+            }
+            ToolbarItem(placement: .navigationBarLeading) {
+                Button("退出") {
+                    raceManager.stopListening()
+                    dismiss()
+                }
+                .foregroundColor(Color.tasukiDanger)
+            }
+        }
     }
     
     private func startCountdown(until start: Date) {
@@ -272,6 +332,8 @@ struct RaceRunningView: View {
                 ProgressView()
             }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color.tasukiDarkBackground.ignoresSafeArea())
         .onAppear {
             raceManager.startListening(raceId: raceId)
             runTracker.start()
@@ -289,75 +351,98 @@ struct RaceRunningView: View {
     }
     
     private func runningContent(race: Race) -> some View {
-        VStack(spacing: 20) {
-            Text(race.category?.displayName ?? race.distanceCategory)
-                .font(.title2)
-                .fontWeight(.bold)
-                .foregroundColor(Color.tasukiPrimary)
-            
-            Text(formatElapsed(elapsedSeconds))
-                .font(.system(size: 48, weight: .bold, design: .monospaced))
-                .foregroundColor(Color.tasukiPrimary)
-            
-            HStack(spacing: 32) {
-                VStack {
-                    Text(String(format: "%.2f", runTracker.distanceKm))
-                        .font(.title2.bold())
-                    Text("km")
-                        .font(.caption)
-                        .foregroundColor(.gray)
-                }
-                Text("/")
-                VStack {
-                    Text(String(format: "%.1f", targetKm))
-                        .font(.title2.bold())
-                    Text("km")
-                        .font(.caption)
-                        .foregroundColor(.gray)
-                }
-            }
-            
-            if runTracker.distanceKm >= targetKm && !hasSubmittedFinish {
-                Button(action: submitFinish) {
-                    Text("ゴールする")
-                        .fontWeight(.semibold)
-                        .foregroundColor(Color.tasukiOnBrandYellow)
-                        .frame(maxWidth: .infinity)
-                        .padding()
-                        .background(Color.tasukiPrimaryButtonFill)
-                        .cornerRadius(12)
-                }
-                .padding(.horizontal, 40)
-            } else {
-                Button(action: submitFinish) {
-                    Text("ゴールする（距離に達していなくても記録）")
-                        .font(.subheadline)
-                        .foregroundColor(Color.tasukiAccent)
-                }
-            }
-            
-            Divider()
-            Text("参加者")
-                .font(.headline)
-                .frame(maxWidth: .infinity, alignment: .leading)
-            List(raceManager.participants.sorted { ($0.finishTimeSeconds ?? .infinity) < ($1.finishTimeSeconds ?? .infinity) }) { p in
-                HStack {
-                    Text(p.name)
-                    Spacer()
-                    if let t = p.finishTimeSeconds {
-                        Text(formatElapsed(t))
-                            .font(.caption.monospacedDigit())
-                            .foregroundColor(.green)
-                    } else {
-                        Text(String(format: "%.2f km", p.currentDistanceKm))
+        ScrollView(showsIndicators: false) {
+            VStack(spacing: 20) {
+                Text(race.category?.displayName ?? race.distanceCategory)
+                    .font(.title2)
+                    .fontWeight(.bold)
+                    .foregroundColor(Color.tasukiPrimary)
+                
+                Text(formatElapsed(elapsedSeconds))
+                    .font(.system(size: 48, weight: .bold, design: .monospaced))
+                    .foregroundColor(Color.tasukiPrimary)
+                
+                HStack(spacing: 32) {
+                    VStack {
+                        Text(String(format: "%.2f", runTracker.distanceKm))
+                            .font(.title2.bold())
+                            .foregroundColor(Color.tasukiPrimary)
+                        Text("km")
                             .font(.caption)
-                            .foregroundColor(.gray)
+                            .foregroundColor(Color.tasukiMutedText)
+                    }
+                    Text("/")
+                        .foregroundColor(Color.tasukiMutedText)
+                    VStack {
+                        Text(String(format: "%.1f", targetKm))
+                            .font(.title2.bold())
+                            .foregroundColor(Color.tasukiPrimary)
+                        Text("km")
+                            .font(.caption)
+                            .foregroundColor(Color.tasukiMutedText)
                     }
                 }
+                
+                if runTracker.distanceKm >= targetKm && !hasSubmittedFinish {
+                    Button(action: submitFinish) {
+                        Text("ゴールする")
+                            .fontWeight(.semibold)
+                            .foregroundColor(Color.tasukiOnBrandYellow)
+                            .frame(maxWidth: .infinity)
+                            .padding()
+                            .background(Color.tasukiPrimaryButtonFill)
+                            .cornerRadius(12)
+                    }
+                    .padding(.horizontal, 40)
+                } else {
+                    Button(action: submitFinish) {
+                        Text("ゴールする（距離に達していなくても記録）")
+                            .font(.subheadline)
+                            .foregroundColor(Color.tasukiAccent)
+                    }
+                }
+                
+                Divider()
+                    .background(Color.tasukiDarkCardSecondary)
+                Text("参加者")
+                    .font(.system(size: 11, weight: .bold))
+                    .tracking(1.2)
+                    .foregroundColor(Color.tasukiMutedText)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                
+                List(raceManager.participants.sorted { ($0.finishTimeSeconds ?? .infinity) < ($1.finishTimeSeconds ?? .infinity) }) { p in
+                    HStack {
+                        Text(p.name)
+                            .foregroundColor(Color.tasukiPrimary)
+                        Spacer()
+                        if let t = p.finishTimeSeconds {
+                            Text(formatElapsed(t))
+                                .font(.caption.monospacedDigit())
+                                .foregroundColor(.green)
+                        } else {
+                            Text(String(format: "%.2f km", p.currentDistanceKm))
+                                .font(.caption)
+                                .foregroundColor(Color.tasukiMutedText)
+                        }
+                    }
+                    .listRowBackground(Color.tasukiDarkCardSecondary.opacity(0.35))
+                }
+                .frame(minHeight: 120, maxHeight: 220)
+                .listStyle(.plain)
+                .scrollContentBackground(.hidden)
             }
-            .frame(maxHeight: 200)
+            .padding()
         }
-        .padding()
+        .navigationTitle("")
+        .navigationBarTitleDisplayMode(.inline)
+        .navigationBarBackButtonHidden(true)
+        .toolbar {
+            ToolbarItem(placement: .principal) {
+                Text("走行中")
+                    .font(.system(size: 19, weight: .bold))
+                    .foregroundColor(Color.tasukiPrimary)
+            }
+        }
     }
     
     private func startElapsedTimer() {
@@ -406,6 +491,11 @@ struct RaceResultsView: View {
     
     var body: some View {
         VStack(spacing: 24) {
+            Text("RACE RESULT")
+                .font(.system(size: 11, weight: .bold))
+                .tracking(1.2)
+                .foregroundColor(Color.tasukiMutedText)
+            
             Text("結果")
                 .font(.title)
                 .fontWeight(.bold)
@@ -415,8 +505,10 @@ struct RaceResultsView: View {
                 HStack {
                     Text("\(index + 1)")
                         .font(.title2.bold())
+                        .foregroundColor(Color.tasukiPrimary)
                         .frame(width: 32)
                     Text(p.name)
+                        .foregroundColor(Color.tasukiPrimary)
                     Spacer()
                     if let t = p.finishTimeSeconds {
                         Text(formatTime(t))
@@ -424,7 +516,10 @@ struct RaceResultsView: View {
                             .foregroundColor(Color.tasukiPrimary)
                     }
                 }
+                .listRowBackground(Color.tasukiDarkCardSecondary.opacity(0.35))
             }
+            .listStyle(.plain)
+            .scrollContentBackground(.hidden)
             
             Button(action: {
                 raceManager.stopListening()
@@ -441,6 +536,15 @@ struct RaceResultsView: View {
             .padding()
         }
         .padding()
+        .navigationTitle("")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .principal) {
+                Text("結果")
+                    .font(.system(size: 19, weight: .bold))
+                    .foregroundColor(Color.tasukiPrimary)
+            }
+        }
         .onAppear {
             raceManager.startListening(raceId: raceId)
             let participants = ranked.map { (id: $0.id, name: $0.name) }
@@ -463,7 +567,6 @@ struct RaceResultsView: View {
     }
 }
 
-// MARK: - Previews
 #Preview("対戦エントリ") {
     RaceEntryView()
 }

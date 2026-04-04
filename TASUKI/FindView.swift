@@ -543,7 +543,7 @@ struct FindView: View {
                         Text("Practices").tag("Practices")
                     }
                     .pickerStyle(.segmented)
-                    .padding(.horizontal, 16)
+                    .padding(.horizontal, 20)
                     .padding(.top, 12)
                     
                     // 2. 検索バーエリア（タップでフィルターシートを開く。検索窓はシート内にあり）
@@ -555,7 +555,7 @@ struct FindView: View {
                             
                             Text(searchText.isEmpty ? "検索..." : searchText)
                                 .font(.system(size: 16))
-                                .foregroundColor(searchText.isEmpty ? Color.tasukiMutedText : .white)
+                                .foregroundColor(searchText.isEmpty ? Color.tasukiMutedText : Color.tasukiPrimary)
                                 .lineLimit(1)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .padding(.vertical, 12)
@@ -567,10 +567,10 @@ struct FindView: View {
                         )
                     }
                     .buttonStyle(.plain)
-                    .padding(.horizontal, 16)
+                    .padding(.horizontal, 20)
                     
                     // 5. リスト表示エリア
-                    ScrollView {
+                    ScrollView(showsIndicators: false) {
                         LazyVStack(spacing: 12) {
                             if selectedMode == "Runners" {
                                 // Runnersモード: 自分のプロフィールに近い同性のユーザー（サンプル）をおすすめ順で表示
@@ -598,15 +598,20 @@ struct FindView: View {
                                 }
                             }
                         }
-                        .padding(.horizontal, 16)
+                        .padding(.horizontal, 20)
                         // Practices: FAB（下パディング88＋直径56）の上に最終行が載るよう余白確保
                         .padding(.bottom, selectedMode == "Practices" ? 168 : 100)
                     }
                 }
             }
-            .navigationTitle("Find")
-            .navigationBarTitleDisplayMode(.large)
+            .navigationTitle("")
+            .navigationBarTitleDisplayMode(.inline)
             .toolbar {
+                ToolbarItem(placement: .principal) {
+                    Text("Find")
+                        .font(.system(size: 19, weight: .bold))
+                        .foregroundColor(Color.tasukiPrimary)
+                }
                 ToolbarItem(placement: .navigationBarTrailing) {
                     if selectedMode == "Runners" {
                         Menu {

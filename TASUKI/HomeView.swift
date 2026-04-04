@@ -183,17 +183,17 @@ struct HomeView: View {
 
                     VStack(spacing: 0) {
                         NavigationLink(destination: CoachView()) {
-                            quickActionRow(title: "COACH", subtitle: "パーソナルコーチ", icon: "graduationcap.fill")
+                            TasukiFlatHubRow(title: "COACH", subtitle: "パーソナルコーチ", systemImage: "graduationcap.fill")
                         }
                         .buttonStyle(.plain)
 
                         NavigationLink(destination: RunRecordingView()) {
-                            quickActionRow(title: "RUN", subtitle: "記録を開始", icon: "figure.run")
+                            TasukiFlatHubRow(title: "RUN", subtitle: "記録を開始", systemImage: "figure.run")
                         }
                         .buttonStyle(.plain)
 
                         NavigationLink(destination: ChallengeHubView()) {
-                            quickActionRow(title: "CHALLENGE", subtitle: "進捗は参考", icon: "flag.checkered.2.crossed")
+                            TasukiFlatHubRow(title: "CHALLENGE", subtitle: "進捗は参考", systemImage: "flag.checkered.2.crossed")
                         }
                         .buttonStyle(.plain)
                     }
@@ -201,7 +201,14 @@ struct HomeView: View {
 
                     if !reduceRankingPressure {
                         NavigationLink(destination: RankingView()) {
-                            rankingShortcutRow
+                            TasukiFlatHubRow(
+                                title: "RANKING",
+                                subtitle: "総合ランキング · 現在 \(myRank) · 同ランク内 \(sameRankPosition)/\(sameRankTotal)（参考）",
+                                systemImage: "crown.fill",
+                                iconFontSize: 20,
+                                hStackSpacing: 12,
+                                titleSubtitleSpacing: 4
+                            )
                         }
                         .buttonStyle(.plain)
                         .padding(.horizontal, 20)
@@ -276,55 +283,6 @@ struct HomeView: View {
         }
     }
 
-    private func quickActionRow(title: String, subtitle: String, icon: String) -> some View {
-        HStack(alignment: .center, spacing: 14) {
-            Image(systemName: icon)
-                .font(.system(size: 22, weight: .semibold))
-                .foregroundColor(.black)
-                .frame(width: 32)
-            VStack(alignment: .leading, spacing: 3) {
-                Text(title)
-                    .font(.system(size: 14, weight: .bold))
-                    .foregroundColor(.black)
-                Text(subtitle)
-                    .font(.system(size: 12))
-                    .foregroundColor(Color.tasukiMutedText)
-            }
-            Spacer(minLength: 0)
-            Image(systemName: "chevron.right")
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundColor(Color.tasukiMutedText.opacity(0.7))
-        }
-        .padding(.vertical, 14)
-        .padding(.horizontal, 8)
-        .contentShape(Rectangle())
-    }
-
-    private var rankingShortcutRow: some View {
-        HStack(spacing: 12) {
-            Image(systemName: "crown.fill")
-                .font(.system(size: 20, weight: .semibold))
-                .foregroundColor(.black)
-                .frame(width: 32)
-            VStack(alignment: .leading, spacing: 4) {
-                Text("RANKING")
-                    .font(.system(size: 14, weight: .bold))
-                    .foregroundColor(.black)
-                Text("総合ランキング · 現在 \(myRank) · 同ランク内 \(sameRankPosition)/\(sameRankTotal)（参考）")
-                    .font(.system(size: 12))
-                    .foregroundColor(Color.tasukiMutedText)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            Spacer(minLength: 0)
-            Image(systemName: "chevron.right")
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundColor(Color.tasukiMutedText.opacity(0.7))
-        }
-        .padding(.vertical, 14)
-        .padding(.horizontal, 8)
-        .contentShape(Rectangle())
-    }
-    
     private func loadDistanceFromHealthKit() {
         HealthKitManager.shared.requestAuthorization { success, error in
             if !success {

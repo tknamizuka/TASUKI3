@@ -13,7 +13,7 @@ struct UserProfileDetailView: View {
     }
     
     var body: some View {
-        ScrollView {
+        ScrollView(showsIndicators: false) {
             VStack(spacing: 20) {
                 // ヘッダーエリア
                 VStack(spacing: 12) {
@@ -62,7 +62,7 @@ struct UserProfileDetailView: View {
                     // 年齢・性別
                     Text("\(user.age)歳 / \(user.gender)")
                         .font(.subheadline)
-                        .foregroundColor(.gray)
+                        .foregroundColor(Color.tasukiMutedText)
                     
                     // マッチ度バッジ
                     HStack(spacing: 6) {
@@ -165,7 +165,7 @@ struct UserProfileDetailView: View {
                     VStack(alignment: .leading, spacing: 8) {
                         Text("Avg Pace")
                             .font(.caption)
-                            .foregroundColor(.gray)
+                            .foregroundColor(Color.tasukiMutedText)
                         Text(user.avgPace)
                             .font(.system(size: 32, weight: .bold))
                             .foregroundColor(Color.tasukiPrimary)
@@ -174,8 +174,7 @@ struct UserProfileDetailView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .background(
                         RoundedRectangle(cornerRadius: 16)
-                            .fill(Color.white)
-                            .shadow(color: Color.black.opacity(0.05), radius: 5, x: 0, y: 2)
+                            .fill(Color.tasukiDarkCardSecondary)
                     )
                     .padding(.horizontal, 20)
                     
@@ -184,7 +183,7 @@ struct UserProfileDetailView: View {
                         HStack {
                             Text("Monthly Dist")
                                 .font(.caption)
-                                .foregroundColor(.gray)
+                                .foregroundColor(Color.tasukiMutedText)
                             Spacer()
                             Text("\(Int(user.monthlyDistance))km / \(Int(user.monthlyTarget))km (\(Int(monthlyProgress * 100))%)")
                                 .font(.caption)
@@ -212,8 +211,7 @@ struct UserProfileDetailView: View {
                     .padding(20)
                     .background(
                         RoundedRectangle(cornerRadius: 16)
-                            .fill(Color.white)
-                            .shadow(color: Color.black.opacity(0.05), radius: 5, x: 0, y: 2)
+                            .fill(Color.tasukiDarkCardSecondary)
                     )
                     .padding(.horizontal, 20)
                 }
@@ -233,8 +231,7 @@ struct UserProfileDetailView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .background(
                     RoundedRectangle(cornerRadius: 16)
-                        .fill(Color.white)
-                        .shadow(color: Color.black.opacity(0.05), radius: 5, x: 0, y: 2)
+                        .fill(Color.tasukiDarkCardSecondary)
                 )
                 .padding(.horizontal, 20)
                 
@@ -267,11 +264,10 @@ struct UserProfileDetailView: View {
                     .padding()
                     .background(Color.tasukiPrimaryButtonFill)
                     .cornerRadius(30)
-                    .shadow(color: Color.black.opacity(0.2), radius: 10, x: 0, y: 5)
             }
             .padding()
             .background(
-                LinearGradient(colors: [.white.opacity(0), .white], startPoint: .top, endPoint: .bottom)
+                LinearGradient(colors: [Color.tasukiDarkBackground.opacity(0), Color.tasukiDarkBackground], startPoint: .top, endPoint: .bottom)
                     .frame(height: 100)
             )
         }
@@ -303,7 +299,7 @@ struct UserProfileDetailView: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text(title)
                     .font(.caption)
-                    .foregroundColor(.gray)
+                    .foregroundColor(Color.tasukiMutedText)
                 Text(value)
                     .font(.body)
                     .fontWeight(.semibold)
@@ -315,8 +311,7 @@ struct UserProfileDetailView: View {
         .padding(20)
         .background(
             RoundedRectangle(cornerRadius: 16)
-                .fill(Color.white)
-                .shadow(color: Color.black.opacity(0.05), radius: 5, x: 0, y: 2)
+                .fill(Color.tasukiDarkCardSecondary)
         )
     }
 }

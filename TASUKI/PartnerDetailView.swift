@@ -42,11 +42,10 @@ struct PartnerDetailView: View {
     
     var body: some View {
         ZStack {
-            // 背景色: White
-            Color.white
+            Color.tasukiDarkBackground
                 .ignoresSafeArea()
             
-            ScrollView {
+            ScrollView(showsIndicators: false) {
                 VStack(spacing: 24) {
                     // 閉じるボタン（左上）
                     HStack {
@@ -394,8 +393,7 @@ struct PartnerDetailView: View {
         .padding(16)
         .background(
             RoundedRectangle(cornerRadius: 12)
-                .fill(Color.white)
-                .shadow(color: Color.black.opacity(0.05), radius: 4, x: 0, y: 2)
+                .fill(Color.tasukiDarkCardSecondary)
         )
     }
     
@@ -415,8 +413,7 @@ struct PartnerDetailView: View {
         .padding(16)
         .background(
             RoundedRectangle(cornerRadius: 12)
-                .fill(Color.white)
-                .shadow(color: Color.black.opacity(0.05), radius: 2, x: 0, y: 1)
+                .fill(Color.tasukiDarkCardSecondary)
         )
     }
 }

@@ -397,8 +397,7 @@ struct PartnerView: View {
     var body: some View {
         NavigationStack {
             ZStack {
-                // 背景色: White
-                Color.white
+                Color.tasukiDarkBackground
                     .ignoresSafeArea()
                 
                 VStack(spacing: 0) {
@@ -447,7 +446,7 @@ struct PartnerView: View {
                     .padding(.top, 12)
                     .padding(.bottom, 16)
                 
-                ScrollView {
+                ScrollView(showsIndicators: false) {
                     VStack(spacing: 12) {
                             ForEach(filteredUsers) { user in
                             NavigationLink(destination: PartnerDetailView(user: user.toUser())) {
@@ -461,8 +460,15 @@ struct PartnerView: View {
                     }
                 }
             }
-            .navigationTitle("パートナーを探す")
-            .navigationBarTitleDisplayMode(.large)
+            .navigationTitle("")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .principal) {
+                    Text("パートナーを探す")
+                        .font(.system(size: 19, weight: .bold))
+                        .foregroundColor(Color.tasukiPrimary)
+                }
+            }
             .sheet(isPresented: $showFilterSheet) {
                 FilterView(
                     searchMode: searchMode,
@@ -548,8 +554,7 @@ struct PartnerView: View {
         .padding(.vertical, 16)
         .background(
             RoundedRectangle(cornerRadius: 12)
-                .fill(Color.white)
-                .shadow(color: Color.black.opacity(0.05), radius: 2, x: 0, y: 1)
+                .fill(Color.tasukiDarkCardSecondary)
         )
     }
 }

@@ -105,6 +105,44 @@ struct TasukiBrandOutlinedSymbol: View {
     }
 }
 
+/// Home / SoloRunHub と同じフラットハブ行（白カード・影なし）。
+struct TasukiFlatHubRow: View {
+    let title: String
+    let subtitle: String
+    let systemImage: String
+    var iconFontSize: CGFloat = 22
+    var hStackSpacing: CGFloat = 14
+    var titleSubtitleSpacing: CGFloat = 3
+    var showChevron: Bool = true
+
+    var body: some View {
+        HStack(alignment: .center, spacing: hStackSpacing) {
+            Image(systemName: systemImage)
+                .font(.system(size: iconFontSize, weight: .semibold))
+                .foregroundColor(.black)
+                .frame(width: 32)
+            VStack(alignment: .leading, spacing: titleSubtitleSpacing) {
+                Text(title)
+                    .font(.system(size: 14, weight: .bold))
+                    .foregroundColor(.black)
+                Text(subtitle)
+                    .font(.system(size: 12))
+                    .foregroundColor(Color.tasukiMutedText)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 0)
+            if showChevron {
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundColor(Color.tasukiMutedText.opacity(0.7))
+            }
+        }
+        .padding(.vertical, 14)
+        .padding(.horizontal, 8)
+        .contentShape(Rectangle())
+    }
+}
+
 extension View {
     func tasukiCard(corner: CGFloat = TasukiUI.cardCorner) -> some View {
         self
@@ -113,6 +151,16 @@ extension View {
                 RoundedRectangle(cornerRadius: corner)
                     .fill(Color.tasukiSurface)
                     .shadow(color: Color.tasukiMutedText.opacity(0.12), radius: 8, x: 0, y: 3)
+            )
+    }
+
+    /// Home 相当のフラット区画（影なし・薄い沈み色）
+    func tasukiFlatCard(corner: CGFloat = TasukiUI.cardCorner) -> some View {
+        self
+            .padding(TasukiUI.cardPadding)
+            .background(
+                RoundedRectangle(cornerRadius: corner)
+                    .fill(Color.tasukiDarkCardSecondary)
             )
     }
 }

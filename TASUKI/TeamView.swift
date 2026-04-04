@@ -143,8 +143,6 @@ struct TeamView: View {
     
     /// メインタブバーとの干渉を緩和する ScrollView 下端の余白
     private let scrollContentBottomPadding: CGFloat = 80
-    /// 右上チャット FAB とカード内の順位・pt 表示が重ならないように確保する幅
-    private let teamViewChatFABReserveWidth: CGFloat = 64
     
     @ViewBuilder
     private var conditionRecordButton: some View {
@@ -218,14 +216,21 @@ struct TeamView: View {
                         self.showTeamDetail = true
                     }
                 }, useMockFlow: isSampleTeamFlow)
-                .navigationTitle("EKIDEN MODE")
-                .navigationBarTitleDisplayMode(.large)
+                .navigationTitle("")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .principal) {
+                        Text("Ekiden")
+                            .font(.system(size: 19, weight: .bold))
+                            .foregroundColor(.black)
+                    }
+                }
             } else {
                 ZStack {
                     Color.tasukiDarkBackground
                         .ignoresSafeArea()
                     
-                    ScrollView {
+                    ScrollView(showsIndicators: false) {
                         VStack(spacing: 20) {
                             Group {
                                 if let ekiden = ekidenViewState {
@@ -284,19 +289,24 @@ struct TeamView: View {
                         EmptyView()
                     }
                 }
-                .overlay(alignment: .topTrailing) {
-                    Button(action: { showTeamChatSheet = true }) {
-                        Image(systemName: "message.fill")
-                            .font(.system(size: 22))
-                            .foregroundColor(.white)
-                            .frame(width: 56, height: 56)
-                            .background(Circle().fill(Color.tasukiAccentOrange))
+                .navigationTitle("")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .principal) {
+                        Text("Ekiden")
+                            .font(.system(size: 19, weight: .bold))
+                            .foregroundColor(.black)
                     }
-                    .padding(.top, 8)
-                    .padding(.trailing, 20)
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button {
+                            showTeamChatSheet = true
+                        } label: {
+                            Image(systemName: "message.fill")
+                                .font(.system(size: 20))
+                                .foregroundColor(.black)
+                        }
+                    }
                 }
-                .navigationTitle("EKIDEN MODE")
-                .navigationBarTitleDisplayMode(.large)
                 .sheet(isPresented: $showConditionSheet) {
                     ConditionUpdateSheet(
                         selectedCondition: $selectedCondition,
@@ -531,42 +541,54 @@ struct TeamView: View {
     }
 
     private func ekidenEngagementRow(_ state: EkidenViewState) -> some View {
-        HStack(spacing: 10) {
+        HStack(spacing: 0) {
             Button {
                 showLegRankingSheet = true
             } label: {
-                HStack(spacing: 6) {
+                HStack(spacing: 8) {
                     Image(systemName: "trophy.fill")
-                        .font(.system(size: 14))
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundColor(.black)
+                        .frame(width: 32)
                     Text("区間賞")
-                        .font(.system(size: 14, weight: .semibold))
+                        .font(.system(size: 14, weight: .bold))
+                        .foregroundColor(.black)
+                    Spacer(minLength: 0)
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundColor(.black)
                 }
-                .foregroundColor(Color.tasukiPrimary)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 12)
-                .background(
-                    RoundedRectangle(cornerRadius: 12)
-                        .fill(Color.tasukiAccentOrange.opacity(0.2))
-                )
+                .padding(.vertical, 14)
+                .padding(.horizontal, 8)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+
+            Rectangle()
+                .fill(Color.tasukiMutedText.opacity(0.25))
+                .frame(width: 1, height: 28)
 
             Button {
                 showSpectatorCheerSheet = true
             } label: {
-                HStack(spacing: 6) {
+                HStack(spacing: 8) {
                     Image(systemName: "hands.clap.fill")
-                        .font(.system(size: 14))
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundColor(.black)
+                        .frame(width: 32)
                     Text("応援を送る")
-                        .font(.system(size: 14, weight: .semibold))
+                        .font(.system(size: 14, weight: .bold))
+                        .foregroundColor(.black)
+                    Spacer(minLength: 0)
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundColor(.black)
                 }
-                .foregroundColor(Color.tasukiPrimary)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 12)
-                .background(
-                    RoundedRectangle(cornerRadius: 12)
-                        .fill(Color.tasukiDarkCardSecondary)
-                )
+                .padding(.vertical, 14)
+                .padding(.horizontal, 8)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
         }
@@ -585,44 +607,44 @@ struct TeamView: View {
                 } label: {
                     HStack {
                         Image(systemName: "heart.text.square.fill")
-                            .foregroundColor(Color.tasukiAccentOrange)
+                            .foregroundColor(.black)
                         Text("沿道からの応援")
-                            .font(.system(size: 14, weight: .semibold))
-                            .foregroundColor(Color.tasukiPrimary)
+                            .font(.system(size: 14, weight: .bold))
+                            .foregroundColor(.black)
                         Spacer()
                         Text("\(spectatorCheers.count)件")
                             .font(.caption)
-                            .foregroundColor(Color.tasukiMutedText)
+                            .foregroundColor(.black)
                         Image(systemName: spectatorCheersExpanded ? "chevron.up" : "chevron.down")
                             .font(.caption.weight(.semibold))
-                            .foregroundColor(Color.tasukiMutedText)
+                            .foregroundColor(.black)
                     }
                 }
                 .buttonStyle(.plain)
 
                 let visible = spectatorCheersExpanded ? spectatorCheers : Array(spectatorCheers.prefix(3))
-                ForEach(visible) { cheer in
+                ForEach(Array(visible.enumerated()), id: \.element.id) { index, cheer in
                     VStack(alignment: .leading, spacing: 4) {
+                        if index > 0 {
+                            Divider()
+                                .background(Color.tasukiMutedText.opacity(0.2))
+                        }
                         HStack {
                             Text(cheer.nickname)
                                 .font(.system(size: 12, weight: .semibold))
-                                .foregroundColor(Color.tasukiAccentOrange)
+                                .foregroundColor(.black)
                             Spacer()
                             Text(shortRelativeTime(cheer.timestamp))
                                 .font(.system(size: 10))
-                                .foregroundColor(Color.tasukiMutedText)
+                                .foregroundColor(.black)
                         }
                         Text(cheer.message)
                             .font(.system(size: 13))
-                            .foregroundColor(Color.tasukiPrimary)
+                            .foregroundColor(.black)
                             .fixedSize(horizontal: false, vertical: true)
                     }
-                    .padding(10)
+                    .padding(.vertical, 10)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(
-                        RoundedRectangle(cornerRadius: 10)
-                            .fill(Color.tasukiSurface.opacity(0.6))
-                    )
                 }
             }
         }
@@ -725,7 +747,7 @@ struct TeamView: View {
             HStack(spacing: 8) {
                 Text(teamName)
                     .font(.system(size: 18, weight: .bold))
-                    .foregroundColor(Color.tasukiPrimary)
+                    .foregroundColor(.black)
                     .lineLimit(1)
                     .minimumScaleFactor(0.8)
                 if !selectedTeamId.isEmpty {
@@ -736,19 +758,18 @@ struct TeamView: View {
                         .padding(.horizontal, 6)
                         .padding(.vertical, 2)
                         .background(RoundedRectangle(cornerRadius: 6).fill(tier.color.opacity(0.2)))
-                        .foregroundColor(tier.color)
+                        .foregroundColor(.black)
                 }
                 Spacer()
                 if let rank = state.provisionalRank {
                     VStack(alignment: .trailing, spacing: 2) {
                         Text("暫定 \(rank)位")
                             .font(.system(size: 14, weight: .bold))
-                            .foregroundColor(Color.tasukiAccentOrange)
+                            .foregroundColor(.black)
                         Text(state.totalTeams > 0 ? "/\(state.totalTeams)チーム" : "")
                             .font(.system(size: 10))
-                            .foregroundColor(Color.tasukiMutedText)
+                            .foregroundColor(.black)
                     }
-                    .padding(.trailing, teamViewChatFABReserveWidth)
                 }
             }
             .padding(.bottom, 4)
@@ -759,7 +780,7 @@ struct TeamView: View {
                      ? "期間 \(startStr) 〜 \(endStr)（閲覧のみ）"
                      : "期間 \(startStr) 〜 \(endStr)（あと\(remainingDays)日）")
                     .font(.system(size: 14, weight: .medium))
-                    .foregroundColor(Color.tasukiPrimary)
+                    .foregroundColor(.black)
                     .lineLimit(1)
                     .minimumScaleFactor(0.75)
                 if isReadOnly {
@@ -768,7 +789,7 @@ struct TeamView: View {
                         .padding(.horizontal, 6)
                         .padding(.vertical, 2)
                         .background(RoundedRectangle(cornerRadius: 6).fill(Color.tasukiMutedText.opacity(0.3)))
-                        .foregroundColor(Color.tasukiMutedText)
+                        .foregroundColor(.black)
                 }
                 Spacer(minLength: 0)
             }
@@ -777,10 +798,10 @@ struct TeamView: View {
             HStack(spacing: 4) {
                 Text("現在")
                     .font(.system(size: 12))
-                    .foregroundColor(Color.tasukiMutedText)
+                    .foregroundColor(.black)
                 Text("\(min(currentLegIndex + 1, state.event.legCount))区")
                     .font(.system(size: 18, weight: .bold))
-                    .foregroundColor(Color.tasukiAccentOrange)
+                    .foregroundColor(.black)
             }
             
             GeometryReader { geometry in
@@ -808,7 +829,7 @@ struct TeamView: View {
             
             Text(progressCaption)
                 .font(.system(size: 12))
-                .foregroundColor(Color.tasukiMutedText)
+                .foregroundColor(.black)
             
             LazyVGrid(
                 columns: Array(
@@ -824,12 +845,12 @@ struct TeamView: View {
                     HStack(spacing: 2) {
                         Image(systemName: isDone ? "checkmark.circle.fill" : (isCurrent ? "figure.run" : "circle"))
                             .font(.system(size: 12))
-                            .foregroundColor(isDone ? Color(hex: "34C759") : (isCurrent ? Color.tasukiAccentOrange : Color.tasukiMutedText))
+                            .foregroundColor(.black)
                         Text("\(i + 1)区")
                             .font(.system(size: 11, weight: .medium))
                             .lineLimit(1)
                             .minimumScaleFactor(0.7)
-                            .foregroundColor(isDone || isCurrent ? Color.tasukiPrimary : Color.tasukiMutedText)
+                            .foregroundColor(.black)
                     }
                     .frame(maxWidth: .infinity)
                 }
@@ -840,20 +861,15 @@ struct TeamView: View {
                 HStack(spacing: 6) {
                     Image(systemName: "figure.run")
                         .font(.system(size: 14))
-                        .foregroundColor(Color.tasukiAccentOrange)
+                        .foregroundColor(.black)
                     Text("TASUKI:\(name)")
                         .font(.system(size: 14, weight: .semibold))
-                        .foregroundColor(Color.tasukiPrimary)
+                        .foregroundColor(.black)
                     Text("（提出可能）")
                         .font(.system(size: 12))
-                        .foregroundColor(Color.tasukiMutedText)
+                        .foregroundColor(.black)
                 }
                 .padding(.vertical, 8)
-                .padding(.horizontal, 12)
-                .background(
-                    RoundedRectangle(cornerRadius: 10)
-                        .fill(Color.tasukiAccentOrange.opacity(0.15))
-                )
             } else {
                 let lastSubmitted = state.legs.last { $0.status == .submitted }
                 let nextLeg = state.legs.first { $0.status == .awaitingTasuki }
@@ -861,19 +877,19 @@ struct TeamView: View {
                     HStack(spacing: 6) {
                         Image(systemName: "clock")
                             .font(.system(size: 14))
-                            .foregroundColor(Color.tasukiMutedText)
+                            .foregroundColor(.black)
                         Text("次走者: \(name)")
                             .font(.system(size: 14, weight: .medium))
-                            .foregroundColor(Color.tasukiMutedText)
+                            .foregroundColor(.black)
                     }
                 } else if lastSubmitted != nil && state.submittedLegCount >= state.event.legCount {
                     HStack(spacing: 6) {
                         Image(systemName: "checkmark.circle.fill")
                             .font(.system(size: 14))
-                            .foregroundColor(Color(hex: "34C759"))
+                            .foregroundColor(.black)
                         Text("全区間完了")
                             .font(.system(size: 14, weight: .semibold))
-                            .foregroundColor(Color.tasukiPrimary)
+                            .foregroundColor(.black)
                     }
                 }
             }
@@ -884,10 +900,10 @@ struct TeamView: View {
                     HStack(spacing: 8) {
                         Text("累計タイム")
                             .font(.system(size: 12))
-                            .foregroundColor(Color.tasukiMutedText)
+                            .foregroundColor(.black)
                         Text(EkidenViewState.formatElapsed(state.totalElapsedSeconds))
                             .font(.system(size: 16, weight: .bold))
-                            .foregroundColor(Color.tasukiPrimary)
+                            .foregroundColor(.black)
                     }
                 }
                 Spacer()
@@ -897,34 +913,35 @@ struct TeamView: View {
                         Text("リザルト")
                     }
                     .font(.system(size: 13, weight: .semibold))
-                    .foregroundColor(Color.tasukiAccentOrange)
+                    .foregroundColor(.black)
                 }
             }
         }
-        .padding(.vertical, 24)
-        .padding(.horizontal, 20)
-        .background(
-            RoundedRectangle(cornerRadius: 16)
-                .fill(Color.tasukiDarkCard)
-        )
+        .padding(.vertical, 16)
+        .padding(.horizontal, 0)
     }
     
     // MARK: - Ekiden Leg List View（区間担当行）
     private func ekidenLegListView(_ state: EkidenViewState, allowSubmit: Bool = true) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(alignment: .firstTextBaseline) {
                 Text("区間担当")
-                    .font(.system(size: 18, weight: .bold))
-                    .foregroundColor(Color.tasukiPrimary)
+                    .font(.system(size: 11, weight: .bold))
+                    .tracking(1.2)
+                    .foregroundColor(.black)
                 Spacer()
                 Text("\(state.legs.count)区間")
                     .font(.system(size: 13, weight: .semibold))
-                    .foregroundColor(Color.tasukiMutedText)
+                    .foregroundColor(.black)
             }
-            .padding(.horizontal, 4)
-            
-            VStack(spacing: 8) {
-                ForEach(state.legs, id: \.id) { leg in
+            .padding(.bottom, 10)
+
+            VStack(spacing: 0) {
+                ForEach(Array(state.legs.enumerated()), id: \.element.id) { index, leg in
+                    if index > 0 {
+                        Divider()
+                            .background(Color.tasukiMutedText.opacity(0.2))
+                    }
                     ekidenLegRowView(
                         leg: leg,
                         state: state,
@@ -946,17 +963,11 @@ struct TeamView: View {
                 }
             }
         }
-        .padding(16)
-        .background(
-            RoundedRectangle(cornerRadius: 12)
-                .fill(Color.tasukiDarkCard)
-        )
     }
     
     private func ekidenLegRowView(leg: EkidenLeg, state: EkidenViewState, teamId: String, isSampleTeam: Bool, allowSubmit: Bool = true, isTeamOwner: Bool = false, onTapSubmit: @escaping () -> Void, onTapSubstitute: @escaping () -> Void = {}, onTapPassTasuki: (() -> Void)? = nil) -> some View {
         let name = leg.assignedUid.flatMap { state.memberNames[$0] } ?? "未割当"
         let statusText: String
-        let statusColor: Color
         let icon: String
         switch leg.status {
         case .submitted:
@@ -966,15 +977,12 @@ struct TeamView: View {
             } else {
                 statusText = timeStr
             }
-            statusColor = Color(hex: "34C759")
             icon = "checkmark.circle.fill"
         case .ready:
             statusText = "提出可能"
-            statusColor = Color.tasukiAccentOrange
             icon = "figure.run"
         case .awaitingTasuki:
             statusText = "TASUKI待ち"
-            statusColor = Color.tasukiMutedText
             icon = "clock"
         }
         let canSubmit = allowSubmit && leg.status == .ready && (isSampleTeam || (leg.assignedUid != nil && leg.assignedUid == Auth.auth().currentUser?.uid))
@@ -983,31 +991,31 @@ struct TeamView: View {
             HStack(spacing: 12) {
                 Text("\(leg.id + 1)区")
                     .font(.system(size: 14, weight: .bold))
-                    .foregroundColor(Color.tasukiPrimary)
+                    .foregroundColor(.black)
                     .frame(width: 32, alignment: .leading)
                 
                 Image(systemName: "person.circle.fill")
                     .font(.system(size: 20))
-                    .foregroundColor(Color.tasukiPrimary)
+                    .foregroundColor(.black)
                     .saturation(0)
                 
                 Text(name)
                     .font(.system(size: 14, weight: .semibold))
-                    .foregroundColor(Color.tasukiPrimary)
+                    .foregroundColor(.black)
                 
                 Spacer()
                 
                 HStack(spacing: 4) {
                     Image(systemName: icon)
                         .font(.system(size: 12))
-                        .foregroundColor(statusColor)
+                        .foregroundColor(.black)
                     Text(statusText)
                         .font(.system(size: 12, weight: .medium))
-                        .foregroundColor(statusColor)
+                        .foregroundColor(.black)
                 }
             }
             .padding(.vertical, 10)
-            .padding(.horizontal, 12)
+            .padding(.horizontal, 0)
             
             ViewThatFits(in: .horizontal) {
                 HStack(spacing: 8) {
@@ -1036,10 +1044,6 @@ struct TeamView: View {
                 }
             }
         }
-        .background(
-            RoundedRectangle(cornerRadius: 8)
-                .fill(leg.status == .ready ? Color.tasukiAccentOrange.opacity(0.12) : Color.tasukiDarkCardSecondary)
-        )
     }
     
     @ViewBuilder
@@ -1060,7 +1064,7 @@ struct TeamView: View {
                     Text("区間を走って提出")
                         .font(.system(size: 13, weight: .semibold))
                 }
-                .foregroundColor(Color.tasukiAccentOrange)
+                .foregroundColor(.black)
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 8)
             }
@@ -1072,10 +1076,9 @@ struct TeamView: View {
                         Text("TASUKIをつなぐ")
                             .font(.system(size: 13, weight: .semibold))
                     }
-                    .foregroundColor(Color.tasukiMutedText)
+                    .foregroundColor(.black)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 8)
-                    .background(RoundedRectangle(cornerRadius: 8).fill(Color.tasukiDarkCardSecondary))
                 }
                 .buttonStyle(.plain)
             }
@@ -1087,11 +1090,10 @@ struct TeamView: View {
                     Text("代走")
                         .font(.system(size: 12, weight: .medium))
                 }
-                .foregroundColor(Color.tasukiMutedText)
+                .foregroundColor(.black)
                 .frame(maxWidth: substituteButtonFullWidth ? .infinity : nil)
                 .padding(.vertical, 6)
-                .padding(.horizontal, 10)
-                .background(RoundedRectangle(cornerRadius: 8).fill(Color.tasukiDarkCardSecondary))
+                .padding(.horizontal, 0)
             }
             .buttonStyle(.plain)
         }
@@ -1099,32 +1101,32 @@ struct TeamView: View {
     
     // MARK: - Slim Member List View
     private var slimMemberListView: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(alignment: .firstTextBaseline) {
                 Text("メンバー")
-                    .font(.system(size: 18, weight: .bold))
-                    .foregroundColor(Color.tasukiPrimary)
+                    .font(.system(size: 11, weight: .bold))
+                    .tracking(1.2)
+                    .foregroundColor(.black)
                 Spacer()
                 Text("\(members.count)/\(maxTeamMembers)名")
                     .font(.system(size: 13, weight: .semibold))
-                    .foregroundColor(Color.tasukiMutedText)
+                    .foregroundColor(.black)
             }
-            .padding(.horizontal, 4)
+            .padding(.bottom, 10)
             
-            VStack(spacing: 8) {
-                ForEach(members) { member in
+            VStack(spacing: 0) {
+                ForEach(Array(members.enumerated()), id: \.element.id) { index, member in
+                    if index > 0 {
+                        Divider()
+                            .background(Color.tasukiMutedText.opacity(0.2))
+                    }
                     slimMemberRowView(member: member)
                 }
             }
             
             conditionRecordButton
-                .padding(.top, 8)
+                .padding(.top, 16)
         }
-        .padding(16)
-        .background(
-            RoundedRectangle(cornerRadius: 12)
-                .fill(Color.tasukiDarkCard)
-        )
     }
     
     // MARK: - Slim Member Row View
@@ -1133,7 +1135,7 @@ struct TeamView: View {
             if let avatarImage = member.avatarImage {
                 Image(systemName: avatarImage)
                     .font(.system(size: 20))
-                    .foregroundColor(Color.tasukiPrimary)
+                    .foregroundColor(.black)
                     .saturation(0)
                     .frame(width: 36, height: 36)
                     .background(
@@ -1156,21 +1158,21 @@ struct TeamView: View {
             
             Text(member.name)
                 .font(.system(size: 14, weight: .semibold))
-                .foregroundColor(Color.tasukiPrimary)
+                .foregroundColor(.black)
                 .frame(width: 70, alignment: .leading)
             
             HStack(spacing: 4) {
                 Text("\(Int(member.currentDistance))km")
                     .font(.system(size: 13, weight: .semibold))
-                    .foregroundColor(Color.tasukiPrimary)
+                    .foregroundColor(.black)
                 
                 Text("/")
                     .font(.system(size: 13, weight: .regular))
-                    .foregroundColor(Color.tasukiMutedText)
+                    .foregroundColor(.black)
                 
                 Text("\(Int(member.targetDistance))km")
                     .font(.system(size: 13, weight: .regular))
-                    .foregroundColor(Color.tasukiMutedText)
+                    .foregroundColor(.black)
             }
             
             Spacer()
@@ -1180,11 +1182,7 @@ struct TeamView: View {
                 .foregroundColor(Color(hex: member.condition.colorHex))
         }
         .padding(.vertical, 8)
-        .padding(.horizontal, 10)
-        .background(
-            RoundedRectangle(cornerRadius: 8)
-                .fill(member.condition == .sos ? Color(hex: member.condition.colorHex).opacity(0.15) : Color.tasukiDarkCardSecondary)
-        )
+        .padding(.horizontal, 0)
     }
     
     // MARK: - Progress View (The Tasuki Bar)
@@ -1193,7 +1191,7 @@ struct TeamView: View {
             HStack(spacing: 8) {
                 Text(teamName)
                     .font(.system(size: 18, weight: .bold))
-                    .foregroundColor(Color.tasukiPrimary)
+                    .foregroundColor(.black)
                     .lineLimit(1)
                     .minimumScaleFactor(0.8)
                 if !selectedTeamId.isEmpty {
@@ -1204,30 +1202,29 @@ struct TeamView: View {
                         .padding(.horizontal, 6)
                         .padding(.vertical, 2)
                         .background(RoundedRectangle(cornerRadius: 6).fill(tier.color.opacity(0.2)))
-                        .foregroundColor(tier.color)
+                        .foregroundColor(.black)
                 }
                 Spacer()
                 if !selectedTeamId.isEmpty {
                     VStack(alignment: .trailing, spacing: 2) {
                         Text("\(PointService.shared.teamTotalPoints(teamId: selectedTeamId))pt")
                             .font(.system(size: 14, weight: .bold))
-                            .foregroundColor(Color.tasukiPrimary)
+                            .foregroundColor(.black)
                         Text("累計")
                             .font(.system(size: 10))
-                            .foregroundColor(Color.tasukiMutedText)
+                            .foregroundColor(.black)
                     }
-                    .padding(.trailing, teamViewChatFABReserveWidth)
                 }
             }
             .padding(.bottom, 4)
             
             Text("\(Int(progressPercentage))%")
                 .font(.system(size: 56, weight: .bold))
-                .foregroundColor(Color.tasukiAccentOrange)
+                .foregroundColor(.black)
             
             Text("\(monthEndDateString)まで（あと\(remainingDays)日）")
                 .font(.system(size: 14, weight: .regular))
-                .foregroundColor(Color.tasukiMutedText)
+                .foregroundColor(.black)
             
             GeometryReader { geometry in
                 ZStack(alignment: .leading) {
@@ -1255,23 +1252,19 @@ struct TeamView: View {
             HStack {
                 Text("\(Int(currentDistance))km")
                     .font(.system(size: 18, weight: .semibold))
-                    .foregroundColor(Color.tasukiPrimary)
+                    .foregroundColor(.black)
                 
                 Text("/")
                     .font(.system(size: 18, weight: .regular))
-                    .foregroundColor(Color.tasukiMutedText)
+                    .foregroundColor(.black)
                 
                 Text("\(Int(targetDistance))km")
                     .font(.system(size: 18, weight: .regular))
-                    .foregroundColor(Color.tasukiMutedText)
+                    .foregroundColor(.black)
             }
         }
-        .padding(.vertical, 24)
-        .padding(.horizontal, 20)
-        .background(
-            RoundedRectangle(cornerRadius: 16)
-                .fill(Color.tasukiDarkCard)
-        )
+        .padding(.vertical, 16)
+        .padding(.horizontal, 0)
     }
     
     private func addSystemMessage(condition: Condition) {
@@ -1338,6 +1331,7 @@ private struct EkidenLegRankingSheetView: View {
                             }
                         }
                         .pickerStyle(.segmented)
+                        .tint(.black)
                         .onChange(of: selectedLegIndex) { _, new in
                             Task { await reload(new) }
                         }
@@ -1347,40 +1341,39 @@ private struct EkidenLegRankingSheetView: View {
                         if let myRank = snap.rank(forEntryId: myEntryId), snap.totalFinishers > 0 {
                             Text("あなたのチームの順位: \(myRank)位（完走 \(snap.totalFinishers)）")
                                 .font(.subheadline.weight(.semibold))
-                                .foregroundColor(Color.tasukiAccentOrange)
+                                .foregroundColor(.black)
                         }
 
                         if snap.top.isEmpty {
                             Text(isSampleTeam ? "この区間はまだ記録がないか、デモでは完了済み区間のみ表示します。" : "この区間のランキングはまだありません。")
                                 .font(.footnote)
-                                .foregroundColor(Color.tasukiMutedText)
+                                .foregroundColor(.black)
                                 .padding(.vertical, 8)
                         }
 
-                        ScrollView {
-                            LazyVStack(alignment: .leading, spacing: 8) {
-                                ForEach(snap.top) { row in
-                                    let isMe = row.entryId == myEntryId || (currentUid.map { $0 == row.runnerUid } ?? false)
+                        ScrollView(showsIndicators: false) {
+                            LazyVStack(alignment: .leading, spacing: 0) {
+                                ForEach(Array(snap.top.enumerated()), id: \.element.id) { index, row in
+                                    if index > 0 {
+                                        Divider()
+                                            .background(Color.tasukiMutedText.opacity(0.2))
+                                    }
                                     HStack(alignment: .top, spacing: 10) {
                                         Text("\(row.rank)")
                                             .font(.system(size: 14, weight: .bold))
                                             .frame(width: 28, alignment: .leading)
-                                            .foregroundColor(Color.tasukiMutedText)
+                                            .foregroundColor(.black)
                                         VStack(alignment: .leading, spacing: 2) {
                                             Text(row.displayName)
                                                 .font(.system(size: 15, weight: .semibold))
-                                                .foregroundColor(isMe ? Color.tasukiAccentOrange : Color.tasukiPrimary)
+                                                .foregroundColor(.black)
                                             Text(EkidenViewState.formatElapsed(row.elapsedSeconds))
                                                 .font(.caption)
-                                                .foregroundColor(Color.tasukiMutedText)
+                                                .foregroundColor(.black)
                                         }
                                         Spacer(minLength: 0)
                                     }
-                                    .padding(12)
-                                    .background(
-                                        RoundedRectangle(cornerRadius: 10)
-                                            .fill(isMe ? Color.tasukiAccentOrange.opacity(0.12) : Color.tasukiDarkCardSecondary.opacity(0.5))
-                                    )
+                                    .padding(.vertical, 12)
                                 }
                             }
                             .padding(.bottom, 16)
@@ -1400,7 +1393,7 @@ private struct EkidenLegRankingSheetView: View {
                     Button("閉じる") {
                         dismiss()
                     }
-                    .foregroundColor(Color.tasukiPrimary)
+                    .foregroundColor(.black)
                 }
             }
             .task {
@@ -1460,20 +1453,15 @@ struct TeamChatSheetView: View {
                     }
                     
                     ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 8) {
+                        HStack(spacing: 12) {
                             ForEach(CompanionChatQuickPhrases.all, id: \.self) { phrase in
                                 Button {
                                     sendQuickPhrase(phrase)
                                 } label: {
                                     Text(phrase)
-                                        .font(.system(size: 11, weight: .medium))
-                                        .foregroundColor(Color.tasukiPrimary)
-                                        .padding(.horizontal, 10)
+                                        .font(.system(size: 11, weight: .semibold))
+                                        .foregroundColor(.black)
                                         .padding(.vertical, 7)
-                                        .background(
-                                            Capsule()
-                                                .fill(Color.tasukiAccentOrange.opacity(0.2))
-                                        )
                                 }
                                 .buttonStyle(.plain)
                             }
@@ -1486,7 +1474,7 @@ struct TeamChatSheetView: View {
                         TextField("メッセージを入力...", text: $messageText, axis: .vertical)
                             .textFieldStyle(.plain)
                             .font(.system(size: 16))
-                            .foregroundColor(Color.tasukiPrimary)
+                            .foregroundColor(.black)
                             .padding(.horizontal, 16)
                             .padding(.vertical, 10)
                             .background(
@@ -1522,7 +1510,7 @@ struct TeamChatSheetView: View {
                     Button("閉じる") {
                         dismiss()
                     }
-                    .foregroundColor(Color.tasukiPrimary)
+                    .foregroundColor(.black)
                 }
             }
         }
@@ -1595,7 +1583,7 @@ struct TeamChatSheetView: View {
                 Spacer()
                 Text("--- \(message.content) ---")
                     .font(.system(size: 11, weight: .regular))
-                    .foregroundColor(Color.tasukiMutedText)
+                    .foregroundColor(.black)
                 Spacer()
             }
             .padding(.vertical, 8)
@@ -1607,7 +1595,7 @@ struct TeamChatSheetView: View {
                     if let avatarImage = message.user.avatarImage {
                         Image(systemName: avatarImage)
                             .font(.system(size: 18))
-                            .foregroundColor(Color.tasukiPrimary)
+                            .foregroundColor(.black)
                             .saturation(0)
                             .frame(width: 28, height: 28)
                             .background(
@@ -1621,17 +1609,17 @@ struct TeamChatSheetView: View {
                     if !isFromMe {
                         Text(message.user.name)
                             .font(.system(size: 11, weight: .semibold))
-                            .foregroundColor(Color.tasukiMutedText)
+                            .foregroundColor(.black)
                     }
                     
                     Text(message.content)
                         .font(.system(size: 15, weight: .regular))
-                        .foregroundColor(isFromMe ? Color.tasukiOnBrandYellow : Color.tasukiPrimary)
+                        .foregroundColor(isFromMe ? Color.tasukiOnBrandYellow : .black)
                         .padding(.horizontal, 14)
                         .padding(.vertical, 10)
                         .background(
                             RoundedRectangle(cornerRadius: 18)
-                                .fill(isFromMe ? Color.tasukiPrimaryButtonFill : Color.tasukiDarkCard)
+                                .fill(isFromMe ? Color.tasukiPrimaryButtonFill : Color.clear)
                         )
                 }
                 .frame(maxWidth: UIScreen.main.bounds.width * 0.7, alignment: isFromMe ? .trailing : .leading)
@@ -1714,7 +1702,7 @@ struct ConditionUpdateSheet: View {
                         VStack(alignment: .leading, spacing: 12) {
                             Text("調子")
                                 .font(.system(size: 18, weight: .bold))
-                                .foregroundColor(Color.tasukiPrimary)
+                                .foregroundColor(.black)
                             
                             Picker("調子", selection: $selectedCondition) {
                                 ForEach(Condition.allCases, id: \.self) { condition in
@@ -1727,7 +1715,7 @@ struct ConditionUpdateSheet: View {
                                 }
                             }
                             .pickerStyle(.menu)
-                            .tint(Color.tasukiPrimary)
+                            .tint(.black)
                         }
                         .padding(.horizontal, 20)
                         .padding(.top, 20)
@@ -1743,14 +1731,14 @@ struct ConditionUpdateSheet: View {
                     Button("キャンセル") {
                         onCancel()
                     }
-                    .foregroundColor(Color.tasukiPrimary)
+                    .foregroundColor(.black)
                 }
                 
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button("保存") {
                         onSave()
                     }
-                    .foregroundColor(Color.tasukiAccentOrange)
+                    .foregroundColor(.black)
                     .fontWeight(.semibold)
                 }
             }

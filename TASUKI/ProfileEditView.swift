@@ -210,10 +210,15 @@ struct ProfileEditView: View {
                     }
                 }
             }
-            .navigationTitle("プロフィール編集")
+            .navigationTitle("")
             .navigationBarTitleDisplayMode(.inline)
             .navigationBarBackButtonHidden(true)
             .toolbar {
+                ToolbarItem(placement: .principal) {
+                    Text("プロフィール編集")
+                        .font(.system(size: 19, weight: .bold))
+                        .foregroundColor(Color.tasukiPrimary)
+                }
                 ToolbarItem(placement: .navigationBarLeading) {
                     Button(action: {
                         if hasChanges {

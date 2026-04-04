@@ -16,7 +16,6 @@ struct MyProfileView: View {
     @AppStorage("myMonthlyDist") private var monthlyDist: String = "150km"
     @AppStorage("myTotalPoints") private var myTotalPoints: Int = 0
     @AppStorage("myBio") private var bio: String = "平日は仕事終わりに5-10km走ってます！週末は距離走やりたいです。"
-    @AppStorage("reduceRankingPressure") private var reduceRankingPressure: Bool = false
 
     @State private var userUUID: String = ""
     @State private var showCopiedToast: Bool = false
@@ -35,29 +34,37 @@ struct MyProfileView: View {
     var body: some View {
         NavigationStack {
             ZStack {
-                Color.tasukiBase.ignoresSafeArea()
+                Color.tasukiDarkBackground.ignoresSafeArea()
 
-                ScrollView {
-                    VStack(spacing: TasukiUI.sectionSpacing) {
-                        heroCard
-                        engagementPreferenceCard
-                        activityGraphCard
-                        statsCard
-                        profileCard
-                        aboutCard
+                ScrollView(showsIndicators: false) {
+                    VStack(spacing: 0) {
+                        heroSection
+                            .padding(.bottom, 28)
+                        activitySection
+                            .padding(.bottom, 28)
+                        statsSection
+                            .padding(.bottom, 28)
+                        profileSection
+                            .padding(.bottom, 28)
+                        aboutSection
                     }
-                    .padding(.horizontal, 16)
+                    .padding(.horizontal, 20)
                     .padding(.top, 10)
                     .padding(.bottom, 36)
                 }
             }
-            .navigationTitle("Me")
+            .navigationTitle("")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
+                ToolbarItem(placement: .principal) {
+                    Text("Me")
+                        .font(.system(size: 19, weight: .bold))
+                        .foregroundColor(.black)
+                }
                 ToolbarItem(placement: .navigationBarTrailing) {
                     NavigationLink(destination: ProfileEditView()) {
                         Image(systemName: "pencil")
-                            .foregroundColor(Color.tasukiPrimary)
+                            .foregroundColor(.black)
                     }
                 }
             }
@@ -77,51 +84,44 @@ struct MyProfileView: View {
         }
     }
 
-    private var heroCard: some View {
+    private var heroSection: some View {
         VStack(spacing: 14) {
             Image(systemName: "person.crop.circle.fill")
                 .font(.system(size: 96))
-                .foregroundColor(Color.tasukiPrimary)
+                .foregroundColor(.black)
                 .frame(width: 140, height: 140)
-                .background(Circle().fill(Color.tasukiSurface))
 
             HStack(spacing: 8) {
                 Text(name)
                     .font(.system(size: 28, weight: .bold))
-                    .foregroundColor(Color.tasukiPrimary)
+                    .foregroundColor(.black)
                 if let tier = myBadgeTier {
                     HStack(spacing: 4) {
                         Image(systemName: tier.iconName)
                         Text(tier.displayName)
                     }
                     .font(.system(size: 12, weight: .semibold))
-                    .foregroundColor(.white)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 5)
-                    .background(Capsule().fill(Color.tasukiAccent))
+                    .foregroundColor(.black)
                 }
             }
 
             Text(rank)
                 .font(.system(size: 13, weight: .semibold))
-                .foregroundColor(Color.tasukiOnBrandYellow)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 7)
-                .background(Capsule().fill(Color.tasukiPrimaryButtonFill))
+                .foregroundColor(.black)
 
             HStack(spacing: 5) {
                 Text("保有ポイント")
                     .font(.system(size: 12, weight: .medium))
-                    .foregroundColor(Color.tasukiMutedText)
+                    .foregroundColor(.black)
                 Text("\(PointService.shared.currentTotalPoints())pt")
                     .font(.system(size: 16, weight: .bold))
-                    .foregroundColor(Color.tasukiPrimary)
+                    .foregroundColor(.black)
             }
 
             HStack(spacing: 8) {
                 Text(userUUID.isEmpty ? "—" : userUUID)
                     .font(.system(size: 12))
-                    .foregroundColor(Color.tasukiMutedText)
+                    .foregroundColor(.black)
                     .lineLimit(1)
                     .truncationMode(.middle)
                 Button {
@@ -133,75 +133,55 @@ struct MyProfileView: View {
                     }
                 } label: {
                     Image(systemName: "doc.on.doc")
-                        .foregroundColor(Color.tasukiPrimary)
+                        .foregroundColor(.black)
                 }
             }
         }
         .frame(maxWidth: .infinity)
-        .tasukiCard(corner: 20)
     }
 
-    private var engagementPreferenceCard: some View {
+    private var statsSection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("継続のしかた")
-                .font(.system(size: 18, weight: .bold))
-                .foregroundColor(Color.tasukiPrimary)
-            Toggle(isOn: $reduceRankingPressure) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("ホームのランキングショートカットを隠す")
-                        .font(.system(size: 15, weight: .semibold))
-                        .foregroundColor(Color.tasukiPrimary)
-                    Text("順位のプレッシャーを減らしたいときにオンにしてください。")
-                        .font(.caption)
-                        .foregroundColor(Color.tasukiMutedText)
-                }
-            }
-            .tint(Color.tasukiAccent)
-        }
-        .tasukiCard()
-    }
-
-    private var statsCard: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Running Stats")
-                .font(.system(size: 18, weight: .bold))
-                .foregroundColor(Color.tasukiPrimary)
+            sectionEyebrow("RUNNING STATS")
 
             HStack(spacing: 12) {
                 statItem(title: "Avg Pace", value: avgPace)
                 statItem(title: "Monthly Dist", value: monthlyDist)
             }
         }
-        .tasukiCard()
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private var activityGraphCard: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("活動推移")
-                .font(.system(size: 18, weight: .bold))
-                .foregroundColor(Color.tasukiPrimary)
+    private var activitySection: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("Activity")
+                .font(.system(size: 14, weight: .bold))
+                .tracking(1.1)
+                .foregroundColor(.black)
 
             HStack(spacing: 14) {
-                graphStat(title: "今週距離", value: String(format: "%.1f km", weeklyDistanceKm()))
-                graphStat(title: "今週回数", value: "\(activityStore.weeklyRunCount()) 回")
-                graphStat(title: "今月距離", value: String(format: "%.1f km", activityStore.monthlyDistanceKm()))
+                graphStatActivity(title: "今週距離", value: String(format: "%.1f km", weeklyDistanceKm()))
+                graphStatActivity(title: "今週回数", value: "\(activityStore.weeklyRunCount()) 回")
+                graphStatActivity(title: "今月距離", value: String(format: "%.1f km", activityStore.monthlyDistanceKm()))
             }
 
             WeeklyActivityLineChart(points: weeklyActivityPoints)
-                .frame(height: 170)
+                .frame(height: 190)
                 .padding(.horizontal, 4)
         }
-        .tasukiCard()
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private var profileCard: some View {
+    private var profileSection: some View {
         VStack(alignment: .leading, spacing: 12) {
+            sectionEyebrow("PROFILE")
+
             HStack {
                 Image(systemName: "mappin.and.ellipse")
                 Text(area)
             }
             .font(.subheadline)
-            .foregroundColor(Color.tasukiMutedText)
+            .foregroundColor(.black)
 
             if !purpose.isEmpty {
                 tagView(text: purpose, isPrimary: true)
@@ -215,31 +195,36 @@ struct MyProfileView: View {
                 }
             }
 
-            infoRow(icon: "trophy.fill", title: "Personal Best", value: personalBest)
-            infoRow(icon: "calendar", title: "Schedule", value: schedule)
-            if !nextRace.isEmpty {
-                infoRow(icon: "flag.fill", title: "Next Race", value: nextRace)
-            }
-            if !targetTime.isEmpty {
-                infoRow(icon: "scope", title: "Target", value: targetTime)
+            VStack(spacing: 0) {
+                infoRow(icon: "trophy.fill", title: "Personal Best", value: personalBest)
+                infoRow(icon: "calendar", title: "Schedule", value: schedule)
+                if !nextRace.isEmpty {
+                    infoRow(icon: "flag.fill", title: "Next Race", value: nextRace)
+                }
+                if !targetTime.isEmpty {
+                    infoRow(icon: "scope", title: "Target", value: targetTime)
+                }
             }
         }
-        .tasukiCard()
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private var aboutCard: some View {
+    private var aboutSection: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("About Me")
-                .font(.system(size: 18, weight: .bold))
-                .foregroundColor(Color.tasukiPrimary)
+            sectionEyebrow("ABOUT ME")
             Text(bio)
                 .font(.system(size: 15))
-                .foregroundColor(Color.tasukiMutedText)
+                .foregroundColor(.black)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(14)
-                .background(RoundedRectangle(cornerRadius: 12).fill(Color.tasukiSurface))
         }
-        .tasukiCard()
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func sectionEyebrow(_ title: String) -> some View {
+        Text(title)
+            .font(.system(size: 11, weight: .bold))
+            .tracking(1.2)
+            .foregroundColor(.black)
     }
 
 
@@ -247,28 +232,40 @@ struct MyProfileView: View {
         VStack(alignment: .leading, spacing: 6) {
             Text(title)
                 .font(.system(size: 12))
-                .foregroundColor(Color.tasukiMutedText)
+                .foregroundColor(.black)
             Text(value)
                 .font(.system(size: 18, weight: .bold))
-                .foregroundColor(Color.tasukiPrimary)
+                .foregroundColor(.black)
                 .lineLimit(1)
                 .minimumScaleFactor(0.8)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(12)
-        .background(RoundedRectangle(cornerRadius: 10).fill(Color.tasukiSurface))
     }
 
     private func graphStat(title: String, value: String) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             Text(title)
                 .font(.system(size: 12))
-                .foregroundColor(Color.tasukiMutedText)
+                .foregroundColor(.black)
             Text(value)
                 .font(.system(size: 15, weight: .bold))
-                .foregroundColor(Color.tasukiPrimary)
+                .foregroundColor(.black)
                 .lineLimit(1)
                 .minimumScaleFactor(0.75)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func graphStatActivity(title: String, value: String) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title)
+                .font(.system(size: 14, weight: .medium))
+                .foregroundColor(.black)
+            Text(value)
+                .font(.system(size: 18, weight: .bold))
+                .foregroundColor(.black)
+                .lineLimit(1)
+                .minimumScaleFactor(0.72)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -326,31 +323,27 @@ struct MyProfileView: View {
 
     private func tagView(text: String, isPrimary: Bool) -> some View {
         Text(text)
-            .font(.system(size: 13, weight: .medium))
-            .foregroundColor(isPrimary ? Color.tasukiOnBrandYellow : Color.tasukiPrimary)
-            .padding(.horizontal, 14)
-            .padding(.vertical, 8)
-            .background(Capsule().fill(isPrimary ? Color.tasukiPrimaryButtonFill : Color.tasukiSurface))
+            .font(.system(size: 13, weight: isPrimary ? .semibold : .medium))
+            .foregroundColor(.black)
     }
 
     private func infoRow(icon: String, title: String, value: String) -> some View {
-        HStack(spacing: 10) {
+        HStack(alignment: .top, spacing: 10) {
             Image(systemName: icon)
                 .font(.system(size: 18, weight: .semibold))
-                .foregroundColor(Color.tasukiAccent)
+                .foregroundColor(.black)
                 .frame(width: 28, height: 28)
             VStack(alignment: .leading, spacing: 3) {
                 Text(title)
                     .font(.system(size: 12))
-                    .foregroundColor(Color.tasukiMutedText)
+                    .foregroundColor(.black)
                 Text(value)
                     .font(.system(size: 15, weight: .semibold))
-                    .foregroundColor(Color.tasukiPrimary)
+                    .foregroundColor(.black)
             }
             Spacer()
         }
-        .padding(12)
-        .background(RoundedRectangle(cornerRadius: 10).fill(Color.tasukiSurface))
+        .padding(.vertical, 10)
     }
 
     private func loadUserUUID() {
@@ -385,7 +378,7 @@ private struct WeeklyActivityLineChart: View {
             let width = proxy.size.width
             let height = proxy.size.height
             let leftPadding: CGFloat = 30
-            let bottomPadding: CGFloat = 24
+            let bottomPadding: CGFloat = 28
             let topPadding: CGFloat = 10
             let plotWidth = max(1, width - leftPadding)
             let plotHeight = max(1, height - bottomPadding - topPadding)
@@ -463,28 +456,24 @@ private struct WeeklyActivityLineChart: View {
                         .position(x: x, y: y)
 
                     Text(point.label)
-                        .font(.system(size: 10))
-                        .foregroundColor(Color.tasukiMutedText)
-                        .position(x: x, y: height - 10)
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(.black)
+                        .position(x: x, y: height - 12)
                 }
 
                 VStack(alignment: .leading, spacing: 0) {
                     Text(String(format: "%.0fkm", maxY))
-                        .font(.system(size: 10))
-                        .foregroundColor(Color.tasukiMutedText)
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(.black)
                     Spacer()
                     Text("0km")
-                        .font(.system(size: 10))
-                        .foregroundColor(Color.tasukiMutedText)
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(.black)
                 }
                 .padding(.top, topPadding - 4)
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
-        .background(
-            RoundedRectangle(cornerRadius: 12)
-                .fill(Color.tasukiSurface)
-        )
     }
 }
 

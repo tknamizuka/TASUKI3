@@ -159,14 +159,19 @@ struct RunHistoryListView: View {
                     }
                     .padding(.vertical, 4)
                 }
-                .listRowBackground(Color.white)
+                .listRowBackground(Color.tasukiDarkCardSecondary.opacity(0.45))
             }
             .listStyle(.insetGrouped)
             .scrollContentBackground(.hidden)
             .background(Color.tasukiDarkBackground)
-            .navigationTitle("Activity")
+            .navigationTitle("")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
+                ToolbarItem(placement: .principal) {
+                    Text("Activity")
+                        .font(.system(size: 19, weight: .bold))
+                        .foregroundColor(Color.tasukiPrimary)
+                }
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button("閉じる") {
                         dismiss()
@@ -231,8 +236,7 @@ struct RunHistoryDetailView: View {
                 .padding()
                 .background(
                     RoundedRectangle(cornerRadius: 12)
-                        .fill(Color.white)
-                        .shadow(color: Color.black.opacity(0.06), radius: 8, x: 0, y: 3)
+                        .fill(Color.tasukiDarkCardSecondary)
                 )
                 
                 // 地図
@@ -247,8 +251,15 @@ struct RunHistoryDetailView: View {
             .padding()
         }
         .background(Color.tasukiDarkBackground)
-        .navigationTitle("走行詳細")
+        .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .principal) {
+                Text("走行詳細")
+                    .font(.system(size: 19, weight: .bold))
+                    .foregroundColor(Color.tasukiPrimary)
+            }
+        }
     }
     
     private func formatDate(_ date: Date) -> String {
