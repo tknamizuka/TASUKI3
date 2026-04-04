@@ -39,14 +39,12 @@ struct HomeView: View {
         self.usePreviewData = usePreviewData
     }
     
-    // 進捗率（0.0〜1.0）
     var progress: CGFloat {
-        return CGFloat(min(currentDistance / goalDistance, 1.0))
+        CGFloat(min(currentDistance / goalDistance, 1.0))
     }
     
-    // 進捗率（%整数）
     var progressPercent: Int {
-        return Int((currentDistance / goalDistance) * 100)
+        Int((currentDistance / goalDistance) * 100)
     }
 
     private var selectedRunningDataSource: RunningDataSource {
@@ -73,47 +71,34 @@ struct HomeView: View {
         max(sameRankUsers.count, 1)
     }
 
-    /// MainTabView の safeAreaInset 内でレイアウトされる高さの約半分をパネルに割り当てる
-    private static let monthlyGoalHeightRatio: CGFloat = 0.5
+    private var formattedTotalPoints: String {
+        let n = PointService.shared.currentTotalPoints()
+        let f = NumberFormatter()
+        f.numberStyle = .decimal
+        f.groupingSeparator = ","
+        return (f.string(from: NSNumber(value: n)) ?? "\(n)") + " pt"
+    }
 
     var body: some View {
         ZStack {
             Color.tasukiDarkBackground
                 .ignoresSafeArea()
 
-            GeometryReader { geometry in
-                let panelHeight = max(300, geometry.size.height * Self.monthlyGoalHeightRatio)
-                let ringSize = min(max(panelHeight * 0.4, 148), 228)
-                let ringLine = max(12, min(18, ringSize * 0.105))
-                let pctSize = max(26, ringSize * 0.21)
-                let goalSubSize = max(12, ringSize * 0.096)
-                let kmSize = max(30, panelHeight * 0.14)
-                let headerSize: CGFloat = 16
-                let bottomBreathing: CGFloat = 12
+            ScrollView(showsIndicators: false) {
+                VStack(spacing: 0) {
+                    GeometryReader { geo in
+                        let ringSize = min(geo.size.width * 0.58, 260)
+                        let ringLine = max(14, ringSize * 0.065)
+                        let pctFont = ringSize * 0.26
+                        let subFont = max(13, ringSize * 0.078)
 
-                VStack(spacing: 10) {
-                    Button {
-                        if !isHealthKitLoading { showRunHistory = true }
-                    } label: {
-                        VStack(alignment: .leading, spacing: 0) {
-                            HStack {
-                                Text("MONTHLY GOAL")
-                                    .font(.system(size: headerSize, weight: .bold))
-                                    .tracking(1.8)
-                                    .foregroundColor(Color.tasukiMutedText)
-                                Spacer()
-                                Image(systemName: "chevron.right")
-                                    .font(.system(size: headerSize, weight: .semibold))
-                                    .foregroundColor(Color.tasukiMutedText)
-                            }
-                            .padding(.bottom, 16)
-
-                            Spacer(minLength: 8)
-
-                            HStack(alignment: .center, spacing: 16) {
+                        Button {
+                            if !isHealthKitLoading { showRunHistory = true }
+                        } label: {
+                            VStack(spacing: 20) {
                                 ZStack {
                                     Circle()
-                                        .stroke(Color.gray.opacity(0.2), lineWidth: ringLine)
+                                        .stroke(Color.gray.opacity(0.22), lineWidth: ringLine)
                                         .frame(width: ringSize, height: ringSize)
                                     Circle()
                                         .trim(from: 0, to: isHealthKitLoading ? 0 : progress)
@@ -127,113 +112,105 @@ struct HomeView: View {
                                         )
                                         .frame(width: ringSize, height: ringSize)
                                         .rotationEffect(.degrees(-90))
-                                    VStack(spacing: 6) {
-                                        Text(isHealthKitLoading ? "—" : "\(progressPercent)%")
-                                            .font(.system(size: pctSize, weight: .bold))
-                                            .foregroundColor(.black)
-                                        Text("目標 \(Int(goalDistance)) km")
-                                            .font(.system(size: goalSubSize, weight: .semibold))
-                                            .foregroundColor(Color.tasukiMutedText)
-                                            .multilineTextAlignment(.center)
-                                    }
-                                    .frame(width: ringSize * 0.74)
-                                }
 
-                                VStack(alignment: .leading, spacing: 10) {
-                                    if isHealthKitLoading {
-                                        ProgressView()
-                                        Text("同期中...")
-                                            .font(.subheadline)
-                                            .foregroundColor(Color.tasukiMutedText)
-                                    } else {
-                                        Text(String(format: "%.1fkm", currentDistance))
-                                            .font(.system(size: kmSize, weight: .bold))
-                                            .foregroundColor(.black)
-                                            .minimumScaleFactor(0.7)
-                                            .lineLimit(1)
-                                        Text("ソース: \(selectedRunningDataSource.displayName)")
-                                            .font(.system(size: max(11, goalSubSize - 1)))
-                                            .foregroundColor(Color.tasukiMutedText)
-                                        HStack(spacing: 6) {
-                                            Image(systemName: "flame.fill")
-                                                .font(.system(size: max(15, kmSize * 0.42)))
-                                                .foregroundColor(Color.tasukiBrandYellow)
-                                            Text("\(PointService.shared.currentTotalPoints()) pt")
-                                                .font(.system(size: max(15, kmSize * 0.48), weight: .semibold))
+                                    VStack(spacing: 8) {
+                                        if isHealthKitLoading {
+                                            ProgressView()
+                                            Text("—")
+                                                .font(.system(size: subFont, weight: .medium))
+                                                .foregroundColor(Color.tasukiMutedText)
+                                        } else {
+                                            Text("\(progressPercent)%")
+                                                .font(.system(size: pctFont, weight: .bold))
                                                 .foregroundColor(.black)
+                                            Text(String(format: "%.1f / %.0f km", currentDistance, goalDistance))
+                                                .font(.system(size: subFont, weight: .medium))
+                                                .foregroundColor(Color.tasukiMutedText)
                                         }
-                                        .padding(.top, 2)
                                     }
                                 }
-                                Spacer(minLength: 0)
+                                .frame(width: ringSize, height: ringSize)
+
+                                Text("MONTHLY GOAL（タップで履歴）")
+                                    .font(.system(size: 11, weight: .bold))
+                                    .tracking(1.2)
+                                    .foregroundColor(Color.tasukiMutedText)
+                                    .multilineTextAlignment(.center)
                             }
-
-                            Spacer(minLength: 8)
-
-                            if let error = healthKitError {
-                                Text(error)
-                                    .font(.caption)
-                                    .foregroundColor(Color.tasukiAccentOrange)
-                            }
-                        }
-                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                        .padding(22)
-                        .background(
-                            RoundedRectangle(cornerRadius: 22)
-                                .fill(Color.tasukiSurface)
-                                .shadow(color: Color.tasukiMutedText.opacity(0.12), radius: 8, x: 0, y: 3)
-                        )
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(isHealthKitLoading)
-                    .frame(height: panelHeight)
-                    .frame(maxWidth: .infinity)
-
-                    HStack(alignment: .top, spacing: 8) {
-                        NavigationLink(destination: CoachView()) {
-                            quickActionCard(
-                                title: "COACH",
-                                subtitle: "パーソナルコーチ",
-                                icon: "graduationcap.fill"
-                            )
+                            .frame(maxWidth: .infinity)
+                            .padding(.top, 8)
                         }
                         .buttonStyle(.plain)
-                        .frame(maxWidth: .infinity)
+                        .disabled(isHealthKitLoading)
+                        .frame(width: geo.size.width, height: ringSize + 100)
+                    }
+                    .frame(height: 360)
+
+                    VStack(alignment: .center, spacing: 10) {
+                        Text("TOTAL POINTS")
+                            .font(.system(size: 11, weight: .bold))
+                            .tracking(1.2)
+                            .foregroundColor(Color.tasukiMutedText)
+                            .multilineTextAlignment(.center)
+                        Text(formattedTotalPoints)
+                            .font(.system(size: 32, weight: .bold))
+                            .foregroundColor(Color.tasukiPrimary)
+                            .multilineTextAlignment(.center)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .padding(.horizontal, 28)
+                    .padding(.top, 8)
+                    .padding(.bottom, 28)
+
+                    if !isHealthKitLoading {
+                        Text("ソース: \(selectedRunningDataSource.displayName)")
+                            .font(.caption)
+                            .foregroundColor(Color.tasukiMutedText.opacity(0.9))
+                            .multilineTextAlignment(.center)
+                            .frame(maxWidth: .infinity, alignment: .center)
+                            .padding(.horizontal, 28)
+                            .padding(.bottom, 20)
+                    }
+
+                    if let error = healthKitError {
+                        Text(error)
+                            .font(.caption)
+                            .foregroundColor(Color.tasukiAccentOrange)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.horizontal, 28)
+                            .padding(.bottom, 12)
+                    }
+
+                    VStack(spacing: 0) {
+                        NavigationLink(destination: CoachView()) {
+                            quickActionRow(title: "COACH", subtitle: "パーソナルコーチ", icon: "graduationcap.fill")
+                        }
+                        .buttonStyle(.plain)
 
                         NavigationLink(destination: RunRecordingView()) {
-                            quickActionCard(
-                                title: "RUN",
-                                subtitle: "記録を開始",
-                                icon: "figure.run"
-                            )
+                            quickActionRow(title: "RUN", subtitle: "記録を開始", icon: "figure.run")
                         }
                         .buttonStyle(.plain)
-                        .frame(maxWidth: .infinity)
 
                         NavigationLink(destination: ChallengeHubView()) {
-                            quickActionCard(
-                                title: "CHALLENGE",
-                                subtitle: "進捗は参考",
-                                icon: "flag.checkered.2.crossed"
-                            )
+                            quickActionRow(title: "CHALLENGE", subtitle: "進捗は参考", icon: "flag.checkered.2.crossed")
                         }
                         .buttonStyle(.plain)
-                        .frame(maxWidth: .infinity)
                     }
+                    .padding(.horizontal, 20)
 
                     if !reduceRankingPressure {
                         NavigationLink(destination: RankingView()) {
-                            rankingShortcutCard
+                            rankingShortcutRow
                         }
                         .buttonStyle(.plain)
+                        .padding(.horizontal, 20)
+                        .padding(.top, 8)
                     }
 
-                    Spacer(minLength: 0)
+                    Spacer(minLength: 24)
                 }
-                .padding(.horizontal, 16)
-                .padding(.top, 6)
-                .padding(.bottom, bottomBreathing)
-                .frame(minHeight: geometry.size.height, alignment: .top)
+                .padding(.bottom, 24)
             }
         }
         .sheet(isPresented: $showRunHistory) {
@@ -242,9 +219,14 @@ struct HomeView: View {
         .sheet(isPresented: $showPracticeCalendar) {
             PracticeScheduleCalendarView(store: joinedPracticesStore)
         }
-        .navigationTitle("ホーム")
+        .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
+            ToolbarItem(placement: .principal) {
+                Text("TASUKI")
+                    .font(.system(size: 19, weight: .bold))
+                    .foregroundColor(Color.tasukiPrimary)
+            }
             ToolbarItem(placement: .topBarLeading) {
                 Button {
                     showPracticeCalendar = true
@@ -294,64 +276,55 @@ struct HomeView: View {
         }
     }
 
-    private func quickActionCard(title: String, subtitle: String, icon: String) -> some View {
-        HStack(alignment: .center, spacing: 10) {
+    private func quickActionRow(title: String, subtitle: String, icon: String) -> some View {
+        HStack(alignment: .center, spacing: 14) {
             Image(systemName: icon)
-                .font(.system(size: 20, weight: .semibold))
+                .font(.system(size: 22, weight: .semibold))
                 .foregroundColor(.black)
-                .frame(width: 28, alignment: .center)
+                .frame(width: 32)
             VStack(alignment: .leading, spacing: 3) {
                 Text(title)
-                    .font(.system(size: 11, weight: .bold))
+                    .font(.system(size: 14, weight: .bold))
                     .foregroundColor(.black)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.75)
                 Text(subtitle)
-                    .font(.system(size: 10))
+                    .font(.system(size: 12))
                     .foregroundColor(Color.tasukiMutedText)
-                    .lineLimit(2)
+            }
+            Spacer(minLength: 0)
+            Image(systemName: "chevron.right")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundColor(Color.tasukiMutedText.opacity(0.7))
+        }
+        .padding(.vertical, 14)
+        .padding(.horizontal, 8)
+        .contentShape(Rectangle())
+    }
+
+    private var rankingShortcutRow: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "crown.fill")
+                .font(.system(size: 20, weight: .semibold))
+                .foregroundColor(.black)
+                .frame(width: 32)
+            VStack(alignment: .leading, spacing: 4) {
+                Text("RANKING")
+                    .font(.system(size: 14, weight: .bold))
+                    .foregroundColor(.black)
+                Text("総合ランキング · 現在 \(myRank) · 同ランク内 \(sameRankPosition)/\(sameRankTotal)（参考）")
+                    .font(.system(size: 12))
+                    .foregroundColor(Color.tasukiMutedText)
                     .fixedSize(horizontal: false, vertical: true)
             }
             Spacer(minLength: 0)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 10)
-        .padding(.vertical, 12)
-        .background(
-            RoundedRectangle(cornerRadius: 16)
-                .fill(Color.tasukiSurface)
-                .shadow(color: Color.tasukiMutedText.opacity(0.12), radius: 8, x: 0, y: 3)
-        )
-    }
-
-    private var rankingShortcutCard: some View {
-        HStack(spacing: 10) {
-            Image(systemName: "crown.fill")
-                .font(.system(size: 18, weight: .semibold))
-                .foregroundColor(.black)
-                .frame(width: 30)
-            VStack(alignment: .leading, spacing: 2) {
-                Text("RANKING")
-                    .font(.system(size: 13, weight: .bold))
-                    .foregroundColor(.black)
-                Text("総合ランキング · 現在 \(myRank) · 同ランク内 \(sameRankPosition)/\(sameRankTotal)（順位はあくまで参考）")
-                    .font(.caption)
-                    .foregroundColor(Color.tasukiMutedText)
-            }
-            Spacer()
             Image(systemName: "chevron.right")
-                .font(.caption)
-                .foregroundColor(Color.tasukiMutedText)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundColor(Color.tasukiMutedText.opacity(0.7))
         }
-        .padding(14)
-        .background(
-            RoundedRectangle(cornerRadius: 16)
-                .fill(Color.tasukiSurface)
-                .shadow(color: Color.tasukiMutedText.opacity(0.12), radius: 8, x: 0, y: 3)
-        )
+        .padding(.vertical, 14)
+        .padding(.horizontal, 8)
+        .contentShape(Rectangle())
     }
     
-    /// HealthKit から今月の走行距離を取得して currentDistance に反映
     private func loadDistanceFromHealthKit() {
         HealthKitManager.shared.requestAuthorization { success, error in
             if !success {
@@ -369,7 +342,6 @@ struct HomeView: View {
                     } else {
                         healthKitError = nil
                     }
-                    // 距離ベースのランク昇格判定
                     RankPromotionManager.shared.evaluateMonthlyDistancePromotion(monthlyKm: km)
                 case .failure(let err):
                     healthKitError = err.localizedDescription
