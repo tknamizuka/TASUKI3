@@ -200,16 +200,6 @@ struct HomeView: View {
                     }
 
                     VStack(spacing: 0) {
-                        NavigationLink(destination: CoachView()) {
-                            TasukiFlatHubRow(
-                                title: "COACH",
-                                subtitle: "パーソナルコーチ",
-                                systemImage: "graduationcap.fill",
-                                iconForegroundColor: Color.tasukiAccent
-                            )
-                        }
-                        .buttonStyle(.plain)
-
                         NavigationLink(destination: RunRecordingView()) {
                             TasukiFlatHubRow(
                                 title: "RUN",

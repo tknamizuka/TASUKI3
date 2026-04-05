@@ -64,6 +64,18 @@ struct RunRecordingView: View {
                             .padding(.top, 12)
                             .padding(.bottom, 20)
 
+                        NavigationLink(destination: CoachView()) {
+                            TasukiFlatHubRow(
+                                title: "COACH",
+                                subtitle: "パーソナルコーチ",
+                                systemImage: "graduationcap.fill",
+                                iconForegroundColor: Color.tasukiAccent
+                            )
+                        }
+                        .buttonStyle(.plain)
+                        .padding(.horizontal, 20)
+                        .padding(.bottom, 20)
+
                         metricCard
                             .padding(.horizontal, 20)
                             .padding(.bottom, 20)

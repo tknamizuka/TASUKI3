@@ -25,7 +25,9 @@ struct MainTabView: View {
                         .environmentObject(unreadProvider)
                 }
             case 1:
-                SoloRunHubView()
+                NavigationStack {
+                    RunRecordingView()
+                }
             case 2:
                 TeamView()
             case 3:
