@@ -114,12 +114,14 @@ struct TasukiFlatHubRow: View {
     var hStackSpacing: CGFloat = 14
     var titleSubtitleSpacing: CGFloat = 3
     var showChevron: Bool = true
+    /// 先頭 SF Symbol の色（デフォルトは黒）。
+    var iconForegroundColor: Color = .black
 
     var body: some View {
         HStack(alignment: .center, spacing: hStackSpacing) {
             Image(systemName: systemImage)
                 .font(.system(size: iconFontSize, weight: .semibold))
-                .foregroundColor(.black)
+                .foregroundColor(iconForegroundColor)
                 .frame(width: 32)
             VStack(alignment: .leading, spacing: titleSubtitleSpacing) {
                 Text(title)

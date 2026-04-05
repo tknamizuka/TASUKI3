@@ -93,6 +93,7 @@ struct TASUKIApp: App {
                         .environmentObject(userManager)
                         .environmentObject(ConversationManager.shared)
                         .environmentObject(joinedPracticesStore)
+                        .environmentObject(CoachCertificationManager.shared)
                 }
             }
             .task {

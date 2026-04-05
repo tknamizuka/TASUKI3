@@ -56,6 +56,11 @@ struct ProfileEditView: View {
     @State private var showDiscardAlert = false
     @State private var integrationNotice: String?
 
+    #if DEBUG
+    @State private var debugCoachCertified: Bool = false
+    @State private var debugCoachProfileName: String = ""
+    #endif
+
     private var selectedRunningDataSource: RunningDataSource {
         RunningDataSource(rawValue: runningDataSourceRaw) ?? .all
     }
@@ -209,6 +214,26 @@ struct ProfileEditView: View {
                         Text("ログアウト")
                     }
                 }
+
+                #if DEBUG
+                Section(header: Text("開発者（コーチ認定のシミュレート）")) {
+                    Toggle("コーチ認定済みとして扱う", isOn: $debugCoachCertified)
+                        .onChange(of: debugCoachCertified) { newValue in
+                            UserDefaults.standard.set(newValue, forKey: CoachCertificationManager.debugCoachCertifiedKey)
+                            CoachCertificationManager.shared.refreshDebugCoachOverride()
+                        }
+                    TextField("coachProfileName（カタログキー）", text: $debugCoachProfileName)
+                        .onChange(of: debugCoachProfileName) { newValue in
+                            UserDefaults.standard.set(newValue, forKey: CoachCertificationManager.debugCoachProfileNameKey)
+                            if debugCoachCertified {
+                                CoachCertificationManager.shared.refreshDebugCoachOverride()
+                            }
+                        }
+                    Text("本番では Firestore の users/{uid} に coachCertified / coachProfileName を設定してください。")
+                        .font(.caption)
+                        .foregroundColor(Color.tasukiPrimary.opacity(0.6))
+                }
+                #endif
             }
             .navigationTitle("")
             .navigationBarTitleDisplayMode(.inline)
@@ -276,6 +301,10 @@ struct ProfileEditView: View {
                         bio: bio
                     )
                 }
+                #if DEBUG
+                debugCoachCertified = UserDefaults.standard.bool(forKey: CoachCertificationManager.debugCoachCertifiedKey)
+                debugCoachProfileName = UserDefaults.standard.string(forKey: CoachCertificationManager.debugCoachProfileNameKey) ?? "廣 佳樹"
+                #endif
             }
             .onChange(of: realityMiningConsentEnabled) { newValue in
                 RealityMiningManager.shared.updateConsent(enabled: newValue)

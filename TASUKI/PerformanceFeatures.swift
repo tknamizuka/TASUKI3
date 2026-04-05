@@ -71,6 +71,21 @@ struct RunActivity: Identifiable, Codable {
     }
 }
 
+/// 週次距離チャート用（`RunActivityStore.weeklyActivityChartPoints` · Me の Activity と Run 記録で同一データ・同一描画に使う）。
+struct WeeklyActivityChartPoint: Identifiable, Equatable {
+    let id: String
+    let label: String
+    let distanceKm: Double
+
+    init(weekAnchor: Date, label: String, distanceKm: Double, calendar: Calendar) {
+        self.label = label
+        self.distanceKm = distanceKm
+        let y = calendar.component(.yearForWeekOfYear, from: weekAnchor)
+        let w = calendar.component(.weekOfYear, from: weekAnchor)
+        self.id = "\(y)-w\(w)"
+    }
+}
+
 @MainActor
 final class RunActivityStore: ObservableObject {
     static let shared = RunActivityStore()
@@ -171,6 +186,56 @@ final class RunActivityStore: ObservableObject {
         let calendar = Calendar.current
         guard let weekInterval = calendar.dateInterval(of: .weekOfYear, for: now) else { return 0 }
         return activities.filter { weekInterval.contains($0.startedAt) }.count
+    }
+
+    /// 直近 `weeks` 週の週次走行距離（右端が今週）。実データがすべて 0 のときのみデモ用フォールバック。
+    func weeklyActivityChartPoints(
+        weeks: Int = 8,
+        now: Date = Date(),
+        calendar: Calendar = .current
+    ) -> [WeeklyActivityChartPoint] {
+        let real = weeklyChartRows(weeks: weeks, now: now, calendar: calendar)
+        if real.contains(where: { $0.distanceKm > 0 }) {
+            return real
+        }
+        let fallbackValues: [Double] = [12.0, 18.5, 10.2, 21.3, 16.4, 22.1, 19.8, 24.0]
+        return (0..<weeks).map { idx in
+            let offset = idx - (weeks - 1)
+            let weekAnchor = calendar.date(byAdding: .weekOfYear, value: offset, to: now) ?? now
+            let value = idx < fallbackValues.count ? fallbackValues[idx] : (fallbackValues.last ?? 0)
+            let label = Self.shortWeekChartLabel(for: weekAnchor, calendar: calendar)
+            return WeeklyActivityChartPoint(weekAnchor: weekAnchor, label: label, distanceKm: value, calendar: calendar)
+        }
+    }
+
+    private func weeklyChartRows(weeks: Int, now: Date, calendar: Calendar) -> [WeeklyActivityChartPoint] {
+        (0..<weeks).map { idx in
+            let offset = idx - (weeks - 1)
+            let targetDate = calendar.date(byAdding: .weekOfYear, value: offset, to: now) ?? now
+            guard let interval = calendar.dateInterval(of: .weekOfYear, for: targetDate) else {
+                return WeeklyActivityChartPoint(
+                    weekAnchor: targetDate,
+                    label: Self.shortWeekChartLabel(for: targetDate, calendar: calendar),
+                    distanceKm: 0,
+                    calendar: calendar
+                )
+            }
+            let distance = activities
+                .filter { interval.contains($0.startedAt) }
+                .reduce(0) { $0 + $1.distanceKm }
+            return WeeklyActivityChartPoint(
+                weekAnchor: targetDate,
+                label: Self.shortWeekChartLabel(for: targetDate, calendar: calendar),
+                distanceKm: distance,
+                calendar: calendar
+            )
+        }
+    }
+
+    private static func shortWeekChartLabel(for date: Date, calendar: Calendar) -> String {
+        let month = calendar.component(.month, from: date)
+        let day = calendar.component(.day, from: date)
+        return "\(month)/\(day)"
     }
 
     private func load() {

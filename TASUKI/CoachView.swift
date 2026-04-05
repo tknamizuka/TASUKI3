@@ -10,12 +10,13 @@ import SwiftUI
 struct CoachView: View {
     @AppStorage("myName") private var myName: String = "Hiro"
     @State private var showQuestionSheet = false
-    /// ユーザーが投稿した質問のみ（サンプルは含めない）
-    @State private var qaItems: [QAItem] = []
+    @EnvironmentObject private var coachCertification: CoachCertificationManager
+    @ObservedObject private var qaStore = CoachQAStore.shared
     @ObservedObject private var activityStore = RunActivityStore.shared
     
     private var userQAItems: [QAItem] {
-        qaItems.filter { $0.askerName == myName }
+        qaStore.items.filter { $0.askerName == myName }
+            .sorted { $0.postedDate > $1.postedDate }
     }
     
     var body: some View {
@@ -100,20 +101,29 @@ struct CoachView: View {
                         .font(.system(size: 19, weight: .bold))
                         .foregroundColor(Color.tasukiPrimary)
                 }
+                if coachCertification.isCertifiedCoach {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        NavigationLink(destination: CoachPendingQuestionsView()) {
+                            Image(systemName: "text.bubble.fill")
+                                .foregroundColor(Color.tasukiPrimary)
+                        }
+                    }
+                }
             }
             .overlay(alignment: .bottomTrailing) {
                 // 質問ボタン（フローティング）
                 Button(action: {
                     showQuestionSheet = true
                 }) {
-                    Image(systemName: "plus.circle.fill")
-                        .font(.system(size: 56, weight: .regular))
-                        .foregroundColor(Color.tasukiOnBrandYellow)
-                        .background(
-                            Circle()
-                                .fill(Color.tasukiPrimaryButtonFill)
-                                .frame(width: 56, height: 56)
-                        )
+                    ZStack {
+                        Circle()
+                            .fill(Color.black)
+                            .frame(width: 56, height: 56)
+                        Image(systemName: "plus")
+                            .font(.system(size: 24, weight: .semibold))
+                            .foregroundColor(Color.pureWhite)
+                    }
+                    .shadow(color: Color.black.opacity(0.22), radius: 8, x: 0, y: 4)
                 }
                 .padding(.trailing, 20)
                 // メインタブのカスタムタブバーと重ならないよう余白を確保
@@ -122,16 +132,7 @@ struct CoachView: View {
             .sheet(isPresented: $showQuestionSheet) {
                 QuestionPostSheet(
                     onPost: { question, category in
-                        // 新しい質問を追加
-                        let newItem = QAItem(
-                            question: question,
-                            answer: nil,
-                            askerName: myName,
-                            coachName: nil,     // 回答待ち状態なのでnil
-                            category: category,
-                            postedDate: Date()
-                        )
-                        qaItems.insert(newItem, at: 0)
+                        qaStore.addQuestion(question: question, category: category, askerName: myName)
                         showQuestionSheet = false
                     },
                     onCancel: {
@@ -196,14 +197,15 @@ struct CoachView: View {
         VStack(alignment: .leading, spacing: 16) {
             // カテゴリと投稿日
             HStack {
+                let badge = qaCategoryBadgeStyle(for: item.category)
                 Text(item.category)
                     .font(.system(size: 12, weight: .semibold))
-                    .foregroundColor(Color.tasukiOnBrandYellow)
+                    .foregroundColor(badge.foreground)
                     .padding(.horizontal, 10)
                     .padding(.vertical, 4)
                     .background(
                         Capsule()
-                            .fill(Color.tasukiPrimaryButtonFill)
+                            .fill(badge.background)
                     )
                 if isSample {
                     Text("サンプル")
@@ -301,6 +303,22 @@ struct CoachView: View {
         )
     }
     
+    /// カテゴリごとのバッジ色（トレーニング / ケア / 食事 / ギア とその他）
+    private func qaCategoryBadgeStyle(for category: String) -> (foreground: Color, background: Color) {
+        switch category {
+        case "トレーニング":
+            return (Color.black.opacity(0.88), Color.black.opacity(0.08))
+        case "ケア":
+            return (Color(hex: "15654A"), Color(hex: "D8F3E4"))
+        case "食事":
+            return (Color(hex: "B45309"), Color(hex: "FFEDD5"))
+        case "ギア":
+            return (Color(hex: "1D4ED8"), Color(hex: "DBEAFE"))
+        default:
+            return (Color.tasukiPrimary.opacity(0.85), Color.tasukiDarkCardSecondary)
+        }
+    }
+
     // MARK: - Date Formatter
     private func formatDate(_ date: Date) -> String {
         let formatter = DateFormatter()
@@ -394,4 +412,5 @@ struct QuestionPostSheet: View {
 
 #Preview {
     CoachView()
+        .environmentObject(CoachCertificationManager.shared)
 }

@@ -269,14 +269,44 @@ struct PartnerUser: Identifiable {
     }
 }
 
-struct QAItem: Identifiable {
-    let id = UUID()
+struct QAItem: Identifiable, Codable, Equatable {
+    let id: UUID
     let question: String
     let answer: String?        // コーチの回答（まだの場合はnil）
     let askerName: String      // 質問者名
     let coachName: String?     // コーチ名（回答がある場合の名前）
     let category: String       // カテゴリ（トレーニング / ケア など）
     let postedDate: Date       // 投稿日時
+
+    init(
+        id: UUID = UUID(),
+        question: String,
+        answer: String?,
+        askerName: String,
+        coachName: String?,
+        category: String,
+        postedDate: Date
+    ) {
+        self.id = id
+        self.question = question
+        self.answer = answer
+        self.askerName = askerName
+        self.coachName = coachName
+        self.category = category
+        self.postedDate = postedDate
+    }
+
+    func withAnswer(_ answer: String, coachName: String) -> QAItem {
+        QAItem(
+            id: id,
+            question: question,
+            answer: answer,
+            askerName: askerName,
+            coachName: coachName,
+            category: category,
+            postedDate: postedDate
+        )
+    }
 }
 
 /// CoachView 用サンプル（旧 mockQAItems と同一の質問・回答）。質問者は `myName` デフォルト「Hiro」、回答者は「廣 佳樹」（CoachProfileView と一致）

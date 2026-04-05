@@ -57,17 +57,33 @@ struct RunRecordingView: View {
             if tracker.isTracking {
                 trackingFocusedView
             } else {
-                ScrollView {
-                    VStack(spacing: 14) {
+                ScrollView(showsIndicators: false) {
+                    VStack(spacing: 0) {
                         titleCard
+                            .padding(.horizontal, 20)
+                            .padding(.top, 12)
+                            .padding(.bottom, 20)
+
                         metricCard
+                            .padding(.horizontal, 20)
+                            .padding(.bottom, 20)
+
                         mapCard
+                            .padding(.horizontal, 20)
+                            .padding(.bottom, 24)
+
                         actionButtons
+                            .padding(.horizontal, 20)
+                            .padding(.bottom, 24)
+
                         activityGraphCard
+                            .padding(.horizontal, 20)
+                            .padding(.bottom, 24)
+
                         recentActivitiesCard
+                            .padding(.horizontal, 20)
+                            .padding(.bottom, 24)
                     }
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 12)
                 }
             }
         }
@@ -191,7 +207,11 @@ struct RunRecordingView: View {
             .frame(maxWidth: .infinity)
             .padding(.top, 20)
             .padding(.bottom, 16)
-            .background(Color.tasukiSurface)
+            .overlay(alignment: .bottom) {
+                Rectangle()
+                    .fill(Color.tasukiMutedText.opacity(0.18))
+                    .frame(height: 1)
+            }
 
             Spacer(minLength: 18)
 
@@ -252,40 +272,43 @@ struct RunRecordingView: View {
                 }
                 .buttonStyle(.plain)
             }
-            .padding(.horizontal, 16)
+            .padding(.horizontal, 20)
             .padding(.bottom, 20)
         }
     }
 
     private var titleCard: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: 8) {
             Text("RUN RECORDER")
-                .font(.caption)
-                .fontWeight(.bold)
+                .font(.system(size: 11, weight: .bold))
+                .tracking(1.2)
                 .foregroundColor(Color.tasukiMutedText)
-                .tracking(1.5)
             Text("GPSで記録して履歴・チャレンジに反映")
                 .font(.system(size: 16, weight: .semibold))
                 .foregroundColor(Color.tasukiPrimary)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .tasukiCard()
     }
 
     private var metricCard: some View {
-        HStack(spacing: 12) {
-            metricItem(title: "距離", value: String(format: "%.2f", tracker.distanceKm), unit: "km")
-            metricItem(title: "時間", value: formatDuration(elapsedSeconds), unit: "")
-            metricItem(title: "ペース", value: currentPaceText.replacingOccurrences(of: "/km", with: ""), unit: "/km")
+        VStack(spacing: 14) {
+            HStack(spacing: 12) {
+                metricItem(title: "距離", value: String(format: "%.2f", tracker.distanceKm), unit: "km")
+                metricItem(title: "時間", value: formatDuration(elapsedSeconds), unit: "")
+                metricItem(title: "ペース", value: currentPaceText.replacingOccurrences(of: "/km", with: ""), unit: "/km")
+            }
+            Rectangle()
+                .fill(Color.tasukiMutedText.opacity(0.18))
+                .frame(height: 1)
         }
-        .tasukiCard()
     }
 
     private var mapCard: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text("ルート")
-                .font(.system(size: 15, weight: .semibold))
-                .foregroundColor(Color.tasukiPrimary)
+                .font(.system(size: 11, weight: .bold))
+                .tracking(1.2)
+                .foregroundColor(Color.tasukiMutedText)
             Map(initialPosition: .region(mapRegion), interactionModes: .all) {
                 if routeCoordinates.count >= 2 {
                     MapPolyline(coordinates: routeCoordinates)
@@ -294,8 +317,8 @@ struct RunRecordingView: View {
             }
             .frame(height: 240)
             .clipShape(RoundedRectangle(cornerRadius: 14))
+            .tasukiFlatCard()
         }
-        .tasukiCard()
     }
 
     private var actionButtons: some View {
@@ -343,15 +366,15 @@ struct RunRecordingView: View {
                 .buttonStyle(.plain)
             }
         }
-        .tasukiCard()
     }
 
     private var recentActivitiesCard: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(alignment: .firstTextBaseline) {
                 Text("最近のアクティビティ")
-                    .font(.system(size: 16, weight: .bold))
-                    .foregroundColor(Color.tasukiPrimary)
+                    .font(.system(size: 11, weight: .bold))
+                    .tracking(1.2)
+                    .foregroundColor(Color.tasukiMutedText)
                 Spacer()
                 NavigationLink(destination: RunHistoryListView()) {
                     Text("すべて見る")
@@ -359,12 +382,20 @@ struct RunRecordingView: View {
                         .foregroundColor(Color.tasukiAccent)
                 }
             }
+            .padding(.bottom, 12)
+
             if activityStore.activities.isEmpty {
                 Text("まだ記録がありません。走行を開始して最初のアクティビティを作成しましょう。")
                     .font(.footnote)
                     .foregroundColor(Color.tasukiMutedText)
+                    .padding(.vertical, 6)
             } else {
-                ForEach(Array(activityStore.activities.prefix(3))) { activity in
+                ForEach(Array(activityStore.activities.prefix(3).enumerated()), id: \.element.id) { index, activity in
+                    if index > 0 {
+                        Rectangle()
+                            .fill(Color.tasukiMutedText.opacity(0.18))
+                            .frame(height: 1)
+                    }
                     HStack {
                         VStack(alignment: .leading, spacing: 3) {
                             Text(formatDate(activity.startedAt))
@@ -376,29 +407,32 @@ struct RunRecordingView: View {
                         }
                         Spacer()
                     }
-                    .padding(.vertical, 4)
+                    .padding(.vertical, 10)
                 }
             }
         }
-        .tasukiCard()
     }
 
     private var activityGraphCard: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 12) {
             Text("活動推移")
-                .font(.system(size: 16, weight: .bold))
-                .foregroundColor(Color.tasukiPrimary)
+                .font(.system(size: 11, weight: .bold))
+                .tracking(1.2)
+                .foregroundColor(Color.tasukiMutedText)
 
-            HStack(spacing: 12) {
-                trendStat(title: "今週距離", value: String(format: "%.1f km", weeklyDistanceKm()))
-                trendStat(title: "今週回数", value: "\(activityStore.weeklyRunCount()) 回")
-                trendStat(title: "今月距離", value: String(format: "%.1f km", activityStore.monthlyDistanceKm()))
+            VStack(alignment: .leading, spacing: 14) {
+                HStack(spacing: 12) {
+                    trendStat(title: "今週距離", value: String(format: "%.1f km", weeklyDistanceKm()))
+                    trendStat(title: "今週回数", value: "\(activityStore.weeklyRunCount()) 回")
+                    trendStat(title: "今月距離", value: String(format: "%.1f km", activityStore.monthlyDistanceKm()))
+                }
+
+                TasukiWeeklyActivityLineChart(points: activityStore.weeklyActivityChartPoints())
+                    .frame(height: 190)
+                    .padding(.horizontal, 4)
             }
-
-            WeeklyActivityLineChart(points: weeklyActivityPoints)
-                .frame(height: 165)
+            .tasukiFlatCard()
         }
-        .tasukiCard()
     }
 
     private func metricItem(title: String, value: String, unit: String) -> some View {
@@ -452,22 +486,6 @@ struct RunRecordingView: View {
         .frame(maxWidth: .infinity)
     }
 
-    private var weeklyActivityPoints: [WeeklyActivityPoint] {
-        let calendar = Calendar.current
-        let now = Date()
-        let real = weeklyDistances(weeks: 8, calendar: calendar, now: now)
-        if real.contains(where: { $0.distanceKm > 0 }) {
-            return real
-        }
-
-        let fallbackValues: [Double] = [10.5, 14.8, 9.2, 17.0, 12.6, 18.3, 15.4, 20.1]
-        return fallbackValues.enumerated().map { index, value in
-            let offset = index - (fallbackValues.count - 1)
-            let weekStart = calendar.date(byAdding: .weekOfYear, value: offset, to: now) ?? now
-            return WeeklyActivityPoint(label: shortWeekLabel(for: weekStart, calendar: calendar), distanceKm: value)
-        }
-    }
-
     private func weeklyDistanceKm() -> Double {
         let calendar = Calendar.current
         let now = Date()
@@ -475,29 +493,6 @@ struct RunRecordingView: View {
         return activityStore.activities
             .filter { weekRange.contains($0.startedAt) }
             .reduce(0) { $0 + $1.distanceKm }
-    }
-
-    private func weeklyDistances(weeks: Int, calendar: Calendar, now: Date) -> [WeeklyActivityPoint] {
-        (0..<weeks).map { idx in
-            let offset = idx - (weeks - 1)
-            let targetDate = calendar.date(byAdding: .weekOfYear, value: offset, to: now) ?? now
-            guard let interval = calendar.dateInterval(of: .weekOfYear, for: targetDate) else {
-                return WeeklyActivityPoint(label: shortWeekLabel(for: targetDate, calendar: calendar), distanceKm: 0)
-            }
-            let distance = activityStore.activities
-                .filter { interval.contains($0.startedAt) }
-                .reduce(0) { $0 + $1.distanceKm }
-            return WeeklyActivityPoint(
-                label: shortWeekLabel(for: targetDate, calendar: calendar),
-                distanceKm: distance
-            )
-        }
-    }
-
-    private func shortWeekLabel(for date: Date, calendar: Calendar) -> String {
-        let month = calendar.component(.month, from: date)
-        let day = calendar.component(.day, from: date)
-        return "\(month)/\(day)"
     }
 
     private func finishAndSave() {
@@ -546,91 +541,6 @@ struct RunRecordingView: View {
         f.locale = Locale(identifier: "ja_JP")
         f.dateFormat = "M/d HH:mm"
         return f.string(from: date)
-    }
-}
-
-private struct WeeklyActivityPoint: Identifiable {
-    let id = UUID()
-    let label: String
-    let distanceKm: Double
-}
-
-private struct WeeklyActivityLineChart: View {
-    let points: [WeeklyActivityPoint]
-
-    private var maxY: Double {
-        max(points.map(\.distanceKm).max() ?? 0, 1)
-    }
-
-    var body: some View {
-        GeometryReader { proxy in
-            let width = proxy.size.width
-            let height = proxy.size.height
-            let leftPadding: CGFloat = 30
-            let bottomPadding: CGFloat = 24
-            let topPadding: CGFloat = 10
-            let plotWidth = max(1, width - leftPadding)
-            let plotHeight = max(1, height - bottomPadding - topPadding)
-            let count = max(points.count, 2)
-
-            ZStack {
-                ForEach(0..<4, id: \.self) { row in
-                    let ratio = CGFloat(row) / 3
-                    let y = topPadding + plotHeight * ratio
-                    Path { path in
-                        path.move(to: CGPoint(x: leftPadding, y: y))
-                        path.addLine(to: CGPoint(x: width, y: y))
-                    }
-                    .stroke(Color.gray.opacity(0.2), style: StrokeStyle(lineWidth: 1, dash: [4, 3]))
-                }
-
-                Path { path in
-                    for (index, point) in points.enumerated() {
-                        let x = leftPadding + plotWidth * CGFloat(index) / CGFloat(count - 1)
-                        let normalized = CGFloat(point.distanceKm / maxY)
-                        let y = topPadding + (1 - normalized) * plotHeight
-                        if index == 0 {
-                            path.move(to: CGPoint(x: x, y: y))
-                        } else {
-                            path.addLine(to: CGPoint(x: x, y: y))
-                        }
-                    }
-                }
-                .stroke(Color.tasukiAccentOrange, style: StrokeStyle(lineWidth: 2.5, lineCap: .round, lineJoin: .round))
-
-                ForEach(Array(points.enumerated()), id: \.element.id) { index, point in
-                    let x = leftPadding + plotWidth * CGFloat(index) / CGFloat(count - 1)
-                    let normalized = CGFloat(point.distanceKm / maxY)
-                    let y = topPadding + (1 - normalized) * plotHeight
-
-                    Circle()
-                        .fill(Color.tasukiAccentOrange)
-                        .frame(width: 7, height: 7)
-                        .position(x: x, y: y)
-
-                    Text(point.label)
-                        .font(.system(size: 10))
-                        .foregroundColor(Color.tasukiMutedText)
-                        .position(x: x, y: height - 10)
-                }
-
-                VStack(alignment: .leading, spacing: 0) {
-                    Text(String(format: "%.0fkm", maxY))
-                        .font(.system(size: 10))
-                        .foregroundColor(Color.tasukiMutedText)
-                    Spacer()
-                    Text("0km")
-                        .font(.system(size: 10))
-                        .foregroundColor(Color.tasukiMutedText)
-                }
-                .padding(.top, topPadding - 4)
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
-        }
-        .background(
-            RoundedRectangle(cornerRadius: 12)
-                .fill(Color.tasukiSurface)
-        )
     }
 }
 

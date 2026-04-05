@@ -87,6 +87,24 @@ struct HomeView: View {
             ScrollView(showsIndicators: false) {
                 VStack(spacing: 0) {
                     GeometryReader { geo in
+                        ZStack {
+                            Image("runner")
+                                .resizable()
+                                .scaledToFit()
+                                .frame(width: geo.size.width * 0.9)
+                                .opacity(0.15)
+                            Text("TASUKI")
+                                .font(.system(size: 50, weight: .heavy))
+                                .tracking(10)
+                                .foregroundColor(Color(hex: "0F1A2E"))
+                                .shadow(color: .white.opacity(0.8), radius: 2, x: 0, y: 0)
+                        }
+                        .frame(width: geo.size.width, height: geo.size.height)
+                    }
+                    .frame(height: 100)
+                    .padding(.top, 20)
+
+                    GeometryReader { geo in
                         let ringSize = min(geo.size.width * 0.58, 260)
                         let ringLine = max(14, ringSize * 0.065)
                         let pctFont = ringSize * 0.26
@@ -183,17 +201,32 @@ struct HomeView: View {
 
                     VStack(spacing: 0) {
                         NavigationLink(destination: CoachView()) {
-                            TasukiFlatHubRow(title: "COACH", subtitle: "パーソナルコーチ", systemImage: "graduationcap.fill")
+                            TasukiFlatHubRow(
+                                title: "COACH",
+                                subtitle: "パーソナルコーチ",
+                                systemImage: "graduationcap.fill",
+                                iconForegroundColor: Color.tasukiAccent
+                            )
                         }
                         .buttonStyle(.plain)
 
                         NavigationLink(destination: RunRecordingView()) {
-                            TasukiFlatHubRow(title: "RUN", subtitle: "記録を開始", systemImage: "figure.run")
+                            TasukiFlatHubRow(
+                                title: "RUN",
+                                subtitle: "記録を開始",
+                                systemImage: "figure.run",
+                                iconForegroundColor: Color(hex: "2E7D32")
+                            )
                         }
                         .buttonStyle(.plain)
 
                         NavigationLink(destination: ChallengeHubView()) {
-                            TasukiFlatHubRow(title: "CHALLENGE", subtitle: "進捗は参考", systemImage: "flag.checkered.2.crossed")
+                            TasukiFlatHubRow(
+                                title: "CHALLENGE",
+                                subtitle: "進捗は参考",
+                                systemImage: "flag.checkered.2.crossed",
+                                iconForegroundColor: Color.tasukiPrimary
+                            )
                         }
                         .buttonStyle(.plain)
                     }
@@ -229,11 +262,6 @@ struct HomeView: View {
         .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            ToolbarItem(placement: .principal) {
-                Text("TASUKI")
-                    .font(.system(size: 19, weight: .bold))
-                    .foregroundColor(Color.tasukiPrimary)
-            }
             ToolbarItem(placement: .topBarLeading) {
                 Button {
                     showPracticeCalendar = true
