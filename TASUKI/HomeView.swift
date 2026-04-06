@@ -107,7 +107,7 @@ struct HomeView: View {
                 VStack(spacing: 0) {
                     GeometryReader { geo in
                         ZStack {
-                            Image("runner")
+                            Image("runner") // runner asset now points to Runners2.png
                                 .resizable()
                                 .scaledToFit()
                                 .frame(width: geo.size.width * 0.9)

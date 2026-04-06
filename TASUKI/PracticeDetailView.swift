@@ -22,7 +22,51 @@ struct PracticeDetailView: View {
     // 主催者を含めた定員と現在数
     var totalMax: Int { practice.maxParticipants }
     var totalCurrent: Int { practice.currentParticipants + 1 } // 主催者1名を常にプラス
-    
+
+    /// Find などから開いた詳細でもタブバーに隠れない参加申請エリア
+    private var practiceJoinBar: some View {
+        VStack(spacing: 0) {
+            Button(action: {
+                let impactMed = UIImpactFeedbackGenerator(style: .medium)
+                impactMed.impactOccurred()
+
+                if practice.isJoined {
+                    if let uid = currentUserId {
+                        withAnimation(.spring()) {
+                            practice.participantUserIds.removeAll { $0 == uid }
+                            practice.isJoined = false
+                        }
+                        joinedPracticesStore.remove(practiceId: practice.practiceId)
+                    }
+                } else {
+                    showJoinConfirm = true
+                }
+            }) {
+                Text(practice.isJoined ? "参加をキャンセル" : "参加申請")
+                    .font(.system(size: 17, weight: .bold))
+                    .foregroundColor(practice.isJoined ? Color.tasukiMutedText : Color.tasukiOnBrandYellow)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 16)
+                    .background(
+                        RoundedRectangle(cornerRadius: 14)
+                            .fill(practice.isJoined ? Color.tasukiDarkCardSecondary : Color.tasukiBrandYellow)
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 14)
+                            .stroke(Color.tasukiMutedText.opacity(practice.isJoined ? 0.35 : 0), lineWidth: 1)
+                    )
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.horizontal, 16)
+        .padding(.top, 10)
+        .padding(.bottom, 8)
+        .background(
+            Color.tasukiDarkBackground
+                .shadow(color: .black.opacity(0.06), radius: 8, y: -2)
+        )
+    }
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 25) {
@@ -216,51 +260,14 @@ struct PracticeDetailView: View {
                     .shadow(color: .black.opacity(0.05), radius: 5, x: 0, y: 2)
                 }
                 
-                Spacer(minLength: 100) // ボタン分の余白
+                Spacer(minLength: 24)
             }
             .padding()
         }
         .background(Color.tasukiDarkBackground)
-        .overlay(alignment: .bottom) {
-            // 5. アクションボタン
-            Button(action: {
-                // タップ時のアクション（モック動作）
-                let impactMed = UIImpactFeedbackGenerator(style: .medium)
-                impactMed.impactOccurred()
-                
-                if practice.isJoined {
-                    // 参加済み → 即キャンセル（participantUserIds から自分のIDを削除）
-                    if let uid = currentUserId {
-                        withAnimation(.spring()) {
-                            practice.participantUserIds.removeAll { $0 == uid }
-                            practice.isJoined = false
-                        }
-                        joinedPracticesStore.remove(practiceId: practice.practiceId)
-                    }
-                } else {
-                    // 未参加 → 確認アラートを表示
-                    showJoinConfirm = true
-                }
-            }) {
-                Text(practice.isJoined ? "参加をキャンセル" : "参加する")
-                    .font(.headline)
-                    .fontWeight(.bold)
-                    .foregroundColor(practice.isJoined ? .gray : Color.tasukiOnBrandYellow)
-                    .frame(maxWidth: .infinity)
-                    .padding()
-                    .background(practice.isJoined ? Color.white : Color.tasukiPrimaryButtonFill)
-                    .cornerRadius(30)
-                    .shadow(color: practice.isJoined ? .clear : .black.opacity(0.2), radius: 10, x: 0, y: 5)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 30)
-                            .stroke(Color.gray.opacity(0.3), lineWidth: practice.isJoined ? 1 : 0)
-                    )
-            }
-            .padding()
-            .background(
-                LinearGradient(colors: [.white.opacity(0), .white], startPoint: .top, endPoint: .bottom)
-                    .frame(height: 100)
-            )
+        /// メインタブのカスタムタブバーと重ならないよう、オーバーレイではなくセーフエリアに固定
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            practiceJoinBar
         }
         .navigationBarTitleDisplayMode(.inline)
         .navigationBarBackButtonHidden(true)
@@ -278,9 +285,9 @@ struct PracticeDetailView: View {
                 }
             }
         }
-        .alert("参加リクエスト", isPresented: $showJoinConfirm) {
+        .alert("参加申請", isPresented: $showJoinConfirm) {
             Button("キャンセル", role: .cancel) { }
-            Button("参加する", role: .none) {
+            Button("参加申請する", role: .none) {
                 if let uid = currentUserId, !practice.participantUserIds.contains(uid) {
                     withAnimation(.spring()) {
                         practice.participantUserIds.append(uid)
@@ -300,7 +307,7 @@ struct PracticeDetailView: View {
                 }
             }
         } message: {
-            Text("この練習会に参加しますか？\n参加すると練習会限定チャットが利用できるようになります。")
+            Text("この練習会への参加申請を送信しますか？\n承認後、練習会限定チャットが利用できるようになります。")
         }
     }
 }

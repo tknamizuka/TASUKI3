@@ -2,6 +2,14 @@ import SwiftUI
 import MapKit
 import Combine
 
+/// 走行終了直後、保存前に保持する計測データ
+private struct RunFinishDraft {
+    let endedAt: Date
+    let distanceKm: Double
+    let durationSeconds: TimeInterval
+    let routeCoordinates: [CLLocationCoordinate2D]
+}
+
 struct RunRecordingView: View {
     @ObservedObject private var tracker = RunTracker.shared
     @ObservedObject private var activityStore = RunActivityStore.shared
@@ -12,8 +20,10 @@ struct RunRecordingView: View {
     @State private var now = Date()
     @State private var latestSaved: RunActivity?
     @State private var showSavedToast = false
-    @State private var pendingSubjectiveActivityId: UUID?
-    @State private var showPostRunSubjective = false
+    @State private var finishDraft: RunFinishDraft?
+    @State private var showPostRunSaveSheet = false
+    @State private var draftActivityTitle: String = ""
+    @State private var draftActivityNote: String = ""
     @State private var draftEffort: Int = 3
     @State private var draftMood: Int = 3
     @State private var navigateToCoach = false
@@ -177,134 +187,154 @@ struct RunRecordingView: View {
                     .transition(.move(edge: .top).combined(with: .opacity))
             }
         }
-        .sheet(isPresented: $showPostRunSubjective) {
-            postRunSubjectiveSheet
+        .sheet(isPresented: $showPostRunSaveSheet) {
+            postRunSaveSheet
+        }
+        .onChange(of: showPostRunSaveSheet) { _, isPresented in
+            if !isPresented, finishDraft != nil {
+                finishDraft = nil
+            }
         }
     }
 
-    private var postRunSubjectiveSheet: some View {
+    private var postRunSaveSheet: some View {
         NavigationStack {
-            VStack(alignment: .leading, spacing: 20) {
-                Text("走り終えた今の感覚（任意）")
-                    .font(.system(size: 18, weight: .bold))
-                    .foregroundColor(Color.tasukiPrimary)
-                Text("スキップしても記録は残ります")
-                    .font(.subheadline)
-                    .foregroundColor(Color.tasukiMutedText)
-
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("きつさ \(draftEffort) / 5")
-                        .font(.subheadline)
-                        .fontWeight(.semibold)
-                        .foregroundColor(Color.tasukiPrimary)
-                    Slider(value: Binding(
-                        get: { Double(draftEffort) },
-                        set: { draftEffort = Int($0.rounded()) }
-                    ), in: 1...5, step: 1)
-                    .tint(Color.tasukiAccent)
-                }
-
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("気分 \(draftMood) / 5")
-                        .font(.subheadline)
-                        .fontWeight(.semibold)
-                        .foregroundColor(Color.tasukiPrimary)
-                    Slider(value: Binding(
-                        get: { Double(draftMood) },
-                        set: { draftMood = Int($0.rounded()) }
-                    ), in: 1...5, step: 1)
-                    .tint(Color.tasukiAccentOrange)
-                }
-
-                Spacer()
-
-                HStack(spacing: 12) {
-                    Button("スキップ") {
-                        showPostRunSubjective = false
-                        pendingSubjectiveActivityId = nil
+            ScrollView {
+                VStack(alignment: .leading, spacing: 20) {
+                    if let draft = finishDraft {
+                        Text(String(format: "%.2f km · %@", draft.distanceKm, formatDuration(draft.durationSeconds)))
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundColor(Color.tasukiMutedText)
                     }
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundColor(Color.tasukiPrimary)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 12)
-                    .background(
-                        RoundedRectangle(cornerRadius: 12)
-                            .stroke(Color.tasukiDarkCardSecondary, lineWidth: 1)
-                    )
 
-                    Button("保存") {
-                        if let id = pendingSubjectiveActivityId {
-                            activityStore.updateActivitySubjective(
-                                id: id,
-                                perceivedEffort: draftEffort,
-                                postRunMood: draftMood
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("アクティビティ名")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundColor(Color.tasukiPrimary)
+                        TextField("例: 朝の皇居ラン", text: $draftActivityTitle)
+                            .font(.system(size: 16))
+                            .foregroundColor(Color.tasukiPrimary)
+                            .padding(12)
+                            .background(
+                                RoundedRectangle(cornerRadius: 12)
+                                    .fill(Color.tasukiDarkCard)
                             )
-                        }
-                        showPostRunSubjective = false
-                        pendingSubjectiveActivityId = nil
                     }
-                    .font(.system(size: 16, weight: .bold))
-                    .foregroundColor(Color.tasukiOnBrandYellow)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 12)
-                    .background(RoundedRectangle(cornerRadius: 12).fill(Color.tasukiPrimaryButtonFill))
+
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("感想（任意）")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundColor(Color.tasukiPrimary)
+                        TextField("今日の走りのメモ", text: $draftActivityNote, axis: .vertical)
+                            .font(.system(size: 16))
+                            .foregroundColor(Color.tasukiPrimary)
+                            .lineLimit(3...6)
+                            .padding(12)
+                            .background(
+                                RoundedRectangle(cornerRadius: 12)
+                                    .fill(Color.tasukiDarkCard)
+                            )
+                    }
+
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("きつさ \(draftEffort) / 5")
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundColor(Color.tasukiPrimary)
+                        Slider(value: Binding(
+                            get: { Double(draftEffort) },
+                            set: { draftEffort = Int($0.rounded()) }
+                        ), in: 1...5, step: 1)
+                        .tint(Color.tasukiAccent)
+                    }
+
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("気分 \(draftMood) / 5")
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundColor(Color.tasukiPrimary)
+                        Slider(value: Binding(
+                            get: { Double(draftMood) },
+                            set: { draftMood = Int($0.rounded()) }
+                        ), in: 1...5, step: 1)
+                        .tint(Color.tasukiAccentOrange)
+                    }
+
+                    HStack(spacing: 12) {
+                        Button("記録しない") {
+                            finishDraft = nil
+                            showPostRunSaveSheet = false
+                        }
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundColor(Color.tasukiPrimary)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 12)
+                        .background(
+                            RoundedRectangle(cornerRadius: 12)
+                                .stroke(Color.tasukiDarkCardSecondary, lineWidth: 1)
+                        )
+
+                        Button("アクティビティを保存") {
+                            commitFinishDraft()
+                        }
+                        .font(.system(size: 16, weight: .bold))
+                        .foregroundColor(Color.tasukiOnBrandYellow)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 12)
+                        .background(RoundedRectangle(cornerRadius: 12).fill(Color.tasukiPrimaryButtonFill))
+                    }
+                    .padding(.top, 8)
                 }
+                .padding(20)
             }
-            .padding(20)
             .background(Color.tasukiBase.ignoresSafeArea())
+            .navigationTitle("走行を保存")
+            .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("閉じる") {
-                        showPostRunSubjective = false
-                        pendingSubjectiveActivityId = nil
+                        finishDraft = nil
+                        showPostRunSaveSheet = false
                     }
                 }
             }
         }
-        .presentationDetents([.medium])
+        .presentationDetents([.medium, .large])
     }
 
     private var trackingFocusedView: some View {
         VStack(spacing: 0) {
-            VStack(spacing: 2) {
-                Text("自動停止")
-                    .font(.system(size: 22, weight: .bold))
-                    .foregroundColor(Color.tasukiPrimary)
+            VStack(spacing: 4) {
+                Text("記録中")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundColor(Color.tasukiMutedText)
                 Text(formatDuration(elapsedSeconds))
-                    .font(.system(size: 56, weight: .heavy, design: .rounded))
+                    .font(.system(size: 44, weight: .bold))
                     .foregroundColor(Color.tasukiPrimary)
                     .monospacedDigit()
             }
             .frame(maxWidth: .infinity)
             .padding(.top, 20)
-            .padding(.bottom, 16)
+            .padding(.bottom, 12)
             .overlay(alignment: .bottom) {
                 Rectangle()
                     .fill(Color.tasukiMutedText.opacity(0.18))
                     .frame(height: 1)
             }
 
-            Spacer(minLength: 18)
+            Spacer(minLength: 16)
 
             Text(String(format: "%.1f", averageSpeedKmh))
-                .font(.system(size: 120, weight: .heavy, design: .rounded))
+                .font(.system(size: 72, weight: .bold))
                 .foregroundColor(Color.tasukiPrimary)
                 .monospacedDigit()
                 .lineLimit(1)
                 .minimumScaleFactor(0.6)
-            Text("平均速度 (km/時)")
-                .font(.system(size: 32, weight: .semibold))
+            Text("平均速度（km/h）")
+                .font(.system(size: 15, weight: .medium))
                 .foregroundColor(Color.tasukiMutedText)
 
-            Spacer(minLength: 24)
+            Spacer(minLength: 20)
 
-            HStack(spacing: 18) {
-                trackingValueCard(value: String(format: "%.2f", tracker.distanceKm), unit: "距離 (km)")
-                trackingValueCard(value: String(format: "%.0f", tracker.elevationGainMeters), unit: "獲得標高 (m)")
-            }
-
-            trackingValueCard(value: String(format: "%.0f", tracker.currentAltitudeMeters), unit: "現在の標高 (m)")
-                .padding(.top, 6)
+            trackingInlineMetric(title: "距離", value: String(format: "%.2f", tracker.distanceKm), unit: "km")
 
             Spacer()
 
@@ -320,32 +350,51 @@ struct RunRecordingView: View {
                         Image(systemName: tracker.isPaused ? "play.fill" : "pause.fill")
                         Text(tracker.isPaused ? "再開" : "一時停止")
                     }
-                    .font(.system(size: 24, weight: .bold))
+                    .font(.system(size: 17, weight: .bold))
                     .foregroundColor(Color.tasukiOnBrandYellow)
                     .frame(maxWidth: .infinity)
-                    .padding(.vertical, 18)
+                    .padding(.vertical, 16)
                     .background(Capsule().fill(Color.tasukiPrimaryButtonFill))
                 }
                 .buttonStyle(.plain)
 
                 Button {
-                    finishAndSave()
+                    finishAndPrepareDraft()
                 } label: {
                     HStack(spacing: 8) {
                         Image(systemName: "flag.checkered")
                         Text("終了")
                     }
-                    .font(.system(size: 24, weight: .bold))
+                    .font(.system(size: 17, weight: .bold))
                     .foregroundColor(Color.tasukiOnBrandYellow)
                     .frame(maxWidth: .infinity)
-                    .padding(.vertical, 18)
+                    .padding(.vertical, 16)
                     .background(Capsule().fill(Color.tasukiPrimaryButtonFill))
                 }
                 .buttonStyle(.plain)
             }
             .padding(.horizontal, 20)
-            .padding(.bottom, 20)
+            .padding(.bottom, 28)
         }
+    }
+
+    private func trackingInlineMetric(title: String, value: String, unit: String) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title)
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundColor(Color.tasukiMutedText)
+            HStack(alignment: .firstTextBaseline, spacing: 4) {
+                Text(value)
+                    .font(.system(size: 28, weight: .bold))
+                    .foregroundColor(Color.tasukiPrimary)
+                    .monospacedDigit()
+                Text(unit)
+                    .font(.system(size: 15, weight: .medium))
+                    .foregroundColor(Color.tasukiMutedText)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 20)
     }
 
     private var titleCard: some View {
@@ -396,7 +445,7 @@ struct RunRecordingView: View {
         VStack(spacing: 10) {
             if tracker.isTracking {
                 Button {
-                    finishAndSave()
+                    finishAndPrepareDraft()
                 } label: {
                     Text("走行を終了して保存")
                         .font(.system(size: 16, weight: .bold))
@@ -472,6 +521,12 @@ struct RunRecordingView: View {
                             Text(formatDate(activity.startedAt))
                                 .font(.caption)
                                 .foregroundColor(Color.tasukiMutedText)
+                            if let t = activity.title, !t.isEmpty {
+                                Text(t)
+                                    .font(.system(size: 13, weight: .semibold))
+                                    .foregroundColor(Color.tasukiPrimary)
+                                    .lineLimit(1)
+                            }
                             Text("\(String(format: "%.1f", activity.distanceKm))km · \(activity.paceLabel)")
                                 .font(.system(size: 14, weight: .semibold))
                                 .foregroundColor(Color.tasukiPrimary)
@@ -493,7 +548,7 @@ struct RunRecordingView: View {
 
             VStack(alignment: .leading, spacing: 14) {
                 HStack(spacing: 12) {
-                    trendStat(title: "今週距離", value: String(format: "%.1f km", weeklyDistanceKm()))
+                    trendStat(title: "今週距離", value: String(format: "%.1f km", activityStore.weeklyDistanceKm()))
                     trendStat(title: "今週回数", value: "\(activityStore.weeklyRunCount()) 回")
                     trendStat(title: "今月距離", value: String(format: "%.1f km", activityStore.monthlyDistanceKm()))
                 }
@@ -542,50 +597,50 @@ struct RunRecordingView: View {
         return tracker.distanceKm / (elapsedSeconds / 3600.0)
     }
 
-    private func trackingValueCard(value: String, unit: String) -> some View {
-        VStack(spacing: 2) {
-            Text(value)
-                .font(.system(size: 64, weight: .heavy, design: .rounded))
-                .foregroundColor(Color.tasukiPrimary)
-                .monospacedDigit()
-                .lineLimit(1)
-                .minimumScaleFactor(0.5)
-            Text(unit)
-                .font(.system(size: 24, weight: .semibold))
-                .foregroundColor(Color.tasukiMutedText)
-        }
-        .frame(maxWidth: .infinity)
-    }
-
-    private func weeklyDistanceKm() -> Double {
-        let calendar = Calendar.current
-        let now = Date()
-        guard let weekRange = calendar.dateInterval(of: .weekOfYear, for: now) else { return 0 }
-        return activityStore.activities
-            .filter { weekRange.contains($0.startedAt) }
-            .reduce(0) { $0 + $1.distanceKm }
-    }
-
-    private func finishAndSave() {
+    private func finishAndPrepareDraft() {
+        let endedAt = Date()
+        let distanceKm = tracker.distanceKm
+        let durationSeconds = max(tracker.elapsedSeconds(now: now), 1)
+        let routeSnapshot = tracker.routeCoordinates
         tracker.stop()
-        guard tracker.distanceKm >= 0.05 else {
+        guard distanceKm >= 0.05 else {
             tracker.reset()
             return
         }
+        finishDraft = RunFinishDraft(
+            endedAt: endedAt,
+            distanceKm: distanceKm,
+            durationSeconds: durationSeconds,
+            routeCoordinates: routeSnapshot
+        )
+        draftActivityTitle = ""
+        draftActivityNote = ""
+        draftEffort = 3
+        draftMood = 3
+        tracker.reset()
+        showPostRunSaveSheet = true
+    }
+
+    private func commitFinishDraft() {
+        guard let draft = finishDraft else { return }
+        let titleTrim = draftActivityTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        let noteTrim = draftActivityNote.trimmingCharacters(in: .whitespacesAndNewlines)
         let activity = activityStore.addActivity(
-            distanceKm: tracker.distanceKm,
-            durationSeconds: max(elapsedSeconds, 1),
-            routeCoordinates: tracker.routeCoordinates,
-            source: "run_recorder"
+            distanceKm: draft.distanceKm,
+            durationSeconds: draft.durationSeconds,
+            routeCoordinates: draft.routeCoordinates,
+            source: "run_recorder",
+            endedAt: draft.endedAt,
+            title: titleTrim.isEmpty ? nil : titleTrim,
+            note: noteTrim.isEmpty ? nil : noteTrim,
+            perceivedEffort: draftEffort,
+            postRunMood: draftMood
         )
         let earnedPoints = max(20, Int(activity.distanceKm * 12))
         PointService.shared.addPointsToCurrentUser(amount: earnedPoints)
-        tracker.reset()
+        finishDraft = nil
+        showPostRunSaveSheet = false
         latestSaved = activity
-        draftEffort = 3
-        draftMood = 3
-        pendingSubjectiveActivityId = activity.id
-        showPostRunSubjective = true
         withAnimation(.easeInOut(duration: 0.2)) {
             showSavedToast = true
         }

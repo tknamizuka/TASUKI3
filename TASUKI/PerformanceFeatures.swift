@@ -31,6 +31,10 @@ struct RunActivity: Identifiable, Codable {
     let distanceKm: Double
     let route: [CodableCoordinate]
     let source: String
+    /// ユーザーが付けたアクティビティ名（任意）
+    var title: String?
+    /// 走行の感想メモ（任意）
+    var note: String?
     /// 1〜5（主観のきつさ）。記録直後のアンケート任意。
     var perceivedEffort: Int?
     /// 1〜5（走後の気分）。記録直後のアンケート任意。
@@ -44,6 +48,8 @@ struct RunActivity: Identifiable, Codable {
         distanceKm: Double,
         route: [CodableCoordinate],
         source: String,
+        title: String? = nil,
+        note: String? = nil,
         perceivedEffort: Int? = nil,
         postRunMood: Int? = nil
     ) {
@@ -54,6 +60,8 @@ struct RunActivity: Identifiable, Codable {
         self.distanceKm = distanceKm
         self.route = route
         self.source = source
+        self.title = title
+        self.note = note
         self.perceivedEffort = perceivedEffort
         self.postRunMood = postRunMood
     }
@@ -113,20 +121,25 @@ final class RunActivityStore: ObservableObject {
         durationSeconds: TimeInterval,
         routeCoordinates: [CLLocationCoordinate2D],
         source: String,
+        endedAt: Date = Date(),
+        title: String? = nil,
+        note: String? = nil,
         perceivedEffort: Int? = nil,
         postRunMood: Int? = nil
     ) -> RunActivity {
         let sanitizedDistance = max(0, distanceKm)
         let sanitizedDuration = max(1, durationSeconds)
-        let endedAt = Date()
-        let startedAt = endedAt.addingTimeInterval(-sanitizedDuration)
+        let end = endedAt
+        let startedAt = end.addingTimeInterval(-sanitizedDuration)
         let activity = RunActivity(
             startedAt: startedAt,
-            endedAt: endedAt,
+            endedAt: end,
             durationSeconds: sanitizedDuration,
             distanceKm: sanitizedDistance,
             route: routeCoordinates.map(CodableCoordinate.init),
             source: source,
+            title: title,
+            note: note,
             perceivedEffort: perceivedEffort,
             postRunMood: postRunMood
         )
@@ -283,6 +296,8 @@ final class RunActivityStore: ObservableObject {
             "route": route,
             "source": activity.source
         ]
+        if let t = activity.title, !t.isEmpty { payload["title"] = t }
+        if let n = activity.note, !n.isEmpty { payload["note"] = n }
         if let e = activity.perceivedEffort { payload["perceivedEffort"] = e }
         if let m = activity.postRunMood { payload["postRunMood"] = m }
         db.collection("users")
@@ -319,6 +334,8 @@ final class RunActivityStore: ObservableObject {
                         return CodableCoordinate(latitude: lat, longitude: lon)
                     }
                     let source = data["source"] as? String ?? "unknown"
+                    let title = data["title"] as? String
+                    let note = data["note"] as? String
                     let perceivedEffort = data["perceivedEffort"] as? Int
                     let postRunMood = data["postRunMood"] as? Int
                     return RunActivity(
@@ -329,6 +346,8 @@ final class RunActivityStore: ObservableObject {
                         distanceKm: distanceKm,
                         route: route,
                         source: source,
+                        title: title,
+                        note: note,
                         perceivedEffort: perceivedEffort,
                         postRunMood: postRunMood
                     )

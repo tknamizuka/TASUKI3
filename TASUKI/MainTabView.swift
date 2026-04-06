@@ -6,6 +6,7 @@ struct MainTabView: View {
     @State private var tabEnterDate: Date = Date()
     @State private var showReengagementSheet = false
     @State private var reengagementGapDays = 0
+    @ObservedObject private var runTracker = RunTracker.shared
     @EnvironmentObject private var unreadProvider: UnreadCountProviderBase
     @EnvironmentObject private var authManager: AuthManager
     @EnvironmentObject private var coachCertification: CoachCertificationManager
@@ -43,7 +44,11 @@ struct MainTabView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .safeAreaInset(edge: .bottom, spacing: 0) {
-            customTabBar
+            if selectedTab == 1 && runTracker.isTracking {
+                EmptyView()
+            } else {
+                customTabBar
+            }
         }
         .ignoresSafeArea(.keyboard)
         .onAppear {

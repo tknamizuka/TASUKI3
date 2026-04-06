@@ -32,6 +32,7 @@ struct FindView: View {
     @State private var selectedMode: String = "Runners"  // "Runners" or "Practices"
     @State private var searchText: String = ""
     @State private var showRecruitmentSheet = false
+    @State private var showPracticeCreateConfirm = false
     @State private var showFilterSheet = false  // 詳細フィルターシートの表示状態
     
     // ソート機能
@@ -691,24 +692,37 @@ struct FindView: View {
                 }
             }
             .overlay(alignment: .bottomTrailing) {
-                // 新規募集ボタン（Practicesモードの時だけ表示）
+                // 新規募集ボタン（Practicesモードの時だけ表示）— 白地・紺アクセント
                 if selectedMode == "Practices" {
                     Button(action: {
-                        showRecruitmentSheet = true
+                        showPracticeCreateConfirm = true
                     }) {
-                        Image(systemName: "plus.circle.fill")
-                            .font(.system(size: 56, weight: .regular))
-                            .foregroundColor(Color.tasukiOnBrandYellow)
-                            .background(
-                                Circle()
-                                    .fill(Color.tasukiPrimaryButtonFill)
-                                    .frame(width: 56, height: 56)
-                            )
+                        ZStack {
+                            Circle()
+                                .fill(Color.white)
+                                .frame(width: 56, height: 56)
+                                .shadow(color: Color.tasukiPrimary.opacity(0.18), radius: 8, x: 0, y: 4)
+                            Circle()
+                                .stroke(Color.tasukiPrimary, lineWidth: 2)
+                                .frame(width: 56, height: 56)
+                            Image(systemName: "plus")
+                                .font(.system(size: 26, weight: .semibold))
+                                .foregroundColor(Color.tasukiPrimary)
+                        }
                     }
+                    .buttonStyle(.plain)
                     .padding(.trailing, 20)
                     // MainTabView の customTabBar（safeAreaInset）と重ならないよう余白を確保（CoachView と同様）
                     .padding(.bottom, 88)
                 }
+            }
+            .alert("練習会を作成する", isPresented: $showPracticeCreateConfirm) {
+                Button("キャンセル", role: .cancel) {}
+                Button("作成する") {
+                    showRecruitmentSheet = true
+                }
+            } message: {
+                Text("練習会の募集情報を入力します。")
             }
             .sheet(isPresented: $showRecruitmentSheet) {
                 RecruitmentPostSheet(
