@@ -15,7 +15,6 @@ struct CoachView: View {
     @State private var showQuestionSheet = false
     @EnvironmentObject private var coachCertification: CoachCertificationManager
     @ObservedObject private var qaStore = CoachQAStore.shared
-    @ObservedObject private var activityStore = RunActivityStore.shared
     
     private var userQAItems: [QAItem] {
         qaStore.items.filter { $0.askerName == myName }
@@ -83,12 +82,7 @@ struct CoachView: View {
                     .padding(.horizontal, 20)
                     .padding(.bottom, 16)
                     
-                    // A. コーチプログラム（インライン表示）
-                    coachProgramSection
-                        .padding(.horizontal, 20)
-                        .padding(.bottom, 24)
-                    
-                    // B. あなたの Q&A（サンプル＋自分の質問）
+                    // あなたの Q&A（サンプル＋自分の質問）
                     VStack(alignment: .leading, spacing: 12) {
                         Text("あなたの Q&A")
                             .font(.system(size: 18, weight: .bold))
@@ -193,41 +187,6 @@ struct CoachView: View {
                 .foregroundColor(Color.tasukiMutedText)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-    }
-    
-    // MARK: - Coach Program Section (inline)
-    private var coachProgramSection: some View {
-        VStack(spacing: 14) {
-            // 今週のコーチコメント
-            VStack(alignment: .leading, spacing: 8) {
-                Text("今週のコーチコメント")
-                    .font(.system(size: 15, weight: .bold))
-                    .foregroundColor(Color.tasukiPrimary)
-                Text(coachRecommendationText)
-                    .font(.system(size: 14))
-                    .foregroundColor(Color.tasukiMutedText)
-            }
-            .padding(16)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(
-                RoundedRectangle(cornerRadius: 14)
-                    .fill(Color.tasukiDarkCardSecondary)
-            )
-        }
-    }
-    
-    private var coachRecommendationText: String {
-        let weeklyRuns = activityStore.weeklyRunCount()
-        switch weeklyRuns {
-        case 0:
-            return "まずは週2回から。短時間のEASY RUNを習慣化しましょう。"
-        case 1...2:
-            return "頻度は良い流れです。今週は1回だけ少し強度を上げるのがおすすめです。"
-        case 3...4:
-            return "十分な走行頻度です。疲労管理を優先しつつ、質を上げていきましょう。"
-        default:
-            return "高頻度で走れています。休養日を計画的に入れて故障予防を徹底しましょう。"
-        }
     }
     
     // MARK: - Q&A Card View

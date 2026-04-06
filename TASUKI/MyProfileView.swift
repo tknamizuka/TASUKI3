@@ -225,7 +225,7 @@ struct MyProfileView: View {
                 .foregroundColor(.black)
 
             HStack(spacing: 14) {
-                graphStatActivity(title: "今週距離", value: String(format: "%.1f km", weeklyDistanceKm()))
+                graphStatActivity(title: "今週距離", value: String(format: "%.1f km", activityStore.weeklyDistanceKm()))
                 graphStatActivity(title: "今週回数", value: "\(activityStore.weeklyRunCount()) 回")
                 graphStatActivity(title: "今月距離", value: String(format: "%.1f km", activityStore.monthlyDistanceKm()))
             }
@@ -346,15 +346,6 @@ struct MyProfileView: View {
                 .minimumScaleFactor(0.72)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    private func weeklyDistanceKm() -> Double {
-        let calendar = Calendar.current
-        let now = Date()
-        guard let weekRange = calendar.dateInterval(of: .weekOfYear, for: now) else { return 0 }
-        return activityStore.activities
-            .filter { weekRange.contains($0.startedAt) }
-            .reduce(0) { $0 + $1.distanceKm }
     }
 
     private func tagView(text: String, isPrimary: Bool) -> some View {

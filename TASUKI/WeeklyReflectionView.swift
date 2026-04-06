@@ -8,13 +8,13 @@ struct WeeklyReflectionView: View {
         Calendar.current.dateInterval(of: .weekOfYear, for: Date())
     }
 
+    /// Me / Run 記録の Activity と同じ `RunActivityStore` 集計。
     private var runsThisWeek: [RunActivity] {
-        guard let weekInterval else { return [] }
-        return activityStore.activities.filter { weekInterval.contains($0.startedAt) }
+        activityStore.activitiesInCurrentWeek()
     }
 
-    private var runCount: Int { runsThisWeek.count }
-    private var weekKm: Double { runsThisWeek.reduce(0) { $0 + $1.distanceKm } }
+    private var runCount: Int { activityStore.weeklyRunCount() }
+    private var weekKm: Double { activityStore.weeklyDistanceKm() }
 
     private var restDays: Int {
         guard let weekInterval else { return 0 }
@@ -41,6 +41,9 @@ struct WeeklyReflectionView: View {
         .background(Color.tasukiDarkBackground.ignoresSafeArea())
         .navigationTitle("今週の振り返り")
         .navigationBarTitleDisplayMode(.inline)
+        .task {
+            activityStore.refreshFromRemote()
+        }
     }
 
     private var header: some View {

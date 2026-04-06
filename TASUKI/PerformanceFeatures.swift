@@ -74,10 +74,12 @@ struct RunActivity: Identifiable, Codable {
 /// 週次距離チャート用（`RunActivityStore.weeklyActivityChartPoints` · Me の Activity と Run 記録で同一データ・同一描画に使う）。
 struct WeeklyActivityChartPoint: Identifiable, Equatable {
     let id: String
+    let weekAnchor: Date
     let label: String
     let distanceKm: Double
 
     init(weekAnchor: Date, label: String, distanceKm: Double, calendar: Calendar) {
+        self.weekAnchor = weekAnchor
         self.label = label
         self.distanceKm = distanceKm
         let y = calendar.component(.yearForWeekOfYear, from: weekAnchor)
@@ -182,10 +184,18 @@ final class RunActivityStore: ObservableObject {
         activitiesInCurrentMonth(now: now).count
     }
 
+    /// 今週（`calendar` の `weekOfYear`）に含まれる走行。Me / Run の Activity と「今週の振り返り」で同一データを参照する。
+    func activitiesInCurrentWeek(now: Date = Date(), calendar: Calendar = .current) -> [RunActivity] {
+        guard let weekInterval = calendar.dateInterval(of: .weekOfYear, for: now) else { return [] }
+        return activities.filter { weekInterval.contains($0.startedAt) }
+    }
+
+    func weeklyDistanceKm(now: Date = Date(), calendar: Calendar = .current) -> Double {
+        activitiesInCurrentWeek(now: now, calendar: calendar).reduce(0) { $0 + $1.distanceKm }
+    }
+
     func weeklyRunCount(now: Date = Date()) -> Int {
-        let calendar = Calendar.current
-        guard let weekInterval = calendar.dateInterval(of: .weekOfYear, for: now) else { return 0 }
-        return activities.filter { weekInterval.contains($0.startedAt) }.count
+        activitiesInCurrentWeek(now: now).count
     }
 
     /// 直近 `weeks` 週の週次走行距離（右端が今週）。実データがすべて 0 のときのみデモ用フォールバック。
@@ -202,9 +212,10 @@ final class RunActivityStore: ObservableObject {
         return (0..<weeks).map { idx in
             let offset = idx - (weeks - 1)
             let weekAnchor = calendar.date(byAdding: .weekOfYear, value: offset, to: now) ?? now
+            let normalizedAnchor = calendar.dateInterval(of: .weekOfYear, for: weekAnchor)?.start ?? weekAnchor
             let value = idx < fallbackValues.count ? fallbackValues[idx] : (fallbackValues.last ?? 0)
-            let label = Self.shortWeekChartLabel(for: weekAnchor, calendar: calendar)
-            return WeeklyActivityChartPoint(weekAnchor: weekAnchor, label: label, distanceKm: value, calendar: calendar)
+            let label = Self.shortWeekChartLabel(for: normalizedAnchor, calendar: calendar)
+            return WeeklyActivityChartPoint(weekAnchor: normalizedAnchor, label: label, distanceKm: value, calendar: calendar)
         }
     }
 
@@ -224,8 +235,8 @@ final class RunActivityStore: ObservableObject {
                 .filter { interval.contains($0.startedAt) }
                 .reduce(0) { $0 + $1.distanceKm }
             return WeeklyActivityChartPoint(
-                weekAnchor: targetDate,
-                label: Self.shortWeekChartLabel(for: targetDate, calendar: calendar),
+                weekAnchor: interval.start,
+                label: Self.shortWeekChartLabel(for: interval.start, calendar: calendar),
                 distanceKm: distance,
                 calendar: calendar
             )
