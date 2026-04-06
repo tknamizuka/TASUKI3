@@ -8,6 +8,9 @@
 import SwiftUI
 
 struct CoachView: View {
+    /// 外側に既に `NavigationStack` があるときは `false`（二重スタックでのクラッシュを避ける）。
+    var embedNavigationStack: Bool = true
+
     @AppStorage("myName") private var myName: String = "Hiro"
     @State private var showQuestionSheet = false
     @EnvironmentObject private var coachCertification: CoachCertificationManager
@@ -20,126 +23,161 @@ struct CoachView: View {
     }
     
     var body: some View {
-        NavigationStack {
-            ZStack {
-                Color.tasukiDarkBackground
-                    .ignoresSafeArea()
-                
-                ScrollView(showsIndicators: false) {
-                    VStack(spacing: 0) {
-                        // ヘッダー
-                        headerView
-                            .padding(.horizontal, 20)
-                            .padding(.top, 32)
-                            .padding(.bottom, 20)
+        // #region agent log
+        let _ = AgentDebugLog.log(
+            location: "CoachView.body",
+            message: "coach_body_evaluated",
+            hypothesisId: "C3",
+            data: [
+                "embedNavigationStack": "\(embedNavigationStack)",
+                "isCertifiedCoach": "\(coachCertification.isCertifiedCoach)"
+            ]
+        )
+        // #endregion
+        Group {
+            if embedNavigationStack {
+                NavigationStack {
+                    coachScaffold
+                }
+            } else {
+                coachScaffold
+            }
+        }
+    }
 
-                        NavigationLink(destination: WeeklyReflectionView()) {
-                            TasukiFlatHubRow(
-                                title: "今週の振り返り",
-                                subtitle: "回数・休息も含めて振り返る",
-                                systemImage: "calendar.badge.clock"
-                            )
-                        }
-                        .buttonStyle(.plain)
+    private var coachScaffold: some View {
+        ZStack {
+            // #region agent log
+            Color.clear
+                .frame(width: 0, height: 0)
+                .onAppear {
+                    AgentDebugLog.log(
+                        location: "CoachView.coachScaffold",
+                        message: "coach_scaffold_onAppear",
+                        hypothesisId: "C2",
+                        data: [
+                            "embedNavigationStack": "\(embedNavigationStack)"
+                        ]
+                    )
+                }
+            // #endregion
+            Color.tasukiDarkBackground
+                .ignoresSafeArea()
+            
+            ScrollView(showsIndicators: false) {
+                VStack(spacing: 0) {
+                    // ヘッダー
+                    headerView
                         .padding(.horizontal, 20)
-                        .padding(.bottom, 16)
-                        
-                        // A. コーチプログラム（インライン表示）
-                        coachProgramSection
+                        .padding(.top, 32)
+                        .padding(.bottom, 20)
+
+                    NavigationLink(destination: WeeklyReflectionView()) {
+                        TasukiFlatHubRow(
+                            title: "今週の振り返り",
+                            subtitle: "回数・休息も含めて振り返る",
+                            systemImage: "calendar.badge.clock"
+                        )
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.horizontal, 20)
+                    .padding(.bottom, 16)
+                    
+                    // A. コーチプログラム（インライン表示）
+                    coachProgramSection
+                        .padding(.horizontal, 20)
+                        .padding(.bottom, 24)
+                    
+                    // B. あなたの Q&A（サンプル＋自分の質問）
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("あなたの Q&A")
+                            .font(.system(size: 18, weight: .bold))
+                            .foregroundColor(Color.tasukiPrimary)
                             .padding(.horizontal, 20)
-                            .padding(.bottom, 24)
                         
-                        // B. あなたの Q&A（サンプル＋自分の質問）
-                        VStack(alignment: .leading, spacing: 12) {
-                            Text("あなたの Q&A")
-                                .font(.system(size: 18, weight: .bold))
-                                .foregroundColor(Color.tasukiPrimary)
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("サンプル")
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundColor(Color.tasukiMutedText)
                                 .padding(.horizontal, 20)
-                            
-                            VStack(alignment: .leading, spacing: 8) {
-                                Text("サンプル")
-                                    .font(.system(size: 12, weight: .semibold))
-                                    .foregroundColor(Color.tasukiMutedText)
-                                    .padding(.horizontal, 20)
-                                VStack(spacing: 16) {
-                                    ForEach(coachPersonalSampleQAItems) { item in
-                                        qaCardView(item: item, isSample: true)
-                                    }
+                            VStack(spacing: 16) {
+                                ForEach(coachPersonalSampleQAItems) { item in
+                                    qaCardView(item: item, isSample: true)
                                 }
-                                .padding(.horizontal, 20)
                             }
-                            
-                            if !userQAItems.isEmpty {
-                                Text("あなたの質問")
-                                    .font(.system(size: 12, weight: .semibold))
-                                    .foregroundColor(Color.tasukiMutedText)
-                                    .padding(.horizontal, 20)
-                                    .padding(.top, 8)
-                                VStack(spacing: 16) {
-                                    ForEach(userQAItems) { item in
-                                        qaCardView(item: item, isSample: false)
-                                    }
-                                }
-                                .padding(.horizontal, 20)
-                            } else {
-                                Text("＋ボタンから、コーチへの質問を投稿できます")
-                                    .font(.system(size: 13))
-                                    .foregroundColor(Color.tasukiMutedText)
-                                    .padding(.horizontal, 20)
-                                    .padding(.top, 8)
-                            }
+                            .padding(.horizontal, 20)
                         }
-                        .padding(.bottom, 100)
-                    }
-                }
-            }
-            .navigationTitle("")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .principal) {
-                    Text("Coach")
-                        .font(.system(size: 19, weight: .bold))
-                        .foregroundColor(Color.tasukiPrimary)
-                }
-                if coachCertification.isCertifiedCoach {
-                    ToolbarItem(placement: .topBarTrailing) {
-                        NavigationLink(destination: CoachPendingQuestionsView()) {
-                            Image(systemName: "text.bubble.fill")
-                                .foregroundColor(Color.tasukiPrimary)
+                        
+                        if !userQAItems.isEmpty {
+                            Text("あなたの質問")
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundColor(Color.tasukiMutedText)
+                                .padding(.horizontal, 20)
+                                .padding(.top, 8)
+                            VStack(spacing: 16) {
+                                ForEach(userQAItems) { item in
+                                    qaCardView(item: item, isSample: false)
+                                }
+                            }
+                            .padding(.horizontal, 20)
+                        } else {
+                            Text("＋ボタンから、コーチへの質問を投稿できます")
+                                .font(.system(size: 13))
+                                .foregroundColor(Color.tasukiMutedText)
+                                .padding(.horizontal, 20)
+                                .padding(.top, 8)
                         }
                     }
+                    .padding(.bottom, 100)
                 }
             }
-            .overlay(alignment: .bottomTrailing) {
-                // 質問ボタン（フローティング）
-                Button(action: {
-                    showQuestionSheet = true
-                }) {
-                    ZStack {
-                        Circle()
-                            .fill(Color.black)
-                            .frame(width: 56, height: 56)
-                        Image(systemName: "plus")
-                            .font(.system(size: 24, weight: .semibold))
-                            .foregroundColor(Color.pureWhite)
+        }
+        .navigationTitle("")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .principal) {
+                Text("Coach")
+                    .font(.system(size: 19, weight: .bold))
+                    .foregroundColor(Color.tasukiPrimary)
+            }
+            if coachCertification.isCertifiedCoach {
+                ToolbarItem(placement: .topBarTrailing) {
+                    NavigationLink(destination: CoachPendingQuestionsView()) {
+                        Image(systemName: "text.bubble.fill")
+                            .foregroundColor(Color.tasukiPrimary)
                     }
-                    .shadow(color: Color.black.opacity(0.22), radius: 8, x: 0, y: 4)
                 }
-                .padding(.trailing, 20)
-                // メインタブのカスタムタブバーと重ならないよう余白を確保
-                .padding(.bottom, 88)
             }
-            .sheet(isPresented: $showQuestionSheet) {
-                QuestionPostSheet(
-                    onPost: { question, category in
-                        qaStore.addQuestion(question: question, category: category, askerName: myName)
-                        showQuestionSheet = false
-                    },
-                    onCancel: {
-                        showQuestionSheet = false
-                    }
-                )
+        }
+        .overlay(alignment: .bottomTrailing) {
+            // 質問ボタン（フローティング）
+            Button(action: {
+                showQuestionSheet = true
+            }) {
+                ZStack {
+                    Circle()
+                        .fill(Color.black)
+                        .frame(width: 56, height: 56)
+                    Image(systemName: "plus")
+                        .font(.system(size: 24, weight: .semibold))
+                        .foregroundColor(Color.pureWhite)
+                }
+                .shadow(color: Color.black.opacity(0.22), radius: 8, x: 0, y: 4)
             }
+            .padding(.trailing, 20)
+            // メインタブのカスタムタブバーと重ならないよう余白を確保
+            .padding(.bottom, 88)
+        }
+        .sheet(isPresented: $showQuestionSheet) {
+            QuestionPostSheet(
+                onPost: { question, category in
+                    qaStore.addQuestion(question: question, category: category, askerName: myName)
+                    showQuestionSheet = false
+                },
+                onCancel: {
+                    showQuestionSheet = false
+                }
+            )
         }
     }
     

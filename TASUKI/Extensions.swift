@@ -1,3 +1,4 @@
+import Foundation
 import SwiftUI
 import UIKit
 
@@ -116,6 +117,8 @@ struct TasukiFlatHubRow: View {
     var showChevron: Bool = true
     /// 先頭 SF Symbol の色（デフォルトは黒）。
     var iconForegroundColor: Color = .black
+    /// コーチ回答などの短いプレビュー（例: Run の COACH 行サムネイル）。
+    var replySnippet: String? = nil
 
     var body: some View {
         HStack(alignment: .center, spacing: hStackSpacing) {
@@ -133,6 +136,29 @@ struct TasukiFlatHubRow: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
             Spacer(minLength: 0)
+            if let snippet = replySnippet?.trimmingCharacters(in: .whitespacesAndNewlines), !snippet.isEmpty {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("A")
+                        .font(.system(size: 9, weight: .bold))
+                        .foregroundColor(Color.tasukiMutedText)
+                    Text(snippet)
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundColor(Color.tasukiPrimary.opacity(0.92))
+                        .lineLimit(4)
+                        .multilineTextAlignment(.leading)
+                }
+                .frame(width: 76, alignment: .topLeading)
+                .padding(.vertical, 6)
+                .padding(.horizontal, 8)
+                .background(
+                    RoundedRectangle(cornerRadius: 8)
+                        .fill(Color.tasukiDarkCardSecondary)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8)
+                        .stroke(Color.tasukiMutedText.opacity(0.22), lineWidth: 1)
+                )
+            }
             if showChevron {
                 Image(systemName: "chevron.right")
                     .font(.system(size: 13, weight: .semibold))
@@ -216,5 +242,32 @@ struct FlowLayout: Layout {
             
             self.size = CGSize(width: maxWidth, height: currentY + lineHeight)
         }
+    }
+}
+
+// MARK: - Agent debug ingest (session f3091f)
+enum AgentDebugLog {
+    static let sessionId = "f3091f"
+    private static let ingestURL = URL(string: "http://127.0.0.1:7824/ingest/d7f1622c-ff7c-497a-bb9c-bba8292b28cf")!
+
+    static func log(location: String, message: String, hypothesisId: String, data: [String: String] = [:]) {
+        let ts = Int64(Date().timeIntervalSince1970 * 1000)
+        let payload: [String: Any] = [
+            "sessionId": sessionId,
+            "timestamp": ts,
+            "location": location,
+            "message": message,
+            "hypothesisId": hypothesisId,
+            "data": data
+        ]
+        guard let json = try? JSONSerialization.data(withJSONObject: payload),
+              let line = String(data: json, encoding: .utf8) else { return }
+        print("[AgentDebug f3091f] \(line)")
+        var req = URLRequest(url: ingestURL)
+        req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.setValue(sessionId, forHTTPHeaderField: "X-Debug-Session-Id")
+        req.httpBody = json
+        URLSession.shared.dataTask(with: req).resume()
     }
 }

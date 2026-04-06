@@ -656,6 +656,23 @@ struct TeamView: View {
         f.unitsStyle = .short
         return f.localizedString(for: date, relativeTo: Date())
     }
+
+    /// 当該区間の担当走者がログイン中の自分か。サンプルかつ未ログインのときはモック UID で判定。
+    private func isCurrentUserAssignedRunner(leg: EkidenLeg, teamId: String, isSampleTeam: Bool) -> Bool {
+        guard let assigned = leg.assignedUid else { return false }
+        if let uid = Auth.auth().currentUser?.uid {
+            return assigned == uid
+        }
+        guard isSampleTeam else { return false }
+        switch teamId {
+        case "example_owner":
+            return assigned == "sample_owner"
+        case "example_member":
+            return assigned == "u_kenji"
+        default:
+            return assigned == "sample_owner"
+        }
+    }
     
     /// TASUKIをつなぐ（TASUKIだけ次へ、距離加算なし）
     private func performPassTasuki() {
@@ -665,18 +682,23 @@ struct TeamView: View {
             passTasukiLegIndex = nil
             return
         }
-        let leg = state.legs.first { $0.id == legIndex }
+        let teamId = selectedTeamId
+        let isSample = isSampleTeamFlow || teamId.hasPrefix("example")
+        guard let leg = state.legs.first(where: { $0.id == legIndex }),
+              isCurrentUserAssignedRunner(leg: leg, teamId: teamId, isSampleTeam: isSample) else {
+            showPassTasukiConfirm = false
+            passTasukiLegIndex = nil
+            return
+        }
         let submittedByUid: String? = isSampleTeamFlow
-            ? leg?.assignedUid
+            ? leg.assignedUid
             : Auth.auth().currentUser?.uid
         guard let uid = submittedByUid else {
             showPassTasukiConfirm = false
             passTasukiLegIndex = nil
             return
         }
-        let teamId = selectedTeamId
         let entryId = state.entry.id
-        let isSample = isSampleTeamFlow || teamId.hasPrefix("example")
         showPassTasukiConfirm = false
         passTasukiLegIndex = nil
         isPassingTasuki = true
@@ -985,7 +1007,9 @@ struct TeamView: View {
             statusText = "TASUKI待ち"
             icon = "clock"
         }
-        let canSubmit = allowSubmit && leg.status == .ready && (isSampleTeam || (leg.assignedUid != nil && leg.assignedUid == Auth.auth().currentUser?.uid))
+        let canSubmit = allowSubmit
+            && leg.status == .ready
+            && isCurrentUserAssignedRunner(leg: leg, teamId: teamId, isSampleTeam: isSampleTeam)
         
         return VStack(spacing: 0) {
             HStack(spacing: 12) {

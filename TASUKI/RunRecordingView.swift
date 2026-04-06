@@ -5,6 +5,9 @@ import Combine
 struct RunRecordingView: View {
     @ObservedObject private var tracker = RunTracker.shared
     @ObservedObject private var activityStore = RunActivityStore.shared
+    @ObservedObject private var qaStore = CoachQAStore.shared
+    @EnvironmentObject private var coachCertification: CoachCertificationManager
+    @AppStorage("myName") private var myName: String = "Hiro"
 
     @State private var now = Date()
     @State private var latestSaved: RunActivity?
@@ -13,6 +16,7 @@ struct RunRecordingView: View {
     @State private var showPostRunSubjective = false
     @State private var draftEffort: Int = 3
     @State private var draftMood: Int = 3
+    @State private var navigateToCoach = false
 
     private let elapsedTimer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
@@ -30,6 +34,23 @@ struct RunRecordingView: View {
 
     private var routeCoordinates: [CLLocationCoordinate2D] {
         tracker.routeCoordinates
+    }
+
+    /// 自分宛てでコーチ回答済みの Q&A のうち、最新（サンプル＋保存済みを合算）。
+    private var latestAnsweredQAForHub: QAItem? {
+        let answered =
+            qaStore.items.filter { $0.askerName == myName && $0.answer != nil }
+            + coachPersonalSampleQAItems.filter { $0.askerName == myName && $0.answer != nil }
+        return answered.max(by: { $0.postedDate < $1.postedDate })
+    }
+
+    /// COACH 行右側サムネイル用の短文。
+    private var coachHubReplySnippet: String? {
+        guard let text = latestAnsweredQAForHub?.answer?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !text.isEmpty else { return nil }
+        let maxChars = 100
+        if text.count <= maxChars { return text }
+        return String(text.prefix(maxChars)) + "…"
     }
 
     private var mapRegion: MKCoordinateRegion {
@@ -64,12 +85,26 @@ struct RunRecordingView: View {
                             .padding(.top, 12)
                             .padding(.bottom, 20)
 
-                        NavigationLink(destination: CoachView()) {
+                        Button {
+                            // #region agent log
+                            AgentDebugLog.log(
+                                location: "RunRecordingView.coachLink.tap",
+                                message: "coach_link_tapped",
+                                hypothesisId: "C1",
+                                data: [
+                                    "hasReplySnippet": "\(coachHubReplySnippet != nil)",
+                                    "isCertifiedCoach": "\(coachCertification.isCertifiedCoach)"
+                                ]
+                            )
+                            // #endregion
+                            navigateToCoach = true
+                        } label: {
                             TasukiFlatHubRow(
                                 title: "COACH",
                                 subtitle: "パーソナルコーチ",
                                 systemImage: "graduationcap.fill",
-                                iconForegroundColor: Color.tasukiAccent
+                                iconForegroundColor: Color.tasukiAccent,
+                                replySnippet: coachHubReplySnippet
                             )
                         }
                         .buttonStyle(.plain)
@@ -102,8 +137,32 @@ struct RunRecordingView: View {
         .background(Color.tasukiDarkBackground.ignoresSafeArea())
         .navigationTitle("Run")
         .navigationBarTitleDisplayMode(.inline)
+        .navigationDestination(isPresented: $navigateToCoach) {
+            CoachView(embedNavigationStack: false)
+                .onAppear {
+                    // #region agent log
+                    AgentDebugLog.log(
+                        location: "RunRecordingView.coachNavigationDestination",
+                        message: "coach_destination_onAppear",
+                        hypothesisId: "C5",
+                        data: ["runId": "post-fix"]
+                    )
+                    // #endregion
+                }
+        }
         .onReceive(elapsedTimer) { now = $0 }
         .onAppear {
+            // #region agent log
+            AgentDebugLog.log(
+                location: "RunRecordingView.onAppear",
+                message: "run_screen_appeared",
+                hypothesisId: "C4",
+                data: [
+                    "qaCount": "\(qaStore.items.count)",
+                    "hasReplySnippet": "\(coachHubReplySnippet != nil)"
+                ]
+            )
+            // #endregion
             activityStore.refreshFromRemote()
         }
         .overlay(alignment: .top) {
@@ -427,7 +486,7 @@ struct RunRecordingView: View {
 
     private var activityGraphCard: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("活動推移")
+            Text("Activity")
                 .font(.system(size: 11, weight: .bold))
                 .tracking(1.2)
                 .foregroundColor(Color.tasukiMutedText)
@@ -559,5 +618,6 @@ struct RunRecordingView: View {
 #Preview {
     NavigationStack {
         RunRecordingView()
+            .environmentObject(CoachCertificationManager.shared)
     }
 }

@@ -73,7 +73,29 @@ struct MyProfileView: View {
                     }
                 }
             }
-            .task { loadUserUUID() }
+            .task {
+                // #region agent log
+                AgentDebugLog.log(
+                    location: "MyProfileView.task",
+                    message: "task_start_before_loadUserUUID",
+                    hypothesisId: "H2",
+                    data: [:]
+                )
+                // #endregion
+                loadUserUUID()
+            }
+            .onAppear {
+                // #region agent log
+                AgentDebugLog.log(
+                    location: "MyProfileView.onAppear",
+                    message: "navigationStack_onAppear",
+                    hypothesisId: "H1",
+                    data: [
+                        "isCertifiedCoach": "\(coachCertification.isCertifiedCoach)"
+                    ]
+                )
+                // #endregion
+            }
             .overlay(alignment: .top) {
                 if showCopiedToast {
                     Text("UUIDをコピーしました")
@@ -211,6 +233,19 @@ struct MyProfileView: View {
             TasukiWeeklyActivityLineChart(points: activityStore.weeklyActivityChartPoints())
                 .frame(height: 190)
                 .padding(.horizontal, 4)
+                .onAppear {
+                    // #region agent log
+                    let pts = activityStore.weeklyActivityChartPoints()
+                    AgentDebugLog.log(
+                        location: "MyProfileView.activitySection.chart",
+                        message: "chart_onAppear",
+                        hypothesisId: "H4",
+                        data: [
+                            "pointCount": "\(pts.count)"
+                        ]
+                    )
+                    // #endregion
+                }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -348,9 +383,29 @@ struct MyProfileView: View {
     }
 
     private func loadUserUUID() {
+        // #region agent log
+        AgentDebugLog.log(
+            location: "MyProfileView.loadUserUUID",
+            message: "entry",
+            hypothesisId: "H2",
+            data: ["hasAuthUser": "\(Auth.auth().currentUser != nil)"]
+        )
+        // #endregion
         guard let firebaseUser = Auth.auth().currentUser else { return }
         let db = Firestore.firestore()
         db.collection("users").document(firebaseUser.uid).getDocument { snapshot, _ in
+            // #region agent log
+            let hasId = snapshot?.data()?["id"] as? String != nil
+            AgentDebugLog.log(
+                location: "MyProfileView.loadUserUUID",
+                message: "firestore_callback",
+                hypothesisId: "H2",
+                data: [
+                    "hasSnapshot": "\(snapshot != nil)",
+                    "hasIdField": "\(hasId)"
+                ]
+            )
+            // #endregion
             if let data = snapshot?.data(), let idString = data["id"] as? String {
                 DispatchQueue.main.async {
                     self.userUUID = idString

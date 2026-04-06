@@ -206,7 +206,8 @@ final class EkidenDataService {
 
     private func loadMockEkidenState(teamId: String) async -> EkidenViewState? {
         if let existing = MockEkidenStateHolder.shared.getState(teamId: teamId),
-           existing.event.legCount == 7 {
+           existing.event.legCount == 7,
+           mockReadyLegAssigneeMatchesSchema(existing: existing, teamId: teamId) {
             return await MainActor.run { existing }
         }
         let calendar = Calendar.current
@@ -278,7 +279,7 @@ final class EkidenDataService {
 
         var legs: [EkidenLeg] = []
         for i in 0..<7 {
-            let uid = memberUids.indices.contains(i) ? memberUids[i] : nil
+            var assignedUid: String? = memberUids.indices.contains(i) ? memberUids[i] : nil
             let targetKm = legTargets.indices.contains(i) ? legTargets[i] : 6.0
             let status: EkidenLegStatus
             let submittedAt: Date?
@@ -313,6 +314,14 @@ final class EkidenDataService {
                 actualKm = nil
                 elapsed = nil
                 isUnder = false
+                // 未ログインサンプル時の「自分」と一致させる（TASUKI／提出は担当走者のみ）
+                if teamId == "example_owner" {
+                    assignedUid = "sample_owner"
+                } else if teamId == "example_member" {
+                    assignedUid = "u_kenji"
+                } else {
+                    assignedUid = "sample_owner"
+                }
             default:
                 status = .awaitingTasuki
                 submittedAt = nil
@@ -323,7 +332,7 @@ final class EkidenDataService {
 
             legs.append(EkidenLeg(
                 id: i,
-                assignedUid: uid,
+                assignedUid: assignedUid,
                 targetKm: targetKm,
                 status: status,
                 submittedAt: submittedAt,
@@ -356,6 +365,24 @@ final class EkidenDataService {
         )
         MockEkidenStateHolder.shared.setState(state, teamId: teamId)
         return await MainActor.run { state }
+    }
+
+    /// 初期モックで 4 区が提出可能のときの担当 UID が現在の定義と一致するか（古いキャッシュを捨てる）。
+    private func mockReadyLegAssigneeMatchesSchema(existing: EkidenViewState, teamId: String) -> Bool {
+        let expectedLeg3: String
+        switch teamId {
+        case "example_owner":
+            expectedLeg3 = "sample_owner"
+        case "example_member":
+            expectedLeg3 = "u_kenji"
+        default:
+            expectedLeg3 = "sample_owner"
+        }
+        guard let leg3 = existing.legs.first(where: { $0.id == 3 }) else { return true }
+        if leg3.status == .ready {
+            return leg3.assignedUid == expectedLeg3
+        }
+        return true
     }
 
     private func loadFirestoreEkidenState(teamId: String) async -> EkidenViewState? {

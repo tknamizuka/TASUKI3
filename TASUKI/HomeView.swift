@@ -7,6 +7,12 @@
 
 import SwiftUI
 
+/// HealthKit 取得待ちの間に円グラフへ出すサンプル値（黄→紫の弧の見た目用。取得後は実距離に切り替わる）。
+private enum MonthlyGoalRingSample {
+    static let currentKm = 63.0
+    static let goalKm = 100.0
+}
+
 struct HomeView: View {
     // 目標管理用のデータ（currentDistance は HealthKit から取得）
     @State private var currentDistance: Double
@@ -39,12 +45,25 @@ struct HomeView: View {
         self.usePreviewData = usePreviewData
     }
     
-    var progress: CGFloat {
-        CGFloat(min(currentDistance / goalDistance, 1.0))
+    /// 円グラフ表示用の距離（読み込み中はサンプル、それ以外は実データ）
+    private var ringShowsSampleWhileLoading: Bool {
+        isHealthKitLoading && !usePreviewData
     }
-    
-    var progressPercent: Int {
-        Int((currentDistance / goalDistance) * 100)
+
+    private var ringCurrentKm: Double {
+        ringShowsSampleWhileLoading ? MonthlyGoalRingSample.currentKm : currentDistance
+    }
+
+    private var ringGoalKm: Double {
+        ringShowsSampleWhileLoading ? MonthlyGoalRingSample.goalKm : goalDistance
+    }
+
+    private var ringProgress: CGFloat {
+        CGFloat(min(ringCurrentKm / max(ringGoalKm, 0.001), 1.0))
+    }
+
+    private var ringProgressPercent: Int {
+        Int((ringCurrentKm / max(ringGoalKm, 0.001)) * 100)
     }
 
     private var selectedRunningDataSource: RunningDataSource {
@@ -119,7 +138,7 @@ struct HomeView: View {
                                         .stroke(Color.gray.opacity(0.22), lineWidth: ringLine)
                                         .frame(width: ringSize, height: ringSize)
                                     Circle()
-                                        .trim(from: 0, to: isHealthKitLoading ? 0 : progress)
+                                        .trim(from: 0, to: ringProgress)
                                         .stroke(
                                             LinearGradient(
                                                 colors: [Color.tasukiBrandYellow, Color.tasukiAccent],
@@ -132,17 +151,15 @@ struct HomeView: View {
                                         .rotationEffect(.degrees(-90))
 
                                     VStack(spacing: 8) {
-                                        if isHealthKitLoading {
-                                            ProgressView()
-                                            Text("—")
-                                                .font(.system(size: subFont, weight: .medium))
-                                                .foregroundColor(Color.tasukiMutedText)
-                                        } else {
-                                            Text("\(progressPercent)%")
-                                                .font(.system(size: pctFont, weight: .bold))
-                                                .foregroundColor(.black)
-                                            Text(String(format: "%.1f / %.0f km", currentDistance, goalDistance))
-                                                .font(.system(size: subFont, weight: .medium))
+                                        Text("\(ringProgressPercent)%")
+                                            .font(.system(size: pctFont, weight: .bold))
+                                            .foregroundColor(.black)
+                                        Text(String(format: "%.1f / %.0f km", ringCurrentKm, ringGoalKm))
+                                            .font(.system(size: subFont, weight: .medium))
+                                            .foregroundColor(Color.tasukiMutedText)
+                                        if ringShowsSampleWhileLoading {
+                                            Text("HealthKit から取得中…")
+                                                .font(.system(size: max(11, subFont * 0.75), weight: .medium))
                                                 .foregroundColor(Color.tasukiMutedText)
                                         }
                                     }
@@ -335,10 +352,50 @@ struct HomeView: View {
     .environmentObject(JoinedPracticesStore())
 }
 
-#Preview("サンプル値") {
+/// 円グラフ（黄→紫グラデ・進捗弧）の見え方確認用サンプル。実機では HealthKit の値を使用。
+#Preview("円グラフサンプル・中くらい（63%）") {
     NavigationStack {
         HomeView(
-            currentDistance: 45.2,
+            currentDistance: 63.0,
+            goalDistance: 100.0,
+            isHealthKitLoading: false,
+            usePreviewData: true
+        )
+    }
+    .environmentObject(PreviewUnreadProvider() as UnreadCountProviderBase)
+    .environmentObject(JoinedPracticesStore())
+}
+
+#Preview("円グラフサンプル・未達（22%）") {
+    NavigationStack {
+        HomeView(
+            currentDistance: 21.8,
+            goalDistance: 100.0,
+            isHealthKitLoading: false,
+            usePreviewData: true
+        )
+    }
+    .environmentObject(PreviewUnreadProvider() as UnreadCountProviderBase)
+    .environmentObject(JoinedPracticesStore())
+}
+
+#Preview("円グラフサンプル・ほぼ達成（91%）") {
+    NavigationStack {
+        HomeView(
+            currentDistance: 90.7,
+            goalDistance: 100.0,
+            isHealthKitLoading: false,
+            usePreviewData: true
+        )
+    }
+    .environmentObject(PreviewUnreadProvider() as UnreadCountProviderBase)
+    .environmentObject(JoinedPracticesStore())
+}
+
+#Preview("円グラフサンプル・目標超え（109%・弧は100%で頭打ち）") {
+    NavigationStack {
+        HomeView(
+            currentDistance: 108.5,
             goalDistance: 100.0,
             isHealthKitLoading: false,
             usePreviewData: true
@@ -353,7 +410,7 @@ struct HomeView: View {
     store.add(JoinedPracticeItem(id: "1", practiceId: "p1", title: "皇居ラン", location: "皇居", date: Date(), chatId: nil))
     return NavigationStack {
         HomeView(
-            currentDistance: 45.2,
+            currentDistance: 63.0,
             goalDistance: 100.0,
             isHealthKitLoading: false,
             usePreviewData: true

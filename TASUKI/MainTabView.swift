@@ -7,6 +7,8 @@ struct MainTabView: View {
     @State private var showReengagementSheet = false
     @State private var reengagementGapDays = 0
     @EnvironmentObject private var unreadProvider: UnreadCountProviderBase
+    @EnvironmentObject private var authManager: AuthManager
+    @EnvironmentObject private var coachCertification: CoachCertificationManager
     
     private let tabItems: [(icon: String, label: String)] = [
         ("house.fill", "Home"),
@@ -27,13 +29,14 @@ struct MainTabView: View {
             case 1:
                 NavigationStack {
                     RunRecordingView()
+                        .environmentObject(coachCertification)
                 }
             case 2:
                 TeamView()
             case 3:
                 FindView()
             case 4:
-                MyProfileView()
+                meTabContent()
             default:
                 NavigationStack { HomeView().environmentObject(unreadProvider) }
             }
@@ -63,6 +66,17 @@ struct MainTabView: View {
             }
         }
         .onChange(of: selectedTab) { newValue in
+            // #region agent log
+            AgentDebugLog.log(
+                location: "MainTabView.onChange(selectedTab)",
+                message: "tab_changed",
+                hypothesisId: "H5",
+                data: [
+                    "newValue": "\(newValue)",
+                    "previousTabIndex": "\(previousTabIndex)"
+                ]
+            )
+            // #endregion
             let previousTabName = tabItems.indices.contains(previousTabIndex) ? tabItems[previousTabIndex].label : "unknown"
             let duration = Date().timeIntervalSince(tabEnterDate)
             RealityMiningManager.shared.trackEvent(
@@ -80,6 +94,24 @@ struct MainTabView: View {
         }
     }
     
+    private func meTabContent() -> some View {
+        // #region agent log
+        AgentDebugLog.log(
+            location: "MainTabView.meTabContent",
+            message: "before_MyProfileView_construct",
+            hypothesisId: "H1",
+            data: [
+                "runId": "post-fix",
+                "reinjectAuth": "true",
+                "reinjectCoach": "true"
+            ]
+        )
+        // #endregion
+        return MyProfileView()
+            .environmentObject(authManager)
+            .environmentObject(coachCertification)
+    }
+
     private func tabLabelColor(index: Int) -> Color {
         selectedTab == index ? Color.tasukiOnBrandYellow : .black
     }
@@ -140,4 +172,5 @@ struct MainTabView: View {
         .environmentObject(UserManager())
         .environmentObject(PreviewUnreadProvider() as UnreadCountProviderBase)
         .environmentObject(JoinedPracticesStore())
+        .environmentObject(CoachCertificationManager.shared)
 }
