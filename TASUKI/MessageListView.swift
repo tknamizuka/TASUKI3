@@ -417,6 +417,7 @@ struct MessageListView: View {
 struct RequestDetailView: View {
     let request: MatchRequestSummary
     @Environment(\.dismiss) var dismiss
+    @EnvironmentObject private var tabBarVisibility: TabBarVisibility
     
     var body: some View {
         VStack(spacing: 24) {
@@ -494,9 +495,16 @@ struct RequestDetailView: View {
                     .foregroundColor(.black)
             }
         }
+        .onAppear {
+            tabBarVisibility.pushHiddenContext()
+        }
+        .onDisappear {
+            tabBarVisibility.popHiddenContext()
+        }
     }
 }
 
 #Preview {
     MessageListView()
+        .environmentObject(TabBarVisibility())
 }

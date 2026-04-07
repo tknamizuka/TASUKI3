@@ -1,6 +1,9 @@
 import SwiftUI
+import Combine
 import FirebaseAuth
 import PhotosUI
+import MapKit
+import CoreLocation
 
 struct ProfileRegistrationView: View {
     @Environment(\.dismiss) var dismiss
@@ -22,22 +25,29 @@ struct ProfileRegistrationView: View {
     @State private var selectedGender: String? = nil
     @State private var birthDate: Date = Calendar.current.date(from: DateComponents(year: 1998, month: 1, day: 1)) ?? Date()
     @State private var selectedPrefecture: String = allPrefectures.first ?? "東京都"
+    /// 検索キーワード（MapKit 補完用）
+    @State private var activityAreaQuery: String = ""
+    /// 選択済みエリア（「、」区切り）
     @State private var activityArea: String = ""
-    @State private var selectedRunCategory: String? = nil  // ビギナー, 5k, 10k, ハーフ, フル
-    @State private var runMinutes: String = ""            // カテゴリがビギナー以外のときの所要時間（分）
+    /// 走る目的の検索キーワード（`purposes` をローカルフィルタ）
+    @State private var purposeQuery: String = ""
+    /// 選択済み目的（表示順・保存時は `", "` で連結して `myPurpose` / `User.purpose` に合わせる）
     @State private var selectedPurposes: [String] = []
-    @State private var selectedDeviceSources: Set<RunningDataSource> = []
+    /// 連携するデータソースは1つのみ。`nil` は「連携しない」。
+    @State private var selectedDevice: RunningDataSource? = nil
     @State private var integrationNotice: String?
-    @State private var selectedBarrier: ContinuityBarrier?
-    @State private var selectedLeaderboardComfort: LeaderboardComfort?
+    
+    @StateObject private var areaSearchCompleter = ActivityAreaSearchCompleter()
+    @State private var areaSearchDebounceTask: Task<Void, Never>?
     
     // ステップ管理
     @State private var currentStep: Int = 0
     
-    // 利用規約・プライバシーポリシー同意
+    // 利用規約・プライバシーポリシー同意（本文末尾までスクロール後に同意可能）
     @State private var termsAgreed: Bool = false
     @State private var privacyPolicyAgreed: Bool = false
-    @State private var showPrivacyPolicy: Bool = false
+    @State private var termsReadToEnd: Bool = false
+    @State private var privacyReadToEnd: Bool = false
     
     // 保存状態
     @State private var isSaving: Bool = false
@@ -45,12 +55,8 @@ struct ProfileRegistrationView: View {
     @State private var showSkipAlert: Bool = false
     
     private let genders = ["男性", "女性", "無回答"]
-    private let runCategories = ["ビギナー", "5k", "10k", "ハーフ", "フル"]
-    private let purposes = ["サブ3", "サブ3.5", "サブ4", "サブ5", "健康維持", "ダイエット", "完走", "自己ベスト更新", "その他"]
-    // よく走るエリアの候補（予測用）
-    private let areaSuggestions = ["皇居", "代々木公園", "駒沢公園", "多摩川", "大阪城公園", "中之島公園", "大濠公園", "名古屋城", "みなとみらい"]
     
-    private var totalSteps: Int { 12 }
+    private var totalSteps: Int { 10 }
     private var progress: CGFloat {
         CGFloat(currentStep + 1) / CGFloat(totalSteps)
     }
@@ -59,118 +65,151 @@ struct ProfileRegistrationView: View {
         RunningDataSource.allCases.filter { $0 != .all }
     }
     
+    /// 選択済みスポット名の一覧（表示用）
+    private var selectedAreaSpots: [String] {
+        activityArea
+            .split(separator: "、")
+            .map { String($0) }
+            .filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
+    }
+    
+    /// 登録保存・AppStorage 用（ProfileEdit / MyProfile のカンマ区切りに合わせる）
+    private var joinedPurposeString: String {
+        selectedPurposes.joined(separator: ", ")
+    }
+    
+    private var filteredRegistrationPurposes: [String] {
+        let q = purposeQuery.trimmingCharacters(in: .whitespaces)
+        if q.isEmpty { return purposes }
+        return purposes.filter { $0.localizedCaseInsensitiveContains(q) }
+    }
+    
     var body: some View {
         NavigationStack {
+            ZStack {
+                Color.tasukiDarkBackground.ignoresSafeArea()
+                
+                VStack(spacing: 32) {
+                    progressBar
+                        .padding(.top, 24)
+                        .padding(.horizontal, 20)
+                    
+                    Spacer()
+                    
                     ZStack {
-                        Color.tasukiDarkBackground.ignoresSafeArea()
-                        
-                        VStack(spacing: 32) {
-                            // プログレスバー
-                            progressBar
-                                .padding(.top, 24)
-                                .padding(.horizontal, 20)
-                            
-                            Spacer()
-                            
-                            // 質問カード
-                            ZStack {
-                                stepView()
-                                    .padding(.horizontal, 20)
-                                    .transition(.asymmetric(insertion: .move(edge: .trailing),
-                                                            removal: .move(edge: .leading)))
-                            }
-                            .animation(.easeInOut, value: currentStep)
-                            
-                            Spacer()
-                            
-                            if let message = saveErrorMessage {
-                                Text(message)
-                                    .font(.footnote)
-                                    .foregroundColor(.red)
-                                    .padding(.horizontal, 20)
-                            }
-                            
-                            // アクションボタン
-                            Button(action: {
-                                handleNext()
-                            }) {
-                                Text(isSaving ? "保存中..." : (isLastStep ? "はじめる" : "次へ"))
-                                    .font(.headline)
-                                    .foregroundColor(isCurrentStepValid ? Color.tasukiOnBrandYellow : Color.white)
-                                    .frame(maxWidth: .infinity)
-                                    .padding()
-                                    .background(isCurrentStepValid ? Color.tasukiPrimaryButtonFill : Color.gray.opacity(0.4))
-                                    .cornerRadius(12)
-                            }
+                        stepView()
                             .padding(.horizontal, 20)
-                            .padding(.bottom, 24)
-                            .disabled(!isCurrentStepValid || isSaving)
-                        }
+                            .transition(.asymmetric(insertion: .move(edge: .trailing),
+                                                    removal: .move(edge: .leading)))
                     }
-                    .navigationTitle("プロフィール登録")
-                    .navigationBarTitleDisplayMode(.inline)
-                    .navigationBarBackButtonHidden(true)
-                    .toolbar {
-                        // キーボード用ツールバー
-                        ToolbarItemGroup(placement: .keyboard) {
-                            Spacer()
-                            Button("閉じる") {
-                                hideKeyboard()
-                            }
-                        }
-                        // ナビゲーション戻るボタン（ログイン画面へ戻る）
-                        ToolbarItem(placement: .navigationBarLeading) {
-                            Button(action: {
-                                if currentStep == 0 {
-                                    showSkipAlert = true
-                                } else {
-                                    withAnimation {
-                                        if currentStep == 9, skipsTimeStep {
-                                            currentStep = 7  // ビギナー選択時はカテゴリへ
-                                        } else {
-                                            currentStep = max(currentStep - 1, 0)
-                                        }
-                                    }
-                                }
-                            }) {
-                                Image(systemName: "chevron.left")
-                            }
-                        }
-                        ToolbarItem(placement: .navigationBarTrailing) {
-                            if currentStep == 11 {
-                                Button("スキップ") {
-                                    handleNext()
-                                }
-                            }
-                        }
+                    .animation(.easeInOut, value: currentStep)
+                    
+                    Spacer()
+                    
+                    if let message = saveErrorMessage {
+                        Text(message)
+                            .font(.footnote)
+                            .foregroundColor(.red)
+                            .padding(.horizontal, 20)
                     }
-                    .onTapGesture {
+                    
+                    Button(action: {
+                        handleNext()
+                    }) {
+                        Text(isSaving ? "保存中..." : (isLastStep ? "はじめる" : "次へ"))
+                            .font(.headline)
+                            .foregroundColor(isCurrentStepValid ? Color.tasukiOnBrandYellow : Color.white)
+                            .frame(maxWidth: .infinity)
+                            .padding()
+                            .background(isCurrentStepValid ? Color.tasukiPrimaryButtonFill : Color.gray.opacity(0.4))
+                            .cornerRadius(12)
+                    }
+                    .padding(.horizontal, 20)
+                    .padding(.bottom, 24)
+                    .disabled(!isCurrentStepValid || isSaving)
+                }
+            }
+            .navigationTitle("プロフィール登録")
+            .navigationBarTitleDisplayMode(.inline)
+            .navigationBarBackButtonHidden(true)
+            .toolbar {
+                ToolbarItemGroup(placement: .keyboard) {
+                    Spacer()
+                    Button("閉じる") {
                         hideKeyboard()
                     }
-                    .alert("登録せずに利用しますか？", isPresented: $showSkipAlert) {
-                        Button("キャンセル", role: .cancel) { }
-                        Button("登録せずに利用する", role: .destructive) {
-                            skipProfileRegistration = true
-                            onComplete?()
-                        }
-                    } message: {
-                        Text("プロフィールを登録せずにアプリを利用します。一部機能が制限される場合があります。")
-                    }
-                    .onAppear {
-                        var initial = Set<RunningDataSource>()
-                        let stored = connectedRunningDevicesRaw
-                            .split(separator: ",")
-                            .map { String($0) }
-                        for raw in stored {
-                            if let source = RunningDataSource(rawValue: raw) {
-                                initial.insert(source)
+                }
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button(action: {
+                        if currentStep == 0 {
+                            showSkipAlert = true
+                        } else {
+                            withAnimation {
+                                currentStep = max(currentStep - 1, 0)
                             }
                         }
-                        if let selected = RunningDataSource(rawValue: runningDataSourceRaw), selected != .all {
-                            initial.insert(selected)
-                        }
-                        selectedDeviceSources = initial
+                    }) {
+                        Image(systemName: "chevron.left")
                     }
+                }
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    if currentStep == totalSteps - 1 {
+                        Button("スキップ") {
+                            handleNext()
+                        }
+                    }
+                }
+            }
+            .onTapGesture {
+                hideKeyboard()
+            }
+            .alert("登録せずに利用しますか？", isPresented: $showSkipAlert) {
+                Button("キャンセル", role: .cancel) { }
+                Button("登録せずに利用する", role: .destructive) {
+                    skipProfileRegistration = true
+                    onComplete?()
+                }
+            } message: {
+                Text("プロフィールを登録せずにアプリを利用します。一部機能が制限される場合があります。")
+            }
+            .onAppear {
+                if let r = RunningDataSource(rawValue: runningDataSourceRaw), r != .all {
+                    selectedDevice = r
+                } else if let firstRaw = connectedRunningDevicesRaw.split(separator: ",").first.map(String.init),
+                          let s = RunningDataSource(rawValue: firstRaw), s != .all {
+                    selectedDevice = s
+                } else {
+                    selectedDevice = nil
+                }
+                areaSearchCompleter.updateRegion(forPrefecture: selectedPrefecture)
+            }
+            .onChange(of: selectedPrefecture) { _, newPref in
+                areaSearchCompleter.updateRegion(forPrefecture: newPref)
+                if !activityAreaQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    areaSearchCompleter.setQuery(activityAreaQuery)
+                }
+            }
+            .onChange(of: currentStep) { _, step in
+                if step == 7 {
+                    areaSearchCompleter.updateRegion(forPrefecture: selectedPrefecture)
+                    if !activityAreaQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        areaSearchCompleter.setQuery(activityAreaQuery)
+                    }
+                }
+            }
+            .onChange(of: activityAreaQuery) { _, newValue in
+                areaSearchDebounceTask?.cancel()
+                areaSearchDebounceTask = Task {
+                    try? await Task.sleep(nanoseconds: 350_000_000)
+                    guard !Task.isCancelled else { return }
+                    await MainActor.run {
+                        areaSearchCompleter.setQuery(newValue)
+                    }
+                }
+            }
+            .onDisappear {
+                areaSearchDebounceTask?.cancel()
+            }
         }
     }
     
@@ -180,23 +219,19 @@ struct ProfileRegistrationView: View {
         currentStep == totalSteps - 1
     }
     
-    /// カテゴリでビギナーを選んだ場合はタイム入力ステップをスキップ
-    private var skipsTimeStep: Bool {
-        selectedRunCategory == "ビギナー"
-    }
-    
     private var isCurrentStepValid: Bool {
         switch currentStep {
         case 0:
-            return termsAgreed && privacyPolicyAgreed
+            return termsAgreed
         case 1:
-            return profileImage != nil // プロフィール写真が必須
+            return privacyPolicyAgreed
         case 2:
-            return !username.trimmingCharacters(in: .whitespaces).isEmpty
+            return profileImage != nil
         case 3:
-            return selectedGender != nil
+            return !username.trimmingCharacters(in: .whitespaces).isEmpty
         case 4:
-            // 生年月日が18〜80歳の範囲かどうか
+            return selectedGender != nil
+        case 5:
             let now = Date()
             let calendar = Calendar.current
             guard let minDate = calendar.date(byAdding: .year, value: -80, to: now),
@@ -204,21 +239,13 @@ struct ProfileRegistrationView: View {
                 return true
             }
             return (minDate...maxDate).contains(birthDate)
-        case 5:
-            return !selectedPrefecture.isEmpty
         case 6:
-            return !activityArea.trimmingCharacters(in: .whitespaces).isEmpty
+            return !selectedPrefecture.isEmpty
         case 7:
-            return selectedRunCategory != nil
+            return !activityArea.trimmingCharacters(in: .whitespaces).isEmpty
         case 8:
-            // ビギナー以外のときのみこのステップに来る。分で入力（数値・1以上）
-            guard let minVal = Int(runMinutes.trimmingCharacters(in: .whitespaces)), minVal > 0 else { return false }
-            return true
-        case 9:
             return !selectedPurposes.isEmpty
-        case 10:
-            return selectedBarrier != nil && selectedLeaderboardComfort != nil
-        case 11:
+        case 9:
             return true
         default:
             return false
@@ -245,18 +272,20 @@ struct ProfileRegistrationView: View {
         VStack(spacing: 24) {
             switch currentStep {
             case 0:
-                // 規約・プライバシー同意画面
-                termsAndPrivacyView
+                termsAgreementStep
             case 1:
+                privacyAgreementStep
+            case 2:
                 questionTitle("プロフィール写真を選択してください")
                 profilePhotoPicker
-            case 2:
+            case 3:
                 questionTitle("お名前を教えてください")
                 TextField("例）Hiro", text: $username)
                     .textFieldStyle(.roundedBorder)
-                    .textInputAutocapitalization(.words)
-                    .disableAutocorrection(true)
-            case 3:
+                    .keyboardType(.default)
+                    .textInputAutocapitalization(.never)
+                    .textContentType(.name)
+            case 4:
                 questionTitle("性別を教えてください")
                 HStack(spacing: 12) {
                     ForEach(genders, id: \.self) { gender in
@@ -265,7 +294,7 @@ struct ProfileRegistrationView: View {
                         }
                     }
                 }
-            case 4:
+            case 5:
                 questionTitle("生年月日を教えてください")
                 DatePicker(
                     "生年月日",
@@ -277,7 +306,7 @@ struct ProfileRegistrationView: View {
                 .labelsHidden()
                 .environment(\.locale, Locale(identifier: "ja_JP"))
                 .frame(height: 150)
-            case 5:
+            case 6:
                 questionTitle("お住まいの都道府県を教えてください")
                 Picker("都道府県", selection: $selectedPrefecture) {
                     ForEach(allPrefectures, id: \.self) { prefecture in
@@ -286,117 +315,12 @@ struct ProfileRegistrationView: View {
                 }
                 .pickerStyle(.wheel)
                 .frame(height: 180)
-            case 6:
-                questionTitle("よく走るエリアを教えてください")
-                VStack(alignment: .leading, spacing: 16) {
-                    TextField("例）皇居、代々木公園", text: $activityArea)
-                        .textFieldStyle(.roundedBorder)
-                        .textInputAutocapitalization(.none)
-                        .disableAutocorrection(true)
-                    
-                    // エリアの予測候補（チップ）: 横並びで自動折り返し
-                    let columns = [
-                        GridItem(.adaptive(minimum: 90), spacing: 10)
-                    ]
-                    LazyVGrid(columns: columns, alignment: .leading, spacing: 10) {
-                        ForEach(areaSuggestions, id: \.self) { spot in
-                            selectableChip(title: spot, isSelected: activityArea.components(separatedBy: "、").contains(spot)) {
-                                toggleActivityArea(spot: spot)
-                            }
-                        }
-                    }
-                }
             case 7:
-                questionTitle("走るカテゴリを教えてください")
-                VStack(alignment: .leading, spacing: 16) {
-                    let columns = [
-                        GridItem(.adaptive(minimum: 90), spacing: 12)
-                    ]
-                    LazyVGrid(columns: columns, alignment: .leading, spacing: 12) {
-                        ForEach(runCategories, id: \.self) { category in
-                            selectableChip(title: category, isSelected: selectedRunCategory == category) {
-                                selectedRunCategory = category
-                            }
-                        }
-                    }
-                }
+                activityAreaSearchStep
             case 8:
-                questionTitle("その距離を何分で走りますか？")
-                VStack(alignment: .leading, spacing: 16) {
-                    Text("目安のタイム（分）で入力してください")
-                        .font(.subheadline)
-                        .foregroundColor(.gray)
-                    TextField("例）25", text: $runMinutes)
-                        .textFieldStyle(.roundedBorder)
-                        .keyboardType(.numberPad)
-                }
+                purposeSearchStep
             case 9:
-                questionTitle("ランニングの目的を教えてください（複数選択可）")
-                // 画面内で折り返す横並びレイアウト（グリッド）
-                let columns = [
-                    GridItem(.adaptive(minimum: 90), spacing: 12)
-                ]
-                LazyVGrid(columns: columns, alignment: .leading, spacing: 12) {
-                    ForEach(purposes, id: \.self) { purpose in
-                        let isSelected = selectedPurposes.contains(purpose)
-                        selectableChip(title: purpose, isSelected: isSelected) {
-                            togglePurpose(purpose)
-                        }
-                    }
-                }
-            case 10:
-                questionTitle("続けるときの障壁に近いものは？（ひとつ）")
-                let barrierColumns = [GridItem(.adaptive(minimum: 100), spacing: 10)]
-                LazyVGrid(columns: barrierColumns, alignment: .leading, spacing: 10) {
-                    ForEach(ContinuityBarrier.allCases) { barrier in
-                        selectableChip(title: barrier.displayName, isSelected: selectedBarrier == barrier) {
-                            selectedBarrier = barrier
-                        }
-                    }
-                }
-                questionTitle("順位やランキングは？")
-                VStack(alignment: .leading, spacing: 10) {
-                    ForEach(LeaderboardComfort.allCases) { comfort in
-                        selectableChip(title: comfort.displayName, isSelected: selectedLeaderboardComfort == comfort) {
-                            selectedLeaderboardComfort = comfort
-                        }
-                    }
-                }
-                Text("後から Me タブでも変更できます。")
-                    .font(.footnote)
-                    .foregroundColor(.gray)
-            case 11:
-                questionTitle("ウェアラブルデバイスを接続しますか？")
-                VStack(alignment: .leading, spacing: 16) {
-                    Text("後から設定可能です。連携するサービスを選んでアプリを開き、Appleヘルス同期を有効にしてください。")
-                        .font(.subheadline)
-                        .foregroundColor(.gray)
-                    let columns = [GridItem(.adaptive(minimum: 120), spacing: 10)]
-                    LazyVGrid(columns: columns, spacing: 10) {
-                        ForEach(availableDeviceSources) { source in
-                            Button {
-                                toggleDeviceSource(source)
-                                openCompanionAppForRegistration(source)
-                            } label: {
-                                Text(source.displayName)
-                                    .font(.system(size: 15, weight: .semibold))
-                                    .foregroundColor(selectedDeviceSources.contains(source) ? Color.tasukiOnBrandYellow : Color.tasukiPrimary)
-                                    .frame(maxWidth: .infinity)
-                                    .padding(.vertical, 12)
-                                    .background(
-                                        RoundedRectangle(cornerRadius: 10)
-                                            .fill(selectedDeviceSources.contains(source) ? Color.tasukiPrimaryButtonFill : Color.gray.opacity(0.12))
-                                    )
-                            }
-                            .buttonStyle(.plain)
-                        }
-                    }
-                    if let integrationNotice {
-                        Text(integrationNotice)
-                            .font(.footnote)
-                            .foregroundColor(Color.tasukiAccent)
-                    }
-                }
+                wearableDeviceStep
             default:
                 EmptyView()
             }
@@ -408,6 +332,202 @@ struct ProfileRegistrationView: View {
                 .fill(Color.white)
                 .shadow(color: Color.black.opacity(0.06), radius: 12, x: 0, y: 6)
         )
+    }
+    
+    private var activityAreaSearchStep: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            questionTitle("よく走るエリアを教えてください")
+            Text("キーワードで検索し、候補をタップして追加できます（複数選択可）")
+                .font(.subheadline)
+                .foregroundColor(.gray)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            
+            TextField("例）皇居、代々木公園", text: $activityAreaQuery)
+                .textFieldStyle(.roundedBorder)
+                .textInputAutocapitalization(.none)
+                .disableAutocorrection(true)
+            
+            if !selectedAreaSpots.isEmpty {
+                Text("選択中")
+                    .font(.caption.weight(.semibold))
+                    .foregroundColor(Color.tasukiPrimary)
+                VStack(alignment: .leading, spacing: 8) {
+                    ForEach(selectedAreaSpots, id: \.self) { spot in
+                        selectedActivityAreaRow(storedLabel: spot) {
+                            toggleActivityArea(spot: spot)
+                        }
+                    }
+                }
+            }
+            
+            Text("検索候補")
+                .font(.caption.weight(.semibold))
+                .foregroundColor(.gray)
+            
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 0) {
+                    if activityAreaQuery.trimmingCharacters(in: .whitespaces).isEmpty {
+                        Text("キーワードを入力すると地図から候補が表示されます")
+                            .font(.footnote)
+                            .foregroundColor(.gray)
+                            .padding(.vertical, 8)
+                    } else if areaSearchCompleter.completions.isEmpty {
+                        Text("候補が見つかりませんでした")
+                            .font(.footnote)
+                            .foregroundColor(.gray)
+                            .padding(.vertical, 8)
+                    } else {
+                        ForEach(Array(areaSearchCompleter.completions.enumerated()), id: \.offset) { _, completion in
+                            let label = Self.displayLabel(for: completion)
+                            Button {
+                                toggleActivityArea(spot: label)
+                            } label: {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text(completion.title)
+                                        .font(.body.weight(.semibold))
+                                        .foregroundColor(Color.tasukiPrimary)
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                    if !completion.subtitle.isEmpty {
+                                        Text(completion.subtitle)
+                                            .font(.caption)
+                                            .foregroundColor(.gray)
+                                            .frame(maxWidth: .infinity, alignment: .leading)
+                                    }
+                                }
+                                .padding(.vertical, 10)
+                                .padding(.horizontal, 4)
+                            }
+                            .buttonStyle(.plain)
+                            Divider()
+                        }
+                    }
+                }
+            }
+            .frame(maxHeight: 220)
+        }
+    }
+    
+    private var purposeSearchStep: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            questionTitle("走る目的を教えてください")
+            Text("キーワードで絞り込み、候補をタップして追加できます（複数選択可）")
+                .font(.subheadline)
+                .foregroundColor(.gray)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            
+            TextField("例）サブ3、健康", text: $purposeQuery)
+                .textFieldStyle(.roundedBorder)
+                .textInputAutocapitalization(.none)
+                .disableAutocorrection(true)
+            
+            if !selectedPurposes.isEmpty {
+                Text("選択中")
+                    .font(.caption.weight(.semibold))
+                    .foregroundColor(Color.tasukiPrimary)
+                VStack(alignment: .leading, spacing: 8) {
+                    ForEach(selectedPurposes, id: \.self) { purpose in
+                        selectedActivityAreaRow(storedLabel: purpose) {
+                            togglePurpose(purpose)
+                        }
+                    }
+                }
+            }
+            
+            Text("候補")
+                .font(.caption.weight(.semibold))
+                .foregroundColor(.gray)
+            
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 0) {
+                    if filteredRegistrationPurposes.isEmpty {
+                        Text("候補が見つかりませんでした")
+                            .font(.footnote)
+                            .foregroundColor(.gray)
+                            .padding(.vertical, 8)
+                    } else {
+                        ForEach(filteredRegistrationPurposes, id: \.self) { item in
+                            Button {
+                                togglePurpose(item)
+                            } label: {
+                                Text(item)
+                                    .font(.body.weight(.semibold))
+                                    .foregroundColor(Color.tasukiPrimary)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .padding(.vertical, 10)
+                                    .padding(.horizontal, 4)
+                            }
+                            .buttonStyle(.plain)
+                            Divider()
+                        }
+                    }
+                }
+            }
+            .frame(maxHeight: 220)
+        }
+    }
+    
+    private var wearableDeviceStep: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            questionTitle("ウェアラブルデバイスを接続しますか？")
+            Text("後から設定可能です。連携するサービスを選んでアプリを開き、Appleヘルス同期を有効にしてください。")
+                .font(.subheadline)
+                .foregroundColor(.gray)
+            
+            Button {
+                selectedDevice = nil
+                integrationNotice = "連携せずに進みます（後から設定できます）"
+            } label: {
+                HStack {
+                    Image(systemName: selectedDevice == nil ? "checkmark.circle.fill" : "circle")
+                        .foregroundColor(selectedDevice == nil ? Color.tasukiPrimary : .gray)
+                    Text("連携しない")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundColor(Color.tasukiPrimary)
+                    Spacer()
+                }
+                .padding(.vertical, 14)
+                .padding(.horizontal, 16)
+                .background(
+                    RoundedRectangle(cornerRadius: 12)
+                        .fill(selectedDevice == nil ? Color.tasukiPrimary.opacity(0.12) : Color.gray.opacity(0.08))
+                )
+            }
+            .buttonStyle(.plain)
+            
+            let columns = [GridItem(.adaptive(minimum: 120), spacing: 10)]
+            LazyVGrid(columns: columns, spacing: 10) {
+                ForEach(availableDeviceSources) { source in
+                    Button {
+                        integrationNotice = nil
+                        selectRunningDevice(source)
+                        openCompanionAppForRegistration(source)
+                    } label: {
+                        Text(source.displayName)
+                            .font(.system(size: 15, weight: .semibold))
+                            .foregroundColor(selectedDevice == source ? Color.tasukiOnBrandYellow : Color.tasukiPrimary)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 12)
+                            .background(
+                                RoundedRectangle(cornerRadius: 10)
+                                    .fill(selectedDevice == source ? Color.tasukiPrimaryButtonFill : Color.gray.opacity(0.12))
+                            )
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            if let integrationNotice {
+                Text(integrationNotice)
+                    .font(.footnote)
+                    .foregroundColor(Color.tasukiAccent)
+            }
+        }
+    }
+    
+    private static func displayLabel(for completion: MKLocalSearchCompletion) -> String {
+        if completion.subtitle.isEmpty {
+            return completion.title
+        }
+        return "\(completion.title)（\(completion.subtitle)）"
     }
     
     private var profilePhotoPicker: some View {
@@ -452,65 +572,85 @@ struct ProfileRegistrationView: View {
         }
     }
     
-    private var termsAndPrivacyView: some View {
-        VStack(spacing: 20) {
-            VStack(spacing: 12) {
-                Text("TASUKI（タスキ）利用規約")
-                    .font(.system(size: 18, weight: .bold))
-                    .foregroundColor(Color.tasukiPrimary)
-
-                ScrollView {
-                    Text(LegalTexts.termsOfServiceText)
-                        .font(.system(size: 12, weight: .regular))
-                        .foregroundColor(.gray)
+    private var termsAgreementStep: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("TASUKI（タスキ）利用規約")
+                .font(.system(size: 18, weight: .bold))
+                .foregroundColor(Color.tasukiPrimary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            ScrollView {
+                VStack(alignment: .leading, spacing: 0) {
+                    Text(LegalTextAttributed.termsOfService(bodySize: 12))
                         .lineSpacing(4)
                         .frame(maxWidth: .infinity, alignment: .leading)
+                    Color.clear
+                        .frame(height: 1)
+                        .onAppear {
+                            termsReadToEnd = true
+                        }
                 }
-                .frame(height: 140)
                 .padding(.vertical, 12)
                 .padding(.horizontal, 12)
-                .background(Color.gray.opacity(0.05))
-                .cornerRadius(8)
             }
-
-            // 利用規約同意
-            agreementRow(
-                agreed: $termsAgreed,
-                title: "TASUKI利用規約に同意する"
-            )
-
-            // プライバシーポリシー同意
-            VStack(alignment: .leading, spacing: 8) {
-                agreementRow(
-                    agreed: $privacyPolicyAgreed,
-                    title: "プライバシーポリシーに同意する"
-                )
-                Button {
-                    showPrivacyPolicy = true
-                } label: {
-                    HStack(spacing: 4) {
-                        Image(systemName: "doc.text")
-                        Text("プライバシーポリシーを読む")
-                            .font(.footnote)
-                    }
-                    .foregroundColor(Color.tasukiAccent)
-                }
-            }
-            .padding(12)
+            .frame(height: 220)
             .background(Color.gray.opacity(0.05))
             .cornerRadius(8)
+            if !termsReadToEnd {
+                Text("本文を最後までスクロールすると同意できます")
+                    .font(.caption)
+                    .foregroundColor(.gray)
+            }
+            agreementRow(
+                agreed: $termsAgreed,
+                title: "TASUKI利用規約に同意する",
+                isInteractive: termsReadToEnd
+            )
         }
-        .sheet(isPresented: $showPrivacyPolicy) {
-            PrivacyPolicyView()
+    }
+    
+    private var privacyAgreementStep: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("プライバシーポリシー")
+                .font(.system(size: 18, weight: .bold))
+                .foregroundColor(Color.tasukiPrimary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            ScrollView {
+                VStack(alignment: .leading, spacing: 0) {
+                    Text(LegalTextAttributed.privacyPolicy(bodySize: 12))
+                        .lineSpacing(4)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    Color.clear
+                        .frame(height: 1)
+                        .onAppear {
+                            privacyReadToEnd = true
+                        }
+                }
+                .padding(.vertical, 12)
+                .padding(.horizontal, 12)
+            }
+            .frame(height: 220)
+            .background(Color.gray.opacity(0.05))
+            .cornerRadius(8)
+            if !privacyReadToEnd {
+                Text("本文を最後までスクロールすると同意できます")
+                    .font(.caption)
+                    .foregroundColor(.gray)
+            }
+            agreementRow(
+                agreed: $privacyPolicyAgreed,
+                title: "プライバシーポリシーに同意する",
+                isInteractive: privacyReadToEnd
+            )
         }
     }
 
-    private func agreementRow(agreed: Binding<Bool>, title: String) -> some View {
+    private func agreementRow(agreed: Binding<Bool>, title: String, isInteractive: Bool = true) -> some View {
         HStack(spacing: 12) {
             Image(systemName: agreed.wrappedValue ? "checkmark.square.fill" : "square")
                 .font(.system(size: 20))
                 .foregroundColor(agreed.wrappedValue ? Color.tasukiPrimary : .gray)
                 .onTapGesture {
+                    guard isInteractive else { return }
                     agreed.wrappedValue.toggle()
                 }
 
@@ -519,6 +659,7 @@ struct ProfileRegistrationView: View {
                 .foregroundColor(Color.tasukiPrimary)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .onTapGesture {
+                    guard isInteractive else { return }
                     agreed.wrappedValue.toggle()
                 }
 
@@ -527,6 +668,8 @@ struct ProfileRegistrationView: View {
         .padding(12)
         .background(Color.gray.opacity(0.05))
         .cornerRadius(8)
+        .opacity(isInteractive ? 1 : 0.45)
+        .allowsHitTesting(isInteractive)
     }
     
     private func questionTitle(_ text: String) -> some View {
@@ -536,13 +679,43 @@ struct ProfileRegistrationView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
     }
     
+    /// 候補の `title（subtitle）` 形式を保存していても、表示は地名（タイトル）部分のみ
+    private func shortPlaceDisplayName(_ stored: String) -> String {
+        if let idx = stored.firstIndex(of: "（"), idx > stored.startIndex {
+            return String(stored[..<idx]).trimmingCharacters(in: .whitespaces)
+        }
+        return stored
+    }
+    
+    private func selectedActivityAreaRow(storedLabel: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(alignment: .center, spacing: 8) {
+                Image(systemName: "checkmark.circle.fill")
+                    .font(.system(size: 16))
+                    .foregroundColor(Color.tasukiOnBrandYellow)
+                Text(shortPlaceDisplayName(storedLabel))
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundColor(Color.tasukiPrimary)
+                    .lineLimit(1)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .padding(.vertical, 8)
+            .padding(.horizontal, 10)
+            .background(
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(Color.gray.opacity(0.08))
+            )
+        }
+        .buttonStyle(.plain)
+    }
+    
     private func selectableChip(title: String, isSelected: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Text(title)
-                .font(.system(size: 16, weight: .semibold))
+                .font(.system(size: 14, weight: .semibold))
                 .foregroundColor(isSelected ? Color.tasukiOnBrandYellow : Color.tasukiPrimary)
-                .padding(.vertical, 10)
-                .padding(.horizontal, 18)
+                .padding(.vertical, 8)
+                .padding(.horizontal, 14)
                 .background(
                     Capsule()
                         .fill(isSelected ? Color.tasukiPrimaryButtonFill : Color.gray.opacity(0.15))
@@ -551,37 +724,40 @@ struct ProfileRegistrationView: View {
         .buttonStyle(.plain)
     }
     
-    /// 「よく走るエリア」の文字列に対して、候補スポットをトグル追加・削除する
     private func toggleActivityArea(spot: String) {
+        let trimmed = spot.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty else { return }
         var items = activityArea
             .split(separator: "、")
-            .map { String($0) }
+            .map { String($0).trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
         
-        if let index = items.firstIndex(of: spot) {
-            // すでに含まれていれば削除
+        if let index = items.firstIndex(of: trimmed) {
             items.remove(at: index)
         } else {
-            // 含まれていなければ追加
-            items.append(spot)
+            items.append(trimmed)
         }
         
         activityArea = items.joined(separator: "、")
     }
     
-    /// ランニング目的の複数選択トグル
     private func togglePurpose(_ purpose: String) {
-        if let index = selectedPurposes.firstIndex(of: purpose) {
-            selectedPurposes.remove(at: index)
+        let trimmed = purpose.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty else { return }
+        var next = selectedPurposes
+        if let i = next.firstIndex(of: trimmed) {
+            next.remove(at: i)
         } else {
-            selectedPurposes.append(purpose)
+            next.append(trimmed)
         }
+        selectedPurposes = next
     }
 
-    private func toggleDeviceSource(_ source: RunningDataSource) {
-        if selectedDeviceSources.contains(source) {
-            selectedDeviceSources.remove(source)
+    private func selectRunningDevice(_ source: RunningDataSource) {
+        if selectedDevice == source {
+            selectedDevice = nil
         } else {
-            selectedDeviceSources.insert(source)
+            selectedDevice = source
         }
     }
 
@@ -625,95 +801,6 @@ struct ProfileRegistrationView: View {
         tryOpen(0)
     }
     
-    /// 登録タイムからランク（S,A,B,C,D,E）を算出
-    ///
-    /// ランク基準は「TASUKI ユーザーランク・タイム基準表」に合わせている。
-    /// ビギナー or 分未入力の場合は最下位ランク（E）を付与する。
-    private func computeRank(category: String?, minutes: Int?) -> String {
-        guard let cat = category else { return "Rank E" }
-        // ビギナー or 分未入力 → Rank E
-        guard cat != "ビギナー",
-              let min = minutes,
-              min > 0 else {
-            return "Rank E"
-        }
-        
-        switch cat {
-        case "5k":
-            // 5km: S/A/B/C/D/E
-            // S: 17:00未満
-            if min < 17 { return "Rank S" }
-            // A: 17:00〜21:30未満（≒22分未満で丸め）
-            if min < 22 { return "Rank A" }
-            // B: 21:30〜25:00未満
-            if min < 25 { return "Rank B" }
-            // C: 25:00〜30:00未満
-            if min < 30 { return "Rank C" }
-            // D: 30:00〜35:00未満
-            if min < 35 { return "Rank D" }
-            // E: 35:00以上
-            return "Rank E"
-            
-        case "10k":
-            // 10km
-            // S: 35:30未満（≒36分未満）
-            if min < 36 { return "Rank S" }
-            // A: 35:30〜45:00未満
-            if min < 45 { return "Rank A" }
-            // B: 45:00〜52:00未満
-            if min < 52 { return "Rank B" }
-            // C: 52:00〜60:00未満
-            if min < 60 { return "Rank C" }
-            // D: 60:00〜70:00未満
-            if min < 70 { return "Rank D" }
-            // E: 70:00以上
-            return "Rank E"
-            
-        case "ハーフ":
-            // ハーフ（21.0975km）
-            // S: 1:18:00未満（78分未満）
-            if min < 78 { return "Rank S" }
-            // A: 1:18:00〜1:40:00未満（100分未満）
-            if min < 100 { return "Rank A" }
-            // B: 1:40:00〜1:55:00未満（115分未満）
-            if min < 115 { return "Rank B" }
-            // C: 1:55:00〜2:15:00未満（135分未満）
-            if min < 135 { return "Rank C" }
-            // D: 2:15:00〜2:30:00未満（150分未満）
-            if min < 150 { return "Rank D" }
-            // E: 2:30:00以上
-            return "Rank E"
-            
-        case "フル":
-            // フル（42.195km）
-            // S: 2:45:00未満（165分未満）
-            if min < 165 { return "Rank S" }
-            // A: 2:45:00〜3:30:00未満（210分未満）
-            if min < 210 { return "Rank A" }
-            // B: 3:30:00〜4:00:00未満（240分未満）
-            if min < 240 { return "Rank B" }
-            // C: 4:00:00〜4:30:00未満（270分未満）
-            if min < 270 { return "Rank C" }
-            // D: 4:30:00〜5:00:00未満（300分未満）
-            if min < 300 { return "Rank D" }
-            // E: 5:00:00以上
-            return "Rank E"
-            
-        default:
-            return "Rank E"
-        }
-    }
-    
-    /// 分を "3:30:00" / "1:25:00" 形式のラベルに変換
-    private func formatMinutesToTimeLabel(_ totalMinutes: Int) -> String {
-        let h = totalMinutes / 60
-        let m = totalMinutes % 60
-        if h > 0 {
-            return String(format: "%d:%02d:00", h, m)
-        }
-        return String(format: "%d:00", m)
-    }
-    
     /// 生年月日の選択可能範囲（18〜80歳）
     private var allowedBirthDateRange: ClosedRange<Date> {
         let now = Date()
@@ -721,14 +808,6 @@ struct ProfileRegistrationView: View {
         let maxDate = calendar.date(byAdding: .year, value: -18, to: now) ?? now
         let minDate = calendar.date(byAdding: .year, value: -80, to: now) ?? now
         return minDate...maxDate
-    }
-
-    // 生年月日を日本語表記で返す（例: 1998年1月1日）
-    private var birthDateFormatted: String {
-        let df = DateFormatter()
-        df.locale = Locale(identifier: "ja_JP")
-        df.dateFormat = "yyyy年MM月dd日"
-        return df.string(from: birthDate)
     }
     
     private func handleNext() {
@@ -738,22 +817,8 @@ struct ProfileRegistrationView: View {
             saveProfile()
         } else {
             withAnimation {
-                if currentStep == 7, skipsTimeStep {
-                    currentStep = 9  // ビギナー選択時はタイム入力をスキップして目的へ
-                } else {
-                    currentStep = min(currentStep + 1, totalSteps - 1)
-                }
+                currentStep = min(currentStep + 1, totalSteps - 1)
             }
-        }
-    }
-    
-    private func persistEngagementPreferences() {
-        if let b = selectedBarrier {
-            UserDefaults.standard.set(b.rawValue, forKey: "tasuki.continuityBarrier")
-        }
-        if let c = selectedLeaderboardComfort {
-            UserDefaults.standard.set(c.rawValue, forKey: "tasuki.leaderboardComfort")
-            UserDefaults.standard.set(c == .prefersSoft, forKey: "reduceRankingPressure")
         }
     }
 
@@ -762,14 +827,15 @@ struct ProfileRegistrationView: View {
             saveErrorMessage = "プロフィール写真を選択してください。"
             return
         }
-        persistEngagementPreferences()
         persistSelectedDevices()
         
         isSaving = true
         saveErrorMessage = nil
         
+        let defaultRank = "Rank E"
+        let purposeForSave = joinedPurposeString
+        
         Task {
-            // 1. ログインユーザーを確保（いなければ匿名ログイン）
             let firebaseUser: FirebaseAuth.User
             if let current = Auth.auth().currentUser {
                 firebaseUser = current
@@ -778,43 +844,24 @@ struct ProfileRegistrationView: View {
                     let result = try await Auth.auth().signInAnonymously()
                     firebaseUser = result.user
                 } catch {
-                    // Firebase 未設定やネットワーク不通などで匿名ログインに失敗した場合は
-                    // ローカルのみでプロフィール情報を保存してモックフローとして完了させる
                     let gender = selectedGender ?? "無回答"
-                    let purpose = selectedPurposes.isEmpty ? "その他" : selectedPurposes.joined(separator: ", ")
-                    
-                    // 生年月日から年齢を計算
                     let calendar = Calendar.current
                     let ageComponents = calendar.dateComponents([.year], from: birthDate, to: Date())
                     let computedAge = ageComponents.year ?? 0
                     
-                    let runMinutesInt = Int(runMinutes.trimmingCharacters(in: .whitespaces))
-                    let computedRank = computeRank(category: selectedRunCategory, minutes: runMinutesInt)
-                    
-                    // ランク情報をローカルに保持（検索・マッチング用）
-                    UserDefaults.standard.set(computedRank, forKey: "myRank")
-                    if selectedRunCategory == "フル", let min = runMinutesInt {
-                        UserDefaults.standard.set(formatMinutesToTimeLabel(min), forKey: "myBestFull")
-                    }
-                    if selectedRunCategory == "ハーフ", let min = runMinutesInt {
-                        UserDefaults.standard.set(formatMinutesToTimeLabel(min), forKey: "myBestHalf")
-                    }
-                    // 表示用の基本プロフィールもローカルに保存
-                    UserDefaults.standard.set(username, forKey: "myName")
-                    UserDefaults.standard.set(selectedPrefecture + " " + activityArea, forKey: "myArea")
-                    
                     await MainActor.run {
+                        UserDefaults.standard.set(username, forKey: "myName")
+                        UserDefaults.standard.set(selectedPrefecture + " " + activityArea, forKey: "myArea")
+                        UserDefaults.standard.set(purposeForSave, forKey: "myPurpose")
                         self.isSaving = false
                         self.skipProfileRegistration = false
                         EngagementSignals.touchSignificantInteraction()
-                        // Firebase には保存せず、モック完了としてホームへ遷移
                         self.onComplete?()
                     }
                     return
                 }
             }
             
-            // 2. 画像アップロードを最大15秒でタイムアウト（それ以上待たず登録を続行）
             var imageUrl: String? = nil
             await withTaskGroup(of: String?.self) { group in
                 group.addTask {
@@ -829,26 +876,10 @@ struct ProfileRegistrationView: View {
                 imageUrl = first ?? nil
             }
             
-            // 3. プロフィール情報を保存（画像URLは取得できた場合のみ設定）
             let gender = selectedGender ?? "無回答"
-            let purpose = selectedPurposes.isEmpty ? "その他" : selectedPurposes.joined(separator: ", ")
-            
-            // 生年月日から年齢を計算
             let calendar = Calendar.current
             let ageComponents = calendar.dateComponents([.year], from: birthDate, to: Date())
             let computedAge = ageComponents.year ?? 0
-            
-            let runMinutesInt = Int(runMinutes.trimmingCharacters(in: .whitespaces))
-            let computedRank = computeRank(category: selectedRunCategory, minutes: runMinutesInt)
-            
-            // 登録タイムをフィルター用に保存（ベストフル/ハーフ）
-            UserDefaults.standard.set(computedRank, forKey: "myRank")
-            if selectedRunCategory == "フル", let min = runMinutesInt {
-                UserDefaults.standard.set(formatMinutesToTimeLabel(min), forKey: "myBestFull")
-            }
-            if selectedRunCategory == "ハーフ", let min = runMinutesInt {
-                UserDefaults.standard.set(formatMinutesToTimeLabel(min), forKey: "myBestHalf")
-            }
             
             let user = User(
                 id: UUID(),
@@ -856,10 +887,10 @@ struct ProfileRegistrationView: View {
                 profileImage: "runner",
                 profileImageUrl: imageUrl,
                 bio: "",
-                rank: computedRank,
+                rank: defaultRank,
                 age: computedAge,
                 gender: gender,
-                purpose: purpose,
+                purpose: purposeForSave,
                 prefecture: selectedPrefecture,
                 area: activityArea,
                 pace: "",
@@ -878,7 +909,8 @@ struct ProfileRegistrationView: View {
                 spotName: activityArea,
                 latitude: 0,
                 longitude: 0,
-                distanceFromUserMock: 0
+                distanceFromUserMock: 0,
+                monthlyGpsActivityCount: nil
             )
             
             await MainActor.run {
@@ -887,6 +919,7 @@ struct ProfileRegistrationView: View {
                         self.isSaving = false
                         switch result {
                         case .success:
+                            UserDefaults.standard.set(purposeForSave, forKey: "myPurpose")
                             EngagementSignals.touchSignificantInteraction()
                             self.onComplete?()
                         case .failure(let error):
@@ -899,16 +932,94 @@ struct ProfileRegistrationView: View {
     }
 
     private func persistSelectedDevices() {
-        let sorted = selectedDeviceSources
-            .filter { $0 != .all }
-            .sorted { $0.rawValue < $1.rawValue }
-        connectedRunningDevicesRaw = sorted.map(\.rawValue).joined(separator: ",")
-        if let current = RunningDataSource(rawValue: runningDataSourceRaw), sorted.contains(current) {
-            runningDataSourceRaw = current.rawValue
-        } else if let first = sorted.first {
-            runningDataSourceRaw = first.rawValue
-        } else {
+        guard let one = selectedDevice, one != .all else {
+            connectedRunningDevicesRaw = ""
             runningDataSourceRaw = RunningDataSource.all.rawValue
+            return
+        }
+        connectedRunningDevicesRaw = one.rawValue
+        runningDataSourceRaw = one.rawValue
+    }
+}
+
+// MARK: - エリア検索候補の加工（住宅系の除外・駅・公園等の優先）
+
+private enum ActivityAreaCompletionFilter {
+    static let maxResults = 20
+
+    private static let residentialMarkers: [String] = [
+        "丁目", "番地", "号室", "マンション", "アパート", "レジデンス", "コーポ", "ハイツ"
+    ]
+
+    private static let priorityKeywords: [String] = [
+        "公園", "緑地", "河川敷", "駅", "グラウンド", "陸上", "スタジアム", "ドーム", "JR", "新幹線",
+        "トラック", "広場", "城", "海浜", "林道", "遊歩道"
+    ]
+
+    static func shouldExclude(_ completion: MKLocalSearchCompletion) -> Bool {
+        let t = completion.title + completion.subtitle
+        return residentialMarkers.contains { t.contains($0) }
+    }
+
+    static func priorityScore(_ completion: MKLocalSearchCompletion) -> Int {
+        let t = completion.title + completion.subtitle
+        return priorityKeywords.reduce(0) { partial, keyword in
+            partial + (t.contains(keyword) ? 2 : 0)
+        }
+    }
+
+    static func process(_ raw: [MKLocalSearchCompletion]) -> [MKLocalSearchCompletion] {
+        let filtered = raw.filter { !shouldExclude($0) }
+        let sorted = filtered.sorted { priorityScore($0) > priorityScore($1) }
+        return Array(sorted.prefix(maxResults))
+    }
+}
+
+// MARK: - MapKit search (activity area)
+
+@MainActor
+final class ActivityAreaSearchCompleter: NSObject, ObservableObject, MKLocalSearchCompleterDelegate {
+    @Published var completions: [MKLocalSearchCompletion] = []
+    
+    private let completer: MKLocalSearchCompleter = {
+        let c = MKLocalSearchCompleter()
+        c.resultTypes = [.pointOfInterest]
+        c.region = PrefectureMapRegions.japanWide
+        return c
+    }()
+    
+    override init() {
+        super.init()
+        completer.delegate = self
+        updateRegion(forPrefecture: "東京都")
+    }
+    
+    /// プロフィールの「お住まいの都道府県」に合わせて検索バイアスを更新する。
+    func updateRegion(forPrefecture name: String) {
+        if let region = PrefectureMapRegions.region(for: name) {
+            completer.region = region
+        } else {
+            completer.region = PrefectureMapRegions.japanWide
+        }
+    }
+    
+    func setQuery(_ fragment: String) {
+        let trimmed = fragment.trimmingCharacters(in: .whitespacesAndNewlines)
+        completer.queryFragment = trimmed
+        if trimmed.isEmpty {
+            completions = []
+        }
+    }
+    
+    nonisolated func completerDidUpdateResults(_ completer: MKLocalSearchCompleter) {
+        Task { @MainActor in
+            self.completions = ActivityAreaCompletionFilter.process(completer.results)
+        }
+    }
+    
+    nonisolated func completer(_ completer: MKLocalSearchCompleter, didFailWithError error: Error) {
+        Task { @MainActor in
+            self.completions = []
         }
     }
 }
@@ -926,4 +1037,3 @@ private extension View {
         .environmentObject(AuthManager())
         .environmentObject(UserManager())
 }
-

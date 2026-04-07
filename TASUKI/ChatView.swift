@@ -37,11 +37,22 @@ struct ChatView: View {
     /// 練習会チャットかどうか（true のときメッセージに送信者名を表示）
     var isPractice: Bool = false
     @Environment(\.dismiss) var dismiss
+    @EnvironmentObject private var tabBarVisibility: TabBarVisibility
     
     @State private var messages: [ChatMessage] = []
     @State private var messageText: String = ""
+    @State private var replyingTo: ChatMessage?
     @FocusState private var isTextFieldFocused: Bool
     @AppStorage("myName") private var myName: String = "Hiro"
+    
+    @State private var showReportSheet = false
+    @State private var reportCategory: String = ""
+    @State private var reportDetailText: String = ""
+    @FocusState private var isReportDetailFocused: Bool
+    @State private var showReportSuccess = false
+    @State private var showReportErrorAlert = false
+    @State private var reportErrorMessage: String = ""
+    @State private var isSubmittingReport = false
 
     init(conversationId: String = "dummy-preview", partnerName: String = "Tanaka-san", isPractice: Bool = false) {
         self.conversationId = conversationId
@@ -51,15 +62,13 @@ struct ChatView: View {
     
     var body: some View {
         VStack(spacing: 0) {
-            // 安全対策ヘッダー
             safetyHeaderView
             
-            // メッセージエリア
             ScrollViewReader { proxy in
                 ScrollView {
                     VStack(spacing: 12) {
                         ForEach(messages) { message in
-                            messageBubbleView(message: message)
+                            messageBubbleWithSwipe(message: message)
                                 .id(message.id)
                         }
                     }
@@ -74,13 +83,12 @@ struct ChatView: View {
                     }
                 }
             }
-            
-            companionQuickPhraseBar
-
-            // 入力エリア（画面最下部に固定）
-            inputAreaView
         }
         .background(Color.white)
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            composerStack
+                .background(Color.white)
+        }
         .navigationTitle(partnerName)
         .navigationBarTitleDisplayMode(.inline)
         .navigationBarBackButtonHidden(true)
@@ -92,11 +100,134 @@ struct ChatView: View {
                         .foregroundColor(Color.tasukiAccent)
                 }
             }
+            ToolbarItem(placement: .navigationBarTrailing) {
+                Menu {
+                    Button("スパム") { openReportSheet(category: "スパム") }
+                    Button("ハラスメント") { openReportSheet(category: "ハラスメント") }
+                    Button("不適切な内容") { openReportSheet(category: "不適切な内容") }
+                    Button("その他") { openReportSheet(category: "その他") }
+                } label: {
+                    Image(systemName: "ellipsis.circle")
+                        .font(.system(size: 18, weight: .semibold))
+                        .foregroundColor(Color.tasukiAccent)
+                }
+                .disabled(isSubmittingReport)
+            }
+        }
+        .sheet(isPresented: $showReportSheet, onDismiss: {
+            reportDetailText = ""
+        }) {
+            reportSheetContent
+        }
+        .alert("受け付けました", isPresented: $showReportSuccess) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text("内容を確認のうえ、適切に対応します。")
+        }
+        .alert("通報に失敗しました", isPresented: $showReportErrorAlert) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(reportErrorMessage)
         }
         .onAppear {
+            tabBarVisibility.pushHiddenContext()
             loadDummyMessages()
             ConversationManager.shared.markConversationAsRead(conversationId: conversationId)
         }
+        .onDisappear {
+            tabBarVisibility.popHiddenContext()
+        }
+    }
+    
+    private var reportSheetContent: some View {
+        NavigationStack {
+            VStack(alignment: .leading, spacing: 16) {
+                Text("選択した理由: \(reportCategory)")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundColor(Color.tasukiPrimary)
+                Text("詳しい内容を入力してください（運営が確認します）")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                TextField("具体的な理由を入力", text: $reportDetailText, axis: .vertical)
+                    .textFieldStyle(.roundedBorder)
+                    .lineLimit(3...6)
+                    .focused($isReportDetailFocused)
+                Spacer(minLength: 0)
+            }
+            .padding(20)
+            .navigationTitle("会話を通報")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("キャンセル") {
+                        showReportSheet = false
+                    }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("通報する") {
+                        submitReportFromSheet()
+                    }
+                    .disabled(isSubmittingReport)
+                }
+            }
+            .onAppear {
+                isReportDetailFocused = true
+            }
+        }
+        .presentationDetents([.medium, .large])
+    }
+    
+    private func openReportSheet(category: String) {
+        reportCategory = category
+        reportDetailText = ""
+        showReportSheet = true
+    }
+    
+    private func submitReportFromSheet() {
+        let detail = reportDetailText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !detail.isEmpty else {
+            reportErrorMessage = "詳しい内容を入力してください。"
+            showReportErrorAlert = true
+            return
+        }
+        showReportSheet = false
+        submitReport(category: reportCategory, detail: detail)
+    }
+    
+    private var composerStack: some View {
+        VStack(spacing: 0) {
+            if let target = replyingTo {
+                compactReplyPreview(target: target)
+            }
+            inputAreaView
+        }
+    }
+    
+    /// 返信先は入力欄の直上に1行だけ表示
+    private func compactReplyPreview(target: ChatMessage) -> some View {
+        HStack(spacing: 6) {
+            Rectangle()
+                .fill(Color.tasukiPrimary.opacity(0.85))
+                .frame(width: 2)
+                .frame(maxHeight: 14)
+            Text("返信: \(target.text)")
+                .font(.system(size: 11, weight: .medium))
+                .foregroundColor(.secondary)
+                .lineLimit(1)
+                .truncationMode(.tail)
+            Spacer(minLength: 4)
+            Button {
+                replyingTo = nil
+            } label: {
+                Image(systemName: "xmark.circle.fill")
+                    .font(.system(size: 16))
+                    .foregroundColor(Color.secondary.opacity(0.85))
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 4)
+        .background(Color(.systemGray6).opacity(0.6))
     }
     
     // MARK: - Safety Header View
@@ -113,7 +244,21 @@ struct ChatView: View {
         .background(Color.gray.opacity(0.1))
     }
     
-    // MARK: - Message Bubble View
+    // MARK: - Message Bubble + swipe to reply
+    private func messageBubbleWithSwipe(message: ChatMessage) -> some View {
+        messageBubbleView(message: message)
+            .contentShape(Rectangle())
+            .simultaneousGesture(
+                DragGesture(minimumDistance: 28)
+                    .onEnded { value in
+                        let dx = value.translation.width
+                        let dy = value.translation.height
+                        guard abs(dx) > abs(dy) * 1.15, dx < -48 else { return }
+                        replyingTo = message
+                    }
+            )
+    }
+    
     @ViewBuilder
     private func messageBubbleView(message: ChatMessage) -> some View {
         HStack {
@@ -122,7 +267,6 @@ struct ChatView: View {
             }
             
             VStack(alignment: message.isFromMe ? .trailing : .leading, spacing: 4) {
-                // 送信者名（練習会などで表示）
                 if let name = message.senderName, !name.isEmpty {
                     Text(name)
                         .font(.system(size: 12, weight: .semibold))
@@ -153,33 +297,6 @@ struct ChatView: View {
         }
     }
     
-    private var companionQuickPhraseBar: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
-                ForEach(CompanionChatQuickPhrases.all, id: \.self) { phrase in
-                    Button {
-                        sendPresetMessage(phrase)
-                    } label: {
-                        Text(phrase)
-                            .font(.system(size: 12, weight: .medium))
-                            .foregroundColor(Color.tasukiPrimary)
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 8)
-                            .background(
-                                Capsule()
-                                    .fill(Color.tasukiAccent.opacity(0.12))
-                            )
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 8)
-        }
-        .background(Color.white)
-    }
-
-    // MARK: - Input Area View
     private var inputAreaView: some View {
         HStack(spacing: 12) {
             TextField("メッセージを入力", text: $messageText)
@@ -211,45 +328,22 @@ struct ChatView: View {
         .background(Color.white)
     }
     
-    // MARK: - Helper Methods
-    private func sendPresetMessage(_ text: String) {
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
-        let newMessage = ChatMessage(
-            text: trimmed,
-            isFromMe: true,
-            replyToMessageId: nil,
-            senderName: isPractice ? myName : nil
-        )
-        messages.append(newMessage)
-        isTextFieldFocused = false
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-            let replyMessage = ChatMessage(
-                text: "ありがとうございます！",
-                isFromMe: false,
-                replyToMessageId: nil,
-                senderName: isPractice ? "Kenji_Run" : nil
-            )
-            messages.append(replyMessage)
-        }
-    }
-
-    private func sendMessage(replyToMessageId: String? = nil) {
+    private func sendMessage() {
         guard !messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             return
         }
-        
+        let replyId = replyingTo?.id
         let newMessage = ChatMessage(
             text: messageText,
             isFromMe: true,
-            replyToMessageId: replyToMessageId,
+            replyToMessageId: replyId,
             senderName: isPractice ? myName : nil
         )
         messages.append(newMessage)
         messageText = ""
+        replyingTo = nil
         isTextFieldFocused = false
         
-        // ダミー: 相手からの返信をシミュレート（1秒後）
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
             let replyMessage = ChatMessage(
                 text: "ありがとうございます！",
@@ -261,6 +355,25 @@ struct ChatView: View {
         }
     }
     
+    private func submitReport(category: String, detail: String) {
+        isSubmittingReport = true
+        ConversationManager.shared.submitConversationReport(
+            conversationId: conversationId,
+            partnerName: partnerName,
+            reasonCategory: category,
+            detail: detail
+        ) { result in
+            isSubmittingReport = false
+            switch result {
+            case .success:
+                showReportSuccess = true
+            case .failure(let error):
+                reportErrorMessage = error.localizedDescription
+                showReportErrorAlert = true
+            }
+        }
+    }
+    
     private func loadDummyMessages() {
         let cal = Calendar.current
         let now = Date()
@@ -269,7 +382,6 @@ struct ChatView: View {
         func dayAgo(_ d: Int) -> Date { cal.date(byAdding: .day, value: -d, to: now) ?? now }
 
         if isPractice {
-            // 練習会チャット用サンプル（送信者名付き）
             messages = [
                 ChatMessage(id: "dummy-p1", text: "集合は噴水前です。5分前には集まってください！", isFromMe: false, timestamp: hourAgo(2), senderName: "Kenji_Run"),
                 ChatMessage(id: "dummy-p2", text: "了解です！", isFromMe: true, timestamp: hourAgo(2), senderName: myName),
@@ -297,5 +409,6 @@ struct ChatView: View {
 #Preview {
     NavigationStack {
         ChatView(conversationId: "preview-1", partnerName: "Tanaka-san")
+            .environmentObject(TabBarVisibility())
     }
 }

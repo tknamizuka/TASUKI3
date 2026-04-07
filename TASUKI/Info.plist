@@ -20,6 +20,16 @@
     <!-- Privacy: Location for run tracking (規約・プライバシーポリシーと整合) -->
     <key>NSLocationWhenInUseUsageDescription</key>
     <string>ランニングの距離・ルート計測、およびチーム・駅伝機能での走行記録共有のために位置情報を使用します。</string>
+    <key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+    <string>スリープ中やロック画面でも走行距離・時間・ペースを記録するため、バックグラウンドで位置情報を使用します。「常に許可」を選ぶと記録が途切れにくくなります。</string>
+
+    <key>UIBackgroundModes</key>
+    <array>
+        <string>location</string>
+    </array>
+
+    <key>NSSupportsLiveActivities</key>
+    <true/>
 
     <!-- Privacy: HealthKit usage descriptions (規約・プライバシーポリシーと整合) -->
     <key>NSHealthShareUsageDescription</key>

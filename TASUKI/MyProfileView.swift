@@ -12,7 +12,6 @@ struct MyProfileView: View {
     @AppStorage("myPersonalBest") private var personalBest: String = "Full 3:10:00"
     @AppStorage("myTargetTime") private var targetTime: String = "Full 2:59:00"
     @AppStorage("myNextRace") private var nextRace: String = "東京マラソン2026"
-    @AppStorage("myAvgPace") private var avgPace: String = "5:30/km"
     @AppStorage("myMonthlyDist") private var monthlyDist: String = "150km"
     @AppStorage("myTotalPoints") private var myTotalPoints: Int = 0
     @AppStorage("myBio") private var bio: String = "平日は仕事終わりに5-10km走ってます！週末は距離走やりたいです。"
@@ -24,6 +23,11 @@ struct MyProfileView: View {
 
     private var myBadgeTier: PointBadgeTier? {
         PointBadgeHelper.tier(forTotalPoints: myTotalPoints)
+    }
+
+    /// 今月の Run 記録から算出（暦月でリセット）。
+    private var monthlyAveragePaceDisplay: String {
+        activityStore.monthlyAveragePaceDisplayLabel()
     }
 
     private var runningSpotTags: [String] {
@@ -172,7 +176,7 @@ struct MyProfileView: View {
             sectionEyebrow("RUNNING STATS")
 
             HStack(spacing: 12) {
-                statItem(title: "Avg Pace", value: avgPace)
+                statItem(title: "Avg Pace (月)", value: monthlyAveragePaceDisplay)
                 statItem(title: "Monthly Dist", value: monthlyDist)
             }
         }

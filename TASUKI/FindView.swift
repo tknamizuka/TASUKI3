@@ -60,6 +60,8 @@ struct FindView: View {
     @AppStorage("myBestFull") private var myBestFull: String = ""
     @AppStorage("myBestHalf") private var myBestHalf: String = ""
     @AppStorage("myAvgPace") private var myAvgPace: String = "5:30/km"
+    @AppStorage("myRunningSpots") private var myRunningSpots: String = "皇居"
+    @ObservedObject private var activityStore = RunActivityStore.shared
     
     // Practices用 詳細フィルター
     @State private var practiceFilterDate: Date? = nil  // 日時で絞り込む（nil=指定なし）
@@ -317,6 +319,131 @@ struct FindView: View {
             easyPace: "6:45/km",
             connectionStyle: .both,
             totalPoints: 500
+        ),
+        PartnerUser(
+            name: "Shinpei_皇居",
+            rank: "A",
+            avatarImage: "person.circle.fill",
+            isOnline: true,
+            bestCategory: .half,
+            bestTime: "1:32:00",
+            age: 34,
+            runningSchedule: .weekdayEvening,
+            purpose: "サブ3.5",
+            nextRace: "湘南国際マラソン",
+            targetTime: "フル 3:25:00",
+            runningSpots: ["皇居", "神宮外苑"],
+            prefecture: "Tokyo",
+            gender: .male,
+            condition: .good,
+            statusMessage: "仕事帰りの皇居ランが日課です",
+            ageGroup: "30s",
+            runningGoal: "Sub3.5",
+            personalBest: "3:28:00",
+            activeTime: "Night",
+            easyPace: "5:10/km",
+            connectionStyle: .real,
+            totalPoints: 9800
+        ),
+        PartnerUser(
+            name: "natsu_run",
+            rank: "B",
+            avatarImage: "person.circle.fill",
+            isOnline: false,
+            bestCategory: .tenKm,
+            bestTime: "48:00",
+            age: 26,
+            runningSchedule: .weekendMorning,
+            purpose: "健康維持",
+            nextRace: nil,
+            targetTime: "10km 45分",
+            runningSpots: ["多摩川", "二子玉川"],
+            prefecture: "Tokyo",
+            gender: .female,
+            condition: .good,
+            statusMessage: "週末は多摩川沿いをゆっくり",
+            ageGroup: "20s",
+            runningGoal: "健康維持",
+            personalBest: nil,
+            activeTime: "Morning",
+            easyPace: "5:50/km",
+            connectionStyle: .both,
+            totalPoints: 4100
+        ),
+        PartnerUser(
+            name: "Kazu_駒沢",
+            rank: "A",
+            avatarImage: "person.circle.fill",
+            isOnline: true,
+            bestCategory: .full,
+            bestTime: "3:05:00",
+            age: 31,
+            runningSchedule: .weekdayMorning,
+            purpose: "サブ3",
+            nextRace: "東京マラソン",
+            targetTime: "2:58:00",
+            runningSpots: ["駒沢公園"],
+            prefecture: "Tokyo",
+            gender: .male,
+            condition: .excellent,
+            statusMessage: "駒沢のグラウンド周りを主に練習中",
+            ageGroup: "30s",
+            runningGoal: "Sub3",
+            personalBest: "3:05:00",
+            activeTime: "Morning",
+            easyPace: "4:50/km",
+            connectionStyle: .real,
+            totalPoints: 19200
+        ),
+        PartnerUser(
+            name: "リン",
+            rank: "C",
+            avatarImage: "person.circle.fill",
+            isOnline: true,
+            bestCategory: .half,
+            bestTime: "1:55:00",
+            age: 33,
+            runningSchedule: .flexible,
+            purpose: "ダイエット",
+            nextRace: nil,
+            targetTime: nil,
+            runningSpots: ["井の頭公園"],
+            prefecture: "Tokyo",
+            gender: .female,
+            condition: .good,
+            statusMessage: "井の頭でゆるラン派です",
+            ageGroup: "30s",
+            runningGoal: "ダイエット",
+            personalBest: nil,
+            activeTime: "Holiday",
+            easyPace: "6:20/km",
+            connectionStyle: .virtual,
+            totalPoints: 1800
+        ),
+        PartnerUser(
+            name: "Go_多摩川",
+            rank: "B",
+            avatarImage: "person.circle.fill",
+            isOnline: false,
+            bestCategory: .half,
+            bestTime: "1:42:00",
+            age: 40,
+            runningSchedule: .weekdayEvening,
+            purpose: "健康維持",
+            nextRace: "横浜マラソン",
+            targetTime: "フル 3:40:00",
+            runningSpots: ["多摩川", "羽田空港周辺"],
+            prefecture: "Kanagawa",
+            gender: .male,
+            condition: .good,
+            statusMessage: "多摩川の河川敷が落ち着きます",
+            ageGroup: "40s",
+            runningGoal: "完走",
+            personalBest: "3:35:00",
+            activeTime: "Night",
+            easyPace: "5:40/km",
+            connectionStyle: .both,
+            totalPoints: 5200
         )
     ]
     
@@ -325,38 +452,42 @@ struct FindView: View {
     // User型のマッチング用データ（Models.swiftのmockUsersを使用）
     @State private var matchingUsers: [User] = []
     
-    // フィルタリング＆ソートされたユーザーリスト
-    private var filteredUsers: [User] {
+    private var mySpotLabelForMatch: String {
+        let first = myRunningSpots.split(separator: ",").first.map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
+        if let f = first, !f.isEmpty { return f }
+        return "よく走るエリア"
+    }
+
+    /// Runners / Practices 共通のフィルタ・ソート済みユーザー（件数制限なし）
+    private var userListFiltered: [User] {
         var filtered = matchingUsers
 
         if !selectedRunnerRanks.isEmpty {
             filtered = filtered.filter { selectedRunnerRanks.contains($0.rank) }
         }
         
-        // 検索テキストフィルター
         if !searchText.isEmpty {
             filtered = filtered.filter { user in
                 let q = searchText
-                // ユーザーのID（UUID文字列）
                 let idString = user.id.uuidString
                 return
-                    idString.localizedCaseInsensitiveContains(q) ||          // 固有ID
-                    user.name.localizedCaseInsensitiveContains(q) ||         // ニックネーム
-                    user.spotName.localizedCaseInsensitiveContains(q) ||     // よく走るエリア（表示用スポット）
-                    user.area.localizedCaseInsensitiveContains(q) ||         // 活動エリア
-                    user.prefecture.localizedCaseInsensitiveContains(q) ||   // 都道府県
-                    user.purpose.localizedCaseInsensitiveContains(q) ||      // ランニングの目的
-                    user.schedule.localizedCaseInsensitiveContains(q) ||     // よく走る日時
-                    user.runningFrequency.localizedCaseInsensitiveContains(q) || // 頻度
-                    user.personalBest.localizedCaseInsensitiveContains(q) || // 自己ベスト
-                    user.nextRace.localizedCaseInsensitiveContains(q) ||     // 次のレース
-                    user.targetTime.localizedCaseInsensitiveContains(q) ||   // 目標タイム
-                    user.avgPace.localizedCaseInsensitiveContains(q) ||      // 平均ペース
-                    user.bio.localizedCaseInsensitiveContains(q)             // 自己紹介・タグ的テキスト
+                    idString.localizedCaseInsensitiveContains(q) ||
+                    user.name.localizedCaseInsensitiveContains(q) ||
+                    user.spotName.localizedCaseInsensitiveContains(q) ||
+                    user.area.localizedCaseInsensitiveContains(q) ||
+                    user.prefecture.localizedCaseInsensitiveContains(q) ||
+                    user.purpose.localizedCaseInsensitiveContains(q) ||
+                    user.schedule.localizedCaseInsensitiveContains(q) ||
+                    user.runningFrequency.localizedCaseInsensitiveContains(q) ||
+                    user.personalBest.localizedCaseInsensitiveContains(q) ||
+                    user.nextRace.localizedCaseInsensitiveContains(q) ||
+                    user.targetTime.localizedCaseInsensitiveContains(q) ||
+                    user.avgPace.localizedCaseInsensitiveContains(q) ||
+                    String(FindMatchScore.effectiveMonthlyRunCount(for: user)).contains(q) ||
+                    user.bio.localizedCaseInsensitiveContains(q)
             }
         }
         
-        // ソート機能（おすすめ＝matchRate 高い順）
         switch sortOption {
         case .recommend:
             filtered = filtered.sorted { $0.matchRate > $1.matchRate }
@@ -367,6 +498,47 @@ struct FindView: View {
         }
         
         return filtered
+    }
+
+    /// Runners: 未検索・ランク指定なしのときはおすすめ上位5件のみ
+    private var displayedRunnerUsers: [User] {
+        guard selectedMode == "Runners" else { return [] }
+        if searchText.isEmpty && selectedRunnerRanks.isEmpty {
+            return Array(userListFiltered.prefix(5))
+        }
+        return userListFiltered
+    }
+    
+    /// Practices で検索中に表示する User（Partner カードとは別）
+    private var practiceSearchUsers: [User] {
+        guard selectedMode == "Practices", !searchText.isEmpty else { return [] }
+        return userListFiltered
+    }
+    
+    /// Practices で検索中に表示する Partner 一覧
+    private var practiceSearchPartners: [PartnerUser] {
+        guard selectedMode == "Practices", !searchText.isEmpty else { return [] }
+        return filteredPartnerUsers
+    }
+
+    /// `mockUsers` に対し、自分の月間 GPS 記録（ペース・重心・回数）に基づくマッチ度を再計算する。
+    private func refreshMatchingUsers() {
+        let myPace = activityStore.monthlyAveragePaceSecondsPerKm()
+        let myRuns = activityStore.monthlyRunCount()
+        let centroid = activityStore.monthlyRouteCentroid()
+        let fallback = myAvgPace.isEmpty ? "5:30/km" : myAvgPace
+        matchingUsers = mockUsers.map { user in
+            var u = user
+            u.matchRate = FindMatchScore.compute(
+                myPaceSecPerKm: myPace,
+                myMonthlyGpsRuns: myRuns,
+                myRunLatitude: centroid?.latitude,
+                myRunLongitude: centroid?.longitude,
+                myAvgPaceFallback: fallback,
+                candidate: user
+            )
+            return u
+        }
     }
     
     // 既存のPartnerUser用のフィルタリング（Practicesモード用に保持）
@@ -574,28 +746,73 @@ struct FindView: View {
                     ScrollView(showsIndicators: false) {
                         LazyVStack(spacing: 12) {
                             if selectedMode == "Runners" {
-                                // Runnersモード: 自分のプロフィールに近い同性のユーザー（サンプル）をおすすめ順で表示
-                                ForEach(filteredUsers) { user in
-                                    NavigationLink(destination: UserProfileDetailView(user: user)) {
-                                        runnerCardView(user: user)
-                                    }
-                                    .buttonStyle(.plain)
-                                }
-                            } else {
-                                // Practicesモード: 募集リスト（掲示板 + 詳細画面への遷移）
-                                ForEach(filteredRecruitments) { recruitment in
-                                    VStack(spacing: 8) {
-                                        NavigationLink(
-                                            destination: PracticeDetailView(practice: recruitment.toPractice())
-                                        ) {
-                                            practiceCardView(recruitment: recruitment)
+                                if displayedRunnerUsers.isEmpty {
+                                    Text("該当するユーザーがいません")
+                                        .font(.system(size: 14))
+                                        .foregroundColor(Color.tasukiMutedText)
+                                        .frame(maxWidth: .infinity)
+                                        .padding(.vertical, 24)
+                                } else {
+                                    ForEach(displayedRunnerUsers) { user in
+                                        NavigationLink(destination: UserProfileDetailView(user: user)) {
+                                            runnerCardView(
+                                                user: user,
+                                                useSpotBasedCopy: searchText.isEmpty && selectedRunnerRanks.isEmpty
+                                            )
                                         }
                                         .buttonStyle(.plain)
-                                        
-                                        Divider()
-                                            .background(Color.tasukiDarkCardSecondary)
                                     }
-                                    .padding(.vertical, 4)
+                                }
+                            } else {
+                                if !searchText.isEmpty {
+                                    if !practiceSearchUsers.isEmpty {
+                                        sectionHeaderFind("ユーザー")
+                                        ForEach(practiceSearchUsers) { user in
+                                            NavigationLink(destination: UserProfileDetailView(user: user)) {
+                                                runnerCardView(user: user, useSpotBasedCopy: false)
+                                            }
+                                            .buttonStyle(.plain)
+                                        }
+                                    }
+                                    if !practiceSearchPartners.isEmpty {
+                                        sectionHeaderFind("パートナー")
+                                    ForEach(practiceSearchPartners) { partner in
+                                        NavigationLink(destination: PartnerDetailView(user: partner.toUser())) {
+                                            partnerUserCardView(user: partner)
+                                        }
+                                        .buttonStyle(.plain)
+                                    }
+                                    }
+                                    if practiceSearchUsers.isEmpty && practiceSearchPartners.isEmpty {
+                                        Text("検索に一致するユーザー・パートナーはいません")
+                                            .font(.system(size: 13))
+                                            .foregroundColor(Color.tasukiMutedText)
+                                            .frame(maxWidth: .infinity)
+                                            .padding(.vertical, 8)
+                                    }
+                                    sectionHeaderFind("練習会")
+                                }
+                                if filteredRecruitments.isEmpty {
+                                    Text("該当する練習会がありません")
+                                        .font(.system(size: 14))
+                                        .foregroundColor(Color.tasukiMutedText)
+                                        .frame(maxWidth: .infinity)
+                                        .padding(.vertical, 16)
+                                } else {
+                                    ForEach(filteredRecruitments) { recruitment in
+                                        VStack(spacing: 8) {
+                                            NavigationLink(
+                                                destination: PracticeDetailView(practice: recruitment.toPractice())
+                                            ) {
+                                                practiceCardView(recruitment: recruitment)
+                                            }
+                                            .buttonStyle(.plain)
+                                            
+                                            Divider()
+                                                .background(Color.tasukiDarkCardSecondary)
+                                        }
+                                        .padding(.vertical, 4)
+                                    }
                                 }
                             }
                         }
@@ -684,12 +901,11 @@ struct FindView: View {
                 )
             }
             .onAppear {
-                // User型のマッチング用データを初期化（Models.swiftのmockUsersを使用）
-                if matchingUsers.isEmpty {
-                    // Models.swiftで定義されたmockUsersを参照（型を明示して確実に参照）
-                    // ローカルのpartnerMockUsersは[PartnerUser]型なので、[User]型のmockUsersはModels.swiftのものを参照
-                    matchingUsers = mockUsers as [User]
-                }
+                activityStore.refreshFromRemote()
+                refreshMatchingUsers()
+            }
+            .onChange(of: activityStore.activities.count) { _, _ in
+                refreshMatchingUsers()
             }
             .overlay(alignment: .bottomTrailing) {
                 // 新規募集ボタン（Practicesモードの時だけ表示）— 白地・紺アクセント
@@ -807,9 +1023,19 @@ struct FindView: View {
         }
     }
     
-    // MARK: - Runner Card View
+    private func sectionHeaderFind(_ title: String) -> some View {
+        HStack {
+            Text(title)
+                .font(.system(size: 13, weight: .bold))
+                .foregroundColor(Color.tasukiMutedText)
+            Spacer()
+        }
+        .padding(.top, 4)
+    }
+
     // MARK: - Runner Card View (User型用)
-    private func runnerCardView(user: User) -> some View {
+    /// `useSpotBasedCopy`: 未検索のおすすめ表示では GPS ではなく「よく走る場所」で近いように見せる
+    private func runnerCardView(user: User, useSpotBasedCopy: Bool) -> some View {
         HStack(spacing: 15) {
             // 丸型プロフィール画像（名前の左側に配置）
             if UIImage(named: user.profileImage) != nil {
@@ -856,15 +1082,39 @@ struct FindView: View {
                     }
                 }
                 
-                // マッチ度表示
-                HStack(spacing: 3) {
-                    Image(systemName: "sparkles")
-                        .font(.caption2)
-                    Text("マッチ度：\(user.matchRate)%")
-                        .font(.caption)
-                        .fontWeight(.semibold)
+                // マッチ度 / おすすめ理由（表向きはよく走る場所ベース）
+                if useSpotBasedCopy {
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack(spacing: 4) {
+                            Image(systemName: "sparkles")
+                                .font(.caption2)
+                            Text("おすすめ")
+                                .font(.caption)
+                                .fontWeight(.bold)
+                                .foregroundColor(Color.tasukiAccentOrange)
+                        }
+                        Text("プロフィールのよく走る場所が近い · ペースも近い")
+                            .font(.caption2)
+                            .foregroundColor(Color.tasukiMutedText)
+                            .fixedSize(horizontal: false, vertical: true)
+                        Text("「\(mySpotLabelForMatch)」と「\(user.spotName)」")
+                            .font(.caption2)
+                            .fontWeight(.semibold)
+                            .foregroundColor(Color.tasukiPrimary)
+                        Text("相性スコア \(user.matchRate)%")
+                            .font(.caption2)
+                            .foregroundColor(Color.tasukiMutedText.opacity(0.85))
+                    }
+                } else {
+                    HStack(spacing: 3) {
+                        Image(systemName: "sparkles")
+                            .font(.caption2)
+                        Text("マッチ度：\(user.matchRate)%")
+                            .font(.caption)
+                            .fontWeight(.semibold)
+                    }
+                    .foregroundColor(Color.tasukiMutedText)
                 }
-                .foregroundColor(Color.tasukiMutedText)
                 
                 // ログイン状況
                 let hoursSinceLogin = Int(Date().timeIntervalSince(user.lastLogin) / 3600)
@@ -873,14 +1123,18 @@ struct FindView: View {
                     .font(.caption)
                     .foregroundColor(Color.tasukiMutedText)
                 
-                // 活動場所と距離
+                // 活動場所（おすすめ表示では距離 km を出さずエリアのみ）
                 HStack(spacing: 4) {
                     Image(systemName: "mappin.and.ellipse")
                         .font(.caption)
                         .foregroundColor(Color.tasukiMutedText)
-                    Text(user.spotName)
-                    Text("(\(String(format: "%.1f", user.distanceFromUserMock))km)")
-                        .foregroundColor(Color.tasukiMutedText)
+                    if useSpotBasedCopy {
+                        Text("よく走る場所：\(user.spotName)")
+                    } else {
+                        Text(user.spotName)
+                        Text("(\(String(format: "%.1f", user.distanceFromUserMock))km)")
+                            .foregroundColor(Color.tasukiMutedText)
+                    }
                 }
                 .font(.caption)
                 

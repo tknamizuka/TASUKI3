@@ -13,9 +13,7 @@ struct PrivacyPolicyView: View {
     var body: some View {
         NavigationStack {
             ScrollView {
-                Text(LegalTexts.privacyPolicyText)
-                    .font(.system(size: 13))
-                    .foregroundColor(.primary)
+                Text(LegalTextAttributed.privacyPolicy())
                     .lineSpacing(6)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding()

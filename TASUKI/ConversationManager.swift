@@ -358,6 +358,47 @@ final class ConversationManager: UnreadCountProviderBase {
                 completion(.success(list))
             }
     }
+    
+    // MARK: - Reports
+    
+    /// 会話の通報を `reports` コレクションに保存する
+    func submitConversationReport(conversationId: String, partnerName: String, reasonCategory: String, detail: String?, completion: @escaping (Result<Void, Error>) -> Void) {
+        guard let uid = currentUserId else {
+            completion(.failure(NSError(domain: "ConversationManager", code: -1, userInfo: [NSLocalizedDescriptionKey: "未ログイン"])))
+            return
+        }
+        let ref = db.collection("reports").document()
+        let trimmedDetail = detail?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        var data: [String: Any] = [
+            "kind": "conversation",
+            "conversationId": conversationId,
+            "partnerName": partnerName,
+            "reporterUid": uid,
+            "reasonCategory": reasonCategory,
+            "createdAt": Timestamp(date: Date())
+        ]
+        if !trimmedDetail.isEmpty {
+            data["detail"] = trimmedDetail
+        }
+        data["reason"] = trimmedDetail.isEmpty ? reasonCategory : "\(reasonCategory): \(trimmedDetail)"
+        ref.setData(data) { error in
+            DispatchQueue.main.async {
+                if let error = error {
+                    self.trackConversationEvent(
+                        "conversation_report_failed",
+                        properties: ["conversation_id": conversationId, "error_message": error.localizedDescription]
+                    )
+                    completion(.failure(error))
+                } else {
+                    self.trackConversationEvent(
+                        "conversation_reported",
+                        properties: ["conversation_id": conversationId, "reason_category": reasonCategory]
+                    )
+                    completion(.success(()))
+                }
+            }
+        }
+    }
 }
 
 // MARK: - プレビュー用モック（Firebase に触れず HomeView プレビューを表示）

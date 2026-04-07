@@ -36,6 +36,13 @@ struct SpectatorCheerDisplay: Identifiable {
     let timestamp: Date
 }
 
+/// オーナー脱退時に譲渡できるメンバー候補
+private struct OwnerSuccessorCandidate: Identifiable {
+    let uid: String
+    let displayName: String
+    var id: String { uid }
+}
+
 /// 区間提出シート用。`sheet(isPresented:)` と optional の組み合わせでは中身が空になることがあるため `sheet(item:)` で渡す。
 private struct EkidenSubmitSheetItem: Identifiable {
     let id: String
@@ -53,6 +60,11 @@ private struct EkidenSubmitSheetItem: Identifiable {
 struct TeamView: View {
     private let maxTeamMembers = 10
     var useMockTeamFlow: Bool = false
+    /// プレビュー用: `true` で脱退可UI、`false` で期間中（グレー）を強制。`nil` で実データの駅伝期間を使用
+    var debugLeaveAllowedOverride: Bool? = nil
+    /// プレビュー用: 所属済みチーム画面を開く（`userTeamId` が未設定のときの表示用）
+    var debugPreviewTeamId: String? = nil
+    
     @State private var userTeamId: String? = nil
     @State private var selectedTeamId: String = ""
     @State private var showTeamDetail: Bool = false
@@ -62,6 +74,8 @@ struct TeamView: View {
     @AppStorage("myCondition") private var myConditionRaw: String = Condition.good.rawValue
     @AppStorage("myStatusMessage") private var myStatusMessage: String = "今月も頑張ります！"
     @AppStorage("myName") private var myName: String = "Hiro"
+    /// 未所属時に `TeamJoinCreateView` を出すか。脱退直後は `false` で「脱退完了」画面のみ
+    @AppStorage("ekidenShowTeamJoinHub") private var showTeamJoinHub: Bool = true
     
     // コンディション更新シート
     @State private var showConditionSheet = false
@@ -82,6 +96,14 @@ struct TeamView: View {
     @State private var showPassTasukiConfirm = false
     @State private var passTasukiLegIndex: Int? = nil
     @State private var isPassingTasuki = false
+    @State private var showLeaveTeamConfirm = false
+    /// オーナー脱退: 後任のオーナーを選ぶシート
+    @State private var showOwnerLeaveSheet = false
+    @State private var ownerSuccessorCandidates: [OwnerSuccessorCandidate] = []
+    @State private var selectedSuccessorUid: String = ""
+    @State private var isLoadingOwnerSuccessors = false
+    @State private var ownerLeaveError: String?
+    @State private var isPerformingOwnerLeave = false
 
     /// 区間賞
     @State private var showLegRankingSheet = false
@@ -198,32 +220,52 @@ struct TeamView: View {
         useMockTeamFlow || Auth.auth().currentUser == nil
     }
     
+    /// 参加チームID（本番の `userTeamId` またはプレビュー用）
+    private var resolvedTeamId: String? {
+        if let u = userTeamId, !u.isEmpty { return u }
+        if let d = debugPreviewTeamId, !d.isEmpty { return d }
+        return nil
+    }
+    
+    /// 駅伝レース期間外のみ脱退可能（期間中はグレーアウト）
+    private var canLeaveTeam: Bool {
+        if let override = debugLeaveAllowedOverride {
+            return override
+        }
+        guard let state = ekidenViewState else { return true }
+        return !state.isWithinEventWindow
+    }
+    
     var body: some View {
         NavigationStack {
-            if userTeamId == nil {
-                // 未所属の場合、チーム参加/作成画面を表示
-                TeamJoinCreateView(onComplete: { teamId in
-                    if isSampleTeamFlow {
-                        self.userTeamId = teamId
-                        if let id = teamId {
-                            UserDefaults.standard.set(id, forKey: "myTeamId")
+            if resolvedTeamId == nil {
+                if showTeamJoinHub {
+                    TeamJoinCreateView(onComplete: { teamId in
+                        if isSampleTeamFlow {
+                            self.userTeamId = teamId
+                            if let id = teamId {
+                                UserDefaults.standard.set(id, forKey: "myTeamId")
+                            }
+                        } else {
+                            loadUserTeamId()
                         }
-                    } else {
-                        loadUserTeamId()
+                        if let id = teamId {
+                            self.selectedTeamId = id
+                            self.showTeamDetail = true
+                        }
+                        self.showTeamJoinHub = true
+                    }, useMockFlow: isSampleTeamFlow)
+                    .navigationTitle("")
+                    .navigationBarTitleDisplayMode(.inline)
+                    .toolbar {
+                        ToolbarItem(placement: .principal) {
+                            Text("Ekiden")
+                                .font(.system(size: 19, weight: .bold))
+                                .foregroundColor(.black)
+                        }
                     }
-                    if let id = teamId {
-                        self.selectedTeamId = id
-                        self.showTeamDetail = true
-                    }
-                }, useMockFlow: isSampleTeamFlow)
-                .navigationTitle("")
-                .navigationBarTitleDisplayMode(.inline)
-                .toolbar {
-                    ToolbarItem(placement: .principal) {
-                        Text("Ekiden")
-                            .font(.system(size: 19, weight: .bold))
-                            .foregroundColor(.black)
-                    }
+                } else {
+                    teamPostLeaveView
                 }
             } else {
                 ZStack {
@@ -279,8 +321,11 @@ struct TeamView: View {
                                     )
                                 }
                                 .padding(.horizontal, 20)
-                                .padding(.bottom, 20)
                             }
+                            
+                            leaveTeamSection
+                                .padding(.horizontal, 20)
+                                .padding(.bottom, 20)
                         }
                         .padding(.bottom, scrollContentBottomPadding)
                     }
@@ -400,7 +445,11 @@ struct TeamView: View {
                     if !isSampleTeamFlow {
                         loadUserTeamId()
                     }
-                    if let tid = userTeamId, !tid.isEmpty {
+                    if let tid = resolvedTeamId, !tid.isEmpty {
+                        if selectedTeamId.isEmpty { selectedTeamId = tid }
+                        if userTeamId == nil, let d = debugPreviewTeamId, !d.isEmpty {
+                            userTeamId = d
+                        }
                         loadTeamOwner(teamId: tid)
                         startSpectatorCheerListener(teamId: selectedTeamId.isEmpty ? tid : selectedTeamId)
                         Task { await loadEkidenState(teamId: tid) }
@@ -422,9 +471,11 @@ struct TeamView: View {
                 }
                 .onChange(of: selectedTeamId) { _, newId in
                     if !newId.isEmpty {
+                        loadTeamOwner(teamId: newId)
                         startSpectatorCheerListener(teamId: newId)
                         Task { await loadEkidenState(teamId: newId) }
                     } else {
+                        isTeamOwner = false
                         ekidenViewState = nil
                         stopSpectatorCheerListener()
                     }
@@ -439,6 +490,23 @@ struct TeamView: View {
                 } message: {
                     Text("走らずにTASUKIだけ次の担当へ渡します。距離は加算されません。")
                 }
+                .alert("チームから脱退しますか？", isPresented: $showLeaveTeamConfirm) {
+                    Button("キャンセル", role: .cancel) {}
+                    Button("脱退する", role: .destructive) {
+                        performLeaveTeam()
+                    }
+                } message: {
+                    Text("脱退後は駅伝のチーム機能を利用できなくなります。駅伝開催期間外のみ脱退できます。")
+                }
+                .sheet(isPresented: $showOwnerLeaveSheet) {
+                    ownerLeaveTransferSheet
+                }
+            }
+        }
+        .task(id: debugPreviewTeamId) {
+            if let d = debugPreviewTeamId, !d.isEmpty {
+                if userTeamId == nil { userTeamId = d }
+                if selectedTeamId.isEmpty { selectedTeamId = d }
             }
         }
         .onAppear {
@@ -461,6 +529,370 @@ struct TeamView: View {
                 DispatchQueue.main.async {
                     self.userTeamId = nil
                 }
+            }
+        }
+    }
+    
+    @ViewBuilder
+    private var leaveTeamSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Button {
+                if isTeamOwner {
+                    ownerLeaveError = nil
+                    selectedSuccessorUid = ""
+                    showOwnerLeaveSheet = true
+                } else {
+                    showLeaveTeamConfirm = true
+                }
+            } label: {
+                HStack {
+                    Spacer()
+                    Text("チームから脱退")
+                        .font(.system(size: 15, weight: .semibold))
+                    Spacer()
+                }
+                .frame(height: 44)
+                .background(
+                    RoundedRectangle(cornerRadius: 12)
+                        .fill(canLeaveTeam ? Color.white : Color.gray.opacity(0.22))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12)
+                        .stroke(Color.gray.opacity(canLeaveTeam ? 0.4 : 0.2), lineWidth: 1)
+                )
+            }
+            .foregroundColor(canLeaveTeam ? Color.tasukiPrimary : Color.gray)
+            .disabled(!canLeaveTeam)
+            
+            if !canLeaveTeam {
+                Text("駅伝レースの開催期間中は脱退できません（期間終了後に再度お試しください）")
+                    .font(.caption)
+                    .foregroundColor(Color.tasukiMutedText)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            if isTeamOwner, canLeaveTeam {
+                Text("オーナーの場合は、脱退前に他のメンバーへオーナー権を譲る必要があります。")
+                    .font(.caption)
+                    .foregroundColor(Color.tasukiMutedText)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+    
+    /// オーナー脱退: 後任指定＋Firestore 更新シート
+    private var ownerLeaveTransferSheet: some View {
+        NavigationStack {
+            Group {
+                if isLoadingOwnerSuccessors {
+                    ProgressView("読み込み中…")
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else if ownerSuccessorCandidates.isEmpty {
+                    VStack(spacing: 16) {
+                        Text("他にメンバーがいません")
+                            .font(.headline)
+                        Text("オーナーを譲るには、チームに自分以外のメンバーが必要です。先にメンバーを追加してから脱退してください。")
+                            .font(.subheadline)
+                            .foregroundColor(.secondary)
+                            .multilineTextAlignment(.center)
+                            .padding(.horizontal)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else {
+                    Form {
+                        Section {
+                            Picker("新しいオーナー", selection: $selectedSuccessorUid) {
+                                ForEach(ownerSuccessorCandidates) { c in
+                                    Text(c.displayName).tag(c.uid)
+                                }
+                            }
+                        } footer: {
+                            Text("選んだメンバーにオーナー権を移し、あなたはチームから外れます。駅伝エントリがある場合も新オーナーに紐づけます。")
+                        }
+                        if let err = ownerLeaveError {
+                            Section {
+                                Text(err)
+                                    .foregroundColor(.red)
+                                    .font(.footnote)
+                            }
+                        }
+                    }
+                }
+            }
+            .navigationTitle("オーナーを譲る")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("キャンセル") {
+                        showOwnerLeaveSheet = false
+                    }
+                    .disabled(isPerformingOwnerLeave)
+                }
+                if !ownerSuccessorCandidates.isEmpty {
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("譲って脱退") {
+                            Task { await performOwnerTransferAndLeave() }
+                        }
+                        .disabled(selectedSuccessorUid.isEmpty || isPerformingOwnerLeave)
+                    }
+                }
+            }
+            .task {
+                await loadOwnerSuccessorCandidates()
+            }
+        }
+    }
+    
+    private func effectiveTeamIdForLeave() -> String {
+        let tid = selectedTeamId.isEmpty ? (userTeamId ?? "") : selectedTeamId
+        return tid
+    }
+    
+    private func mockOwnerSuccessorCandidates(teamId: String) -> [OwnerSuccessorCandidate] {
+        if teamId == "example_owner" {
+            return [
+                OwnerSuccessorCandidate(uid: "u_kenji", displayName: "Kenji_Run"),
+                OwnerSuccessorCandidate(uid: "u_sacchan", displayName: "さっちゃん")
+            ]
+        }
+        return []
+    }
+    
+    private func loadOwnerSuccessorCandidates() async {
+        await MainActor.run {
+            isLoadingOwnerSuccessors = true
+            ownerLeaveError = nil
+        }
+        defer {
+            Task { @MainActor in
+                isLoadingOwnerSuccessors = false
+            }
+        }
+        let tid = effectiveTeamIdForLeave()
+        guard !tid.isEmpty else {
+            await MainActor.run { ownerSuccessorCandidates = [] }
+            return
+        }
+        if isSampleTeamFlow {
+            let mock = mockOwnerSuccessorCandidates(teamId: tid)
+            await MainActor.run {
+                ownerSuccessorCandidates = mock
+                selectedSuccessorUid = mock.first?.uid ?? ""
+            }
+            return
+        }
+        guard let uid = Auth.auth().currentUser?.uid else {
+            await MainActor.run { ownerSuccessorCandidates = [] }
+            return
+        }
+        let db = Firestore.firestore()
+        do {
+            let teamSnap = try await db.collection("teams").document(tid).getDocument()
+            guard let data = teamSnap.data() else {
+                await MainActor.run { ownerSuccessorCandidates = [] }
+                return
+            }
+            let members = data["members"] as? [String] ?? []
+            let others = members.filter { $0 != uid }
+            var rows: [OwnerSuccessorCandidate] = []
+            for m in others {
+                let displayName: String
+                if let ud = try? await db.collection("users").document(m).getDocument(),
+                   let d = ud.data(),
+                   let n = d["name"] as? String,
+                   !n.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    displayName = n
+                } else {
+                    displayName = "ユーザー (\(String(m.prefix(6)))…)"
+                }
+                rows.append(OwnerSuccessorCandidate(uid: m, displayName: displayName))
+            }
+            await MainActor.run {
+                ownerSuccessorCandidates = rows
+                if selectedSuccessorUid.isEmpty, let first = rows.first {
+                    selectedSuccessorUid = first.uid
+                }
+            }
+        } catch {
+            await MainActor.run {
+                ownerSuccessorCandidates = []
+                ownerLeaveError = "メンバー情報の取得に失敗しました: \(error.localizedDescription)"
+            }
+        }
+    }
+    
+    private func commitFirestoreBatch(_ batch: WriteBatch) async throws {
+        try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
+            batch.commit { error in
+                if let error = error {
+                    cont.resume(throwing: error)
+                } else {
+                    cont.resume()
+                }
+            }
+        }
+    }
+    
+    private func performOwnerTransferAndLeave() async {
+        let tid = effectiveTeamIdForLeave()
+        guard !tid.isEmpty, !selectedSuccessorUid.isEmpty else { return }
+        await MainActor.run {
+            isPerformingOwnerLeave = true
+            ownerLeaveError = nil
+        }
+        defer {
+            Task { @MainActor in
+                isPerformingOwnerLeave = false
+            }
+        }
+        if isSampleTeamFlow {
+            try? await Task.sleep(nanoseconds: 350_000_000)
+            await MainActor.run {
+                TeamLeavePolicy.recordLeave(teamId: tid, isMock: true)
+                UserDefaults.standard.removeObject(forKey: "myTeamId")
+                userTeamId = nil
+                selectedTeamId = ""
+                ekidenViewState = nil
+                isTeamOwner = false
+                showTeamJoinHub = false
+                showOwnerLeaveSheet = false
+                ownerSuccessorCandidates = []
+            }
+            return
+        }
+        guard let uid = Auth.auth().currentUser?.uid else {
+            await MainActor.run { ownerLeaveError = "ログイン情報がありません。" }
+            return
+        }
+        let newOwner = selectedSuccessorUid
+        guard newOwner != uid else {
+            await MainActor.run { ownerLeaveError = "自分以外のメンバーを選んでください。" }
+            return
+        }
+        let db = Firestore.firestore()
+        let teamRef = db.collection("teams").document(tid)
+        let userRef = db.collection("users").document(uid)
+        do {
+            let teamSnap = try await teamRef.getDocument()
+            guard let data = teamSnap.data(),
+                  let docOwner = data["ownerUid"] as? String,
+                  docOwner == uid else {
+                await MainActor.run { ownerLeaveError = "チームのオーナーではないか、情報が古いです。画面を開き直してください。" }
+                return
+            }
+            let memberIds = data["members"] as? [String] ?? []
+            guard memberIds.contains(newOwner) else {
+                await MainActor.run { ownerLeaveError = "選んだユーザーは現在のメンバーに含まれていません。" }
+                return
+            }
+            let batch = db.batch()
+            batch.updateData([
+                "ownerUid": newOwner,
+                "members": FieldValue.arrayRemove([uid])
+            ], forDocument: teamRef)
+            let entriesSnap = try await db.collection("ekiden_entries")
+                .whereField("teamId", isEqualTo: tid)
+                .getDocuments()
+            for doc in entriesSnap.documents {
+                batch.updateData(["ownerUid": newOwner], forDocument: doc.reference)
+            }
+            batch.updateData(["teamId": FieldValue.delete()], forDocument: userRef)
+            try await commitFirestoreBatch(batch)
+            await MainActor.run {
+                TeamLeavePolicy.recordLeave(teamId: tid, isMock: false)
+                userTeamId = nil
+                selectedTeamId = ""
+                ekidenViewState = nil
+                isTeamOwner = false
+                showTeamJoinHub = false
+                showOwnerLeaveSheet = false
+                ownerSuccessorCandidates = []
+                ownerLeaveError = nil
+            }
+        } catch {
+            await MainActor.run {
+                ownerLeaveError = "処理に失敗しました: \(error.localizedDescription)"
+            }
+        }
+    }
+    
+    private func performLeaveTeam() {
+        let tid = selectedTeamId.isEmpty ? (userTeamId ?? "") : selectedTeamId
+        guard !tid.isEmpty else { return }
+        // オーナーは通常フローではシート側で処理（二重実行防止）
+        if isTeamOwner {
+            return
+        }
+        if isSampleTeamFlow {
+            TeamLeavePolicy.recordLeave(teamId: tid, isMock: true)
+            UserDefaults.standard.removeObject(forKey: "myTeamId")
+            userTeamId = nil
+            selectedTeamId = ""
+            ekidenViewState = nil
+            isTeamOwner = false
+            showLeaveTeamConfirm = false
+            showTeamJoinHub = false
+            return
+        }
+        guard let uid = Auth.auth().currentUser?.uid else { return }
+        let db = Firestore.firestore()
+        db.collection("users").document(uid).updateData(["teamId": FieldValue.delete()]) { err in
+            DispatchQueue.main.async {
+                self.showLeaveTeamConfirm = false
+                if err == nil {
+                    TeamLeavePolicy.recordLeave(teamId: tid, isMock: false)
+                    self.userTeamId = nil
+                    self.selectedTeamId = ""
+                    self.ekidenViewState = nil
+                    self.isTeamOwner = false
+                    self.showTeamJoinHub = false
+                }
+            }
+        }
+    }
+    
+    /// 脱退直後: 検索ハブではなくメッセージ画面を出す
+    private var teamPostLeaveView: some View {
+        ZStack {
+            Color.tasukiDarkBackground
+                .ignoresSafeArea()
+            VStack(spacing: 24) {
+                Spacer()
+                Image(systemName: "person.2.wave.2")
+                    .font(.system(size: 48))
+                    .foregroundColor(Color.tasukiPrimary.opacity(0.65))
+                Text("チームから脱退しました")
+                    .font(.system(size: 20, weight: .bold))
+                    .foregroundColor(Color.tasukiPrimary)
+                Text("再度チームに参加するときは下のボタンから「チームを探す・作る」に進めます。\nこのシーズン（4月〜翌3月）に脱退した同じチームへは、次のシーズンまで再加入できません。")
+                    .font(.system(size: 14))
+                    .foregroundColor(Color.tasukiMutedText)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 28)
+                Button {
+                    showTeamJoinHub = true
+                } label: {
+                    HStack {
+                        Spacer()
+                        Text("チームを探す・作る")
+                            .font(.system(size: 16, weight: .bold))
+                            .foregroundColor(Color.tasukiOnBrandYellow)
+                        Spacer()
+                    }
+                    .frame(minHeight: 50)
+                    .background(RoundedRectangle(cornerRadius: 12).fill(Color.tasukiPrimaryButtonFill))
+                }
+                .buttonStyle(.plain)
+                .padding(.horizontal, 40)
+                Spacer()
+            }
+        }
+        .navigationTitle("")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .principal) {
+                Text("Ekiden")
+                    .font(.system(size: 19, weight: .bold))
+                    .foregroundColor(.black)
             }
         }
     }
@@ -720,19 +1152,23 @@ struct TeamView: View {
         }
     }
     
-    /// チームのオーナーかどうかを取得（メンバー管理ボタン表示用）
+    /// チームのオーナー（管理者）かどうかを取得。「メンバー管理」ボタン表示用
     private func loadTeamOwner(teamId: String) {
-        // サンプルチーム: example_owner のときだけオーナー
+        isTeamOwner = false
+        // サンプルチーム: example_owner のときだけオーナー視点
         if teamId == "example_owner" || teamId == "example_member" {
             isTeamOwner = (teamId == "example_owner")
             return
         }
         guard let currentUid = Auth.auth().currentUser?.uid else {
-            isTeamOwner = false
             return
         }
         let db = Firestore.firestore()
-        db.collection("teams").document(teamId).getDocument { snapshot, _ in
+        db.collection("teams").document(teamId).getDocument { snapshot, error in
+            if error != nil {
+                DispatchQueue.main.async { self.isTeamOwner = false }
+                return
+            }
             guard let data = snapshot?.data(), let ownerUid = data["ownerUid"] as? String else {
                 DispatchQueue.main.async { self.isTeamOwner = false }
                 return
@@ -1770,6 +2206,42 @@ struct ConditionUpdateSheet: View {
     }
 }
 
-#Preview {
+#Preview("デフォルト（モック）") {
     TeamView(useMockTeamFlow: true)
 }
+
+#if DEBUG
+/// 駅伝**期間外**として脱退ボタンが有効になる見た目を確認する
+struct TeamViewOutsideEkidenPeriodPreview: View {
+    var body: some View {
+        NavigationStack {
+            TeamView(
+                useMockTeamFlow: true,
+                debugLeaveAllowedOverride: true,
+                debugPreviewTeamId: "example_owner"
+            )
+        }
+    }
+}
+
+/// 駅伝**期間中**として脱退ボタンがグレーになる見た目を確認する
+struct TeamViewInsideEkidenPeriodPreview: View {
+    var body: some View {
+        NavigationStack {
+            TeamView(
+                useMockTeamFlow: true,
+                debugLeaveAllowedOverride: false,
+                debugPreviewTeamId: "example_owner"
+            )
+        }
+    }
+}
+
+#Preview("脱退・期間外UI") {
+    TeamViewOutsideEkidenPeriodPreview()
+}
+
+#Preview("脱退・期間中（不可）") {
+    TeamViewInsideEkidenPeriodPreview()
+}
+#endif

@@ -6,8 +6,8 @@
 //
 
 import Foundation
-import CoreLocation
 import Combine
+import CoreLocation
 
 final class RunTracker: NSObject, ObservableObject {
     static let shared = RunTracker()
@@ -19,6 +19,8 @@ final class RunTracker: NSObject, ObservableObject {
     @Published var elevationGainMeters: Double = 0
     @Published var currentAltitudeMeters: Double = 0
     @Published private(set) var routeCoordinates: [CLLocationCoordinate2D] = []
+    /// 記録中の最新位置（地図の現在地表示用）
+    @Published private(set) var lastKnownCoordinate: CLLocationCoordinate2D?
     @Published private(set) var trackingStartedAt: Date?
     
     private let locationManager = CLLocationManager()
@@ -34,6 +36,8 @@ final class RunTracker: NSObject, ObservableObject {
     private let maxRunningSpeedMps: CLLocationSpeed = 8.5
     private let warmupDurationSeconds: TimeInterval = 40
     private let warmupMaxRunningSpeedMps: CLLocationSpeed = 7.0
+    /// バックグラウンド記録のため「常に」を一度案内したか
+    private var didPromptAlwaysAuthorizationWhileTracking = false
     
     override private init() {
         super.init()
@@ -41,6 +45,7 @@ final class RunTracker: NSObject, ObservableObject {
         locationManager.desiredAccuracy = kCLLocationAccuracyBest
         locationManager.activityType = .fitness
         locationManager.distanceFilter = 10
+        locationManager.pausesLocationUpdatesAutomatically = false
         locationManager.allowsBackgroundLocationUpdates = false
     }
     
@@ -53,6 +58,26 @@ final class RunTracker: NSObject, ObservableObject {
         }
     }
     
+    /// スリープ中も記録するため「常に許可」を案内（走行セッション中・1回まで）
+    private func promptAlwaysAuthorizationIfNeeded() {
+        guard isTracking else { return }
+        guard locationManager.authorizationStatus == .authorizedWhenInUse else { return }
+        guard !didPromptAlwaysAuthorizationWhileTracking else { return }
+        didPromptAlwaysAuthorizationWhileTracking = true
+        locationManager.requestAlwaysAuthorization()
+    }
+    
+    private func applyBackgroundLocationPolicyForTracking() {
+        let status = locationManager.authorizationStatus
+        guard status == .authorizedAlways || status == .authorizedWhenInUse else {
+            locationManager.allowsBackgroundLocationUpdates = false
+            return
+        }
+        locationManager.pausesLocationUpdatesAutomatically = false
+        locationManager.allowsBackgroundLocationUpdates = true
+        locationManager.showsBackgroundLocationIndicator = true
+    }
+    
     func start() {
         requestPermissionIfNeeded()
         lastLocation = nil
@@ -62,21 +87,28 @@ final class RunTracker: NSObject, ObservableObject {
         elevationGainMeters = 0
         currentAltitudeMeters = 0
         routeCoordinates = []
+        lastKnownCoordinate = nil
         trackingStartedAt = Date()
         pausedAt = nil
         accumulatedPausedSeconds = 0
         isPaused = false
         locationError = nil
+        didPromptAlwaysAuthorizationWhileTracking = false
+        applyBackgroundLocationPolicyForTracking()
         locationManager.startUpdatingLocation()
         isTracking = true
+        promptAlwaysAuthorizationIfNeeded()
+        RunLiveActivityManager.shared.beginIfPossible()
         RealityMiningManager.shared.trackEvent(name: "run_tracking_start")
     }
     
     func stop() {
+        RunLiveActivityManager.shared.endIfNeeded()
         if isPaused, let pausedAt {
             accumulatedPausedSeconds += Date().timeIntervalSince(pausedAt)
             self.pausedAt = nil
         }
+        locationManager.allowsBackgroundLocationUpdates = false
         locationManager.stopUpdatingLocation()
         RealityMiningManager.shared.trackEvent(
             name: "run_tracking_stop",
@@ -99,6 +131,7 @@ final class RunTracker: NSObject, ObservableObject {
             accumulatedPausedSeconds += Date().timeIntervalSince(pausedAt)
         }
         self.pausedAt = nil
+        applyBackgroundLocationPolicyForTracking()
         locationManager.startUpdatingLocation()
         isPaused = false
     }
@@ -110,6 +143,7 @@ final class RunTracker: NSObject, ObservableObject {
         elevationGainMeters = 0
         currentAltitudeMeters = 0
         routeCoordinates = []
+        lastKnownCoordinate = nil
         trackingStartedAt = nil
         pausedAt = nil
         accumulatedPausedSeconds = 0
@@ -136,6 +170,7 @@ extension RunTracker: CLLocationManagerDelegate {
         guard shouldUseLocation(newLocation) else { return }
 
         DispatchQueue.main.async {
+            self.lastKnownCoordinate = newLocation.coordinate
             self.currentAltitudeMeters = max(0, newLocation.altitude)
             if let lastCoord = self.routeCoordinates.last {
                 let last = CLLocation(latitude: lastCoord.latitude, longitude: lastCoord.longitude)
@@ -219,6 +254,10 @@ extension RunTracker: CLLocationManagerDelegate {
                 )
             }
         case .authorizedAlways, .authorizedWhenInUse:
+            if isTracking {
+                applyBackgroundLocationPolicyForTracking()
+                promptAlwaysAuthorizationIfNeeded()
+            }
             RealityMiningManager.shared.trackEvent(
                 name: "location_permission_state",
                 properties: ["state": "authorized"]

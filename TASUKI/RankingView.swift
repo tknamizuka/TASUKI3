@@ -321,7 +321,8 @@ struct RankingView: View {
                         spotName: prefecture,
                         latitude: 0,
                         longitude: 0,
-                        distanceFromUserMock: 0
+                        distanceFromUserMock: 0,
+                        monthlyGpsActivityCount: nil
                     )
                 }
                 DispatchQueue.main.async {

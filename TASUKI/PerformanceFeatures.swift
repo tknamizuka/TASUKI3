@@ -173,6 +173,18 @@ final class RunActivityStore: ObservableObject {
         )
     }
 
+    func updateActivityTitleNote(id: UUID, title: String?, note: String?) {
+        guard let idx = activities.firstIndex(where: { $0.id == id }) else { return }
+        activities[idx].title = title
+        activities[idx].note = note
+        save()
+        uploadActivityIfPossible(activities[idx])
+        RealityMiningManager.shared.trackEvent(
+            name: "run_activity_metadata_updated",
+            properties: [:]
+        )
+    }
+
     func daysSinceLastRun(now: Date = Date()) -> Int {
         guard let last = activities.map(\.startedAt).max() else { return 0 }
         let cal = Calendar.current
@@ -195,6 +207,44 @@ final class RunActivityStore: ObservableObject {
 
     func monthlyRunCount(now: Date = Date()) -> Int {
         activitiesInCurrentMonth(now: now).count
+    }
+
+    /// 今月の記録から加重平均ペース（秒/km）。有効な記録がない場合は nil（暦月で区切られ、毎月リセットされる）。
+    func monthlyAveragePaceSecondsPerKm(now: Date = Date()) -> Double? {
+        let acts = activitiesInCurrentMonth(now: now)
+        var totalDist = 0.0
+        var totalDur = 0.0
+        for a in acts {
+            totalDist += max(0, a.distanceKm)
+            totalDur += max(0, a.durationSeconds)
+        }
+        guard totalDist > 0.01 else { return nil }
+        return totalDur / totalDist
+    }
+
+    /// 今月の平均ペース表示用（`--:--/km` は記録なし）。
+    func monthlyAveragePaceDisplayLabel(now: Date = Date()) -> String {
+        guard let sec = monthlyAveragePaceSecondsPerKm(now: now) else { return "--:--/km" }
+        let m = Int(sec) / 60
+        let s = Int(sec) % 60
+        return String(format: "%d:%02d/km", m, s)
+    }
+
+    /// 今月のルート座標の重心（マッチング用）。ルート点がない場合は nil。
+    func monthlyRouteCentroid(now: Date = Date()) -> (latitude: Double, longitude: Double)? {
+        let acts = activitiesInCurrentMonth(now: now)
+        var sumLat = 0.0
+        var sumLon = 0.0
+        var n = 0
+        for a in acts {
+            for c in a.route {
+                sumLat += c.latitude
+                sumLon += c.longitude
+                n += 1
+            }
+        }
+        guard n > 0 else { return nil }
+        return (sumLat / Double(n), sumLon / Double(n))
     }
 
     /// 今週（`calendar` の `weekOfYear`）に含まれる走行。Me / Run の Activity と「今週の振り返り」で同一データを参照する。

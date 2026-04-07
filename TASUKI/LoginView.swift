@@ -46,8 +46,7 @@ struct LoginView: View {
                 VStack(spacing: 16) {
                     TextField("メールアドレス", text: $email)
                         .keyboardType(.emailAddress)
-                        .autocapitalization(.none)
-                        .disableAutocorrection(true)
+                        .textInputAutocapitalization(.never)
                         .textContentType(.emailAddress)
                         .padding()
                         .background(
@@ -56,8 +55,7 @@ struct LoginView: View {
                         )
                     
                     SecureField("パスワード", text: $password)
-                        .autocapitalization(.none)
-                        .disableAutocorrection(true)
+                        .textInputAutocapitalization(.never)
                         .textContentType(.password)
                         .padding()
                         .background(

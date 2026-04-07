@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct MainTabView: View {
-    @State private var selectedTab: Int = 0
+    @StateObject private var mainTabRouter = MainTabRouter()
     @State private var previousTabIndex: Int = 0
     @State private var tabEnterDate: Date = Date()
     @State private var showReengagementSheet = false
@@ -10,6 +10,7 @@ struct MainTabView: View {
     @EnvironmentObject private var unreadProvider: UnreadCountProviderBase
     @EnvironmentObject private var authManager: AuthManager
     @EnvironmentObject private var coachCertification: CoachCertificationManager
+    @EnvironmentObject private var tabBarVisibility: TabBarVisibility
     
     private let tabItems: [(icon: String, label: String)] = [
         ("house.fill", "Home"),
@@ -21,7 +22,7 @@ struct MainTabView: View {
     
     var body: some View {
         Group {
-            switch selectedTab {
+            switch mainTabRouter.selectedTab {
             case 0:
                 NavigationStack {
                     HomeView()
@@ -31,6 +32,7 @@ struct MainTabView: View {
                 NavigationStack {
                     RunRecordingView()
                         .environmentObject(coachCertification)
+                        .environmentObject(mainTabRouter)
                 }
             case 2:
                 TeamView()
@@ -43,8 +45,11 @@ struct MainTabView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .environmentObject(mainTabRouter)
         .safeAreaInset(edge: .bottom, spacing: 0) {
-            if selectedTab == 1 && runTracker.isTracking {
+            if tabBarVisibility.isHidden {
+                EmptyView()
+            } else if mainTabRouter.selectedTab == 1 && runTracker.isTracking {
                 EmptyView()
             } else {
                 customTabBar
@@ -52,9 +57,9 @@ struct MainTabView: View {
         }
         .ignoresSafeArea(.keyboard)
         .onAppear {
-            previousTabIndex = selectedTab
+            previousTabIndex = mainTabRouter.selectedTab
             tabEnterDate = Date()
-            RealityMiningManager.shared.trackScreenView(name: tabItems[selectedTab].label)
+            RealityMiningManager.shared.trackScreenView(name: tabItems[mainTabRouter.selectedTab].label)
             let gap = EngagementSignals.daysSinceSignificantInteraction()
             if gap >= 3 {
                 reengagementGapDays = gap
@@ -70,7 +75,7 @@ struct MainTabView: View {
                 showReengagementSheet = false
             }
         }
-        .onChange(of: selectedTab) { newValue in
+        .onChange(of: mainTabRouter.selectedTab) { newValue in
             // #region agent log
             AgentDebugLog.log(
                 location: "MainTabView.onChange(selectedTab)",
@@ -118,12 +123,12 @@ struct MainTabView: View {
     }
 
     private func tabLabelColor(index: Int) -> Color {
-        selectedTab == index ? Color.tasukiOnBrandYellow : .black
+        mainTabRouter.selectedTab == index ? Color.tasukiOnBrandYellow : .black
     }
 
     @ViewBuilder
     private func tabBarIcon(systemName: String, index: Int) -> some View {
-        if selectedTab == index {
+        if mainTabRouter.selectedTab == index {
             TasukiBrandOutlinedSymbol(systemName: systemName, size: 18, weight: .semibold)
         } else {
             Image(systemName: systemName)
@@ -133,17 +138,17 @@ struct MainTabView: View {
     }
 
     private func tabSelectionBackground(for index: Int) -> Color {
-        selectedTab == index ? Color.tasukiTabSelectionFill : .clear
+        mainTabRouter.selectedTab == index ? Color.tasukiTabSelectionFill : .clear
     }
     
     private var customTabBar: some View {
         HStack(spacing: 0) {
             ForEach(0..<tabItems.count, id: \.self) { index in
-                Button(action: { selectedTab = index }) {
+                Button(action: { mainTabRouter.selectedTab = index }) {
                     VStack(spacing: 2) {
                         tabBarIcon(systemName: tabItems[index].icon, index: index)
                         Text(tabItems[index].label)
-                            .font(.system(size: 9, weight: selectedTab == index ? .semibold : .regular))
+                            .font(.system(size: 9, weight: mainTabRouter.selectedTab == index ? .semibold : .regular))
                             .lineLimit(1)
                             .minimumScaleFactor(0.7)
                             .foregroundColor(tabLabelColor(index: index))
@@ -178,4 +183,5 @@ struct MainTabView: View {
         .environmentObject(PreviewUnreadProvider() as UnreadCountProviderBase)
         .environmentObject(JoinedPracticesStore())
         .environmentObject(CoachCertificationManager.shared)
+        .environmentObject(TabBarVisibility())
 }

@@ -271,3 +271,31 @@ enum AgentDebugLog {
         URLSession.shared.dataTask(with: req).resume()
     }
 }
+
+// MARK: - Debug session 65844b (NDJSON ingest — simulator-friendly)
+enum DebugSession658Log {
+    static let sessionId = "65844b"
+    private static let ingestURL = URL(string: "http://127.0.0.1:7824/ingest/d7f1622c-ff7c-497a-bb9c-bba8292b28cf")!
+
+    static func log(location: String, message: String, hypothesisId: String, data: [String: String] = [:], runId: String = "pre-fix") {
+        let ts = Int64(Date().timeIntervalSince1970 * 1000)
+        let payload: [String: Any] = [
+            "sessionId": sessionId,
+            "runId": runId,
+            "timestamp": ts,
+            "location": location,
+            "message": message,
+            "hypothesisId": hypothesisId,
+            "data": data
+        ]
+        guard let json = try? JSONSerialization.data(withJSONObject: payload),
+              let line = String(data: json, encoding: .utf8) else { return }
+        print("[Debug65844b] \(line)")
+        var req = URLRequest(url: ingestURL)
+        req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.setValue(sessionId, forHTTPHeaderField: "X-Debug-Session-Id")
+        req.httpBody = json
+        URLSession.shared.dataTask(with: req).resume()
+    }
+}

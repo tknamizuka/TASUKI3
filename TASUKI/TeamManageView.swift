@@ -135,6 +135,7 @@ struct TeamManageView: View {
                 try await db.collection("users").document(req.uid).setData(["teamId": teamId], merge: true)
                 // teams/<teamId>.members に追加
                 try await db.collection("teams").document(teamId).updateData(["members": FieldValue.arrayUnion([req.uid])])
+                TeamLeavePolicy.clearLeaveBlock(teamId: teamId, userId: req.uid)
                 // joinRequests ドキュメントを削除
                 try await db.collection("teams").document(teamId).collection("joinRequests").document(req.id).delete()
                 await loadRequests()

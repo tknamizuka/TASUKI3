@@ -75,13 +75,15 @@ struct PracticeScheduleCalendarView: View {
         return baseDates.compactMap { dayOffset, title, location in
             guard let d = cal.date(byAdding: .day, value: dayOffset - 1, to: start) else { return nil }
             let atNine = cal.date(bySettingHour: 9, minute: 0, second: 0, of: d) ?? d
+            // 先頭サンプルのみダミー会話IDを付与（カレンダーからチャット画面への遷移確認用）
+            let chatId = (dayOffset == min(5, range.count)) ? "sample-conv-calendar-1" : nil
             return JoinedPracticeItem(
                 id: "sample-\(dayOffset)",
                 practiceId: "sample-p-\(dayOffset)",
                 title: title,
                 location: location,
                 date: atNine,
-                chatId: nil
+                chatId: chatId
             )
         }
     }
@@ -204,9 +206,40 @@ struct PracticeScheduleCalendarView: View {
                     } else {
                         List {
                             ForEach(practicesForSelected) { item in
-                                NavigationLink(destination: PracticeDetailView(practice: practiceFrom(item: item))
-                                    .environmentObject(store)) {
-                                    practiceRow(item, showChatHint: item.chatId != nil)
+                                VStack(alignment: .leading, spacing: 10) {
+                                    NavigationLink(
+                                        destination: PracticeDetailView(practice: practiceFrom(item: item))
+                                            .environmentObject(store)
+                                    ) {
+                                        practiceRow(item, showChatHint: item.chatId != nil)
+                                    }
+                                    
+                                    if let cid = item.chatId {
+                                        NavigationLink(
+                                            destination: ChatView(
+                                                conversationId: cid,
+                                                partnerName: "練習会: \(item.title)",
+                                                isPractice: true
+                                            )
+                                        ) {
+                                            HStack(spacing: 8) {
+                                                Image(systemName: "bubble.left.and.bubble.right.fill")
+                                                    .font(.system(size: 16))
+                                                Text("練習会チャットを開く")
+                                                    .font(.system(size: 15, weight: .semibold))
+                                                Spacer()
+                                                Image(systemName: "chevron.right")
+                                                    .font(.system(size: 12, weight: .semibold))
+                                                    .foregroundColor(.secondary)
+                                            }
+                                            .foregroundColor(Color.tasukiPrimary)
+                                            .padding(.vertical, 4)
+                                        }
+                                    } else {
+                                        Text("練習会チャットは会話作成・参加後に利用できます")
+                                            .font(.caption)
+                                            .foregroundColor(.gray)
+                                    }
                                 }
                                 .listRowBackground(Color.clear)
                                 .listRowSeparator(.visible)
@@ -301,5 +334,6 @@ struct PracticeScheduleCalendarView: View {
     store.add(JoinedPracticeItem(id: "1", practiceId: "p1", title: "皇居ラン", location: "皇居", date: cal.date(byAdding: .day, value: 2, to: Date())!, chatId: "conv-p1"))
     store.add(JoinedPracticeItem(id: "2", practiceId: "p2", title: "代々木ジョグ", location: "代々木公園", date: cal.date(byAdding: .day, value: 5, to: Date())!, chatId: nil))
     return PracticeScheduleCalendarView(store: store)
+        .environmentObject(TabBarVisibility())
 }
 #endif

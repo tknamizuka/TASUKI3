@@ -16,9 +16,25 @@ enum AppState {
 class AppDelegate: NSObject, UIApplicationDelegate {
     func application(_ application: UIApplication,
                      didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
+        // #region agent log
+        DebugSession658Log.log(
+            location: "AppDelegate.didFinishLaunching",
+            message: "entry",
+            hypothesisId: "H2",
+            data: [:]
+        )
+        // #endregion
         FirebaseBootstrap.configureIfNeeded()
         configureTabBarAppearance()
         PointService.shared.resetMonthlyIfNeeded()
+        // #region agent log
+        DebugSession658Log.log(
+            location: "AppDelegate.didFinishLaunching",
+            message: "exit_ok",
+            hypothesisId: "H2",
+            data: [:]
+        )
+        // #endregion
         return true
     }
     
@@ -46,6 +62,7 @@ struct TASUKIApp: App {
     @StateObject private var authManager = AuthManager()
     @StateObject private var userManager = UserManager()
     @StateObject private var joinedPracticesStore = JoinedPracticesStore()
+    @StateObject private var tabBarVisibility = TabBarVisibility()
     @State private var appState: AppState = .loading
     @State private var hasCompletedInitialCheck = false // 初回起動チェック完了フラグ
     @AppStorage("skipProfileRegistration") private var skipProfileRegistration: Bool = false
@@ -54,6 +71,14 @@ struct TASUKIApp: App {
     
     // アプリ起動時に一度だけ実行される初期化処理
     init() {
+        // #region agent log
+        DebugSession658Log.log(
+            location: "TASUKIApp.init",
+            message: "entry",
+            hypothesisId: "H1",
+            data: [:]
+        )
+        // #endregion
         // オーディオセッションを「Ambient」に設定
         // これにより、動画再生時の「ザー」というノイズ（オーディオエンジンの起動音）を抑制します
         do {
@@ -62,6 +87,14 @@ struct TASUKIApp: App {
         } catch {
             print("Audio Session settings failed: \(error)")
         }
+        // #region agent log
+        DebugSession658Log.log(
+            location: "TASUKIApp.init",
+            message: "after_audio_session",
+            hypothesisId: "H1",
+            data: [:]
+        )
+        // #endregion
     }
 
     var body: some Scene {
@@ -94,7 +127,18 @@ struct TASUKIApp: App {
                         .environmentObject(ConversationManager.shared)
                         .environmentObject(joinedPracticesStore)
                         .environmentObject(CoachCertificationManager.shared)
+                        .environmentObject(tabBarVisibility)
                 }
+            }
+            .onAppear {
+                // #region agent log
+                DebugSession658Log.log(
+                    location: "TASUKIApp.WindowGroup_ZStack",
+                    message: "root_onAppear",
+                    hypothesisId: "H4",
+                    data: ["appState": "\(appState)"]
+                )
+                // #endregion
             }
             .task {
                 // 起動時に状態をチェック（きっかり2秒）
@@ -132,6 +176,14 @@ struct TASUKIApp: App {
     /// アプリ起動時の初期化処理（きっかり2秒で画面遷移）
     @MainActor
     private func startApp() async {
+        // #region agent log
+        DebugSession658Log.log(
+            location: "TASUKIApp.startApp",
+            message: "begin",
+            hypothesisId: "H3",
+            data: [:]
+        )
+        // #endregion
         RealityMiningManager.shared.trackEvent(name: "app_session_start")
         // 1. 現在時刻を記録
         let startTime = Date()
@@ -160,6 +212,14 @@ struct TASUKIApp: App {
         withAnimation {
             self.appState = nextState
         }
+        // #region agent log
+        DebugSession658Log.log(
+            location: "TASUKIApp.startApp",
+            message: "state_applied",
+            hypothesisId: "H3",
+            data: ["nextState": "\(nextState)"]
+        )
+        // #endregion
         if nextState == .main {
             PointService.shared.syncFromRemoteIfNeeded()
         }

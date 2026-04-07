@@ -175,6 +175,14 @@ struct TeamDetailView: View {
 
     // MARK: - チーム参加処理
     private func joinCurrentTeam() async {
+        let teamName = teamData?["name"] as? String
+        if await TeamLeavePolicy.isRejoinBlocked(teamId: teamId, isMock: teamId == "example_member") {
+            await MainActor.run {
+                alertMessage = TeamLeavePolicy.rejoinBlockedMessage(teamName: teamName)
+            }
+            return
+        }
+        
         // サンプルチーム（example_member）の場合はローカルで擬似参加処理のみ行う
         if teamId == "example_member", let currentUid = effectiveCurrentUid {
             await MainActor.run {
@@ -186,6 +194,7 @@ struct TeamDetailView: View {
                     memberUIDs.append(currentUid)
                     membersInfo.append("あなた")
                 }
+                TeamLeavePolicy.clearLeaveBlock(teamId: teamId, isMock: true)
                 alertMessage = "チームに参加しました。（サンプル）"
                 onJoined?(teamId)
             }
@@ -225,6 +234,7 @@ struct TeamDetailView: View {
                 let userRef = db.collection("users").document(currentUid)
                 try await userRef.setData(["teamId": teamId], merge: true)
                 try await teamRef.updateData(["members": FieldValue.arrayUnion([currentUid])])
+                TeamLeavePolicy.clearLeaveBlock(teamId: teamId, isMock: false)
                 alertMessage = "チームに参加しました。"
                 onJoined?(teamId)
             }
