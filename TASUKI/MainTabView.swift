@@ -182,6 +182,7 @@ struct MainTabView: View {
         .environmentObject(UserManager())
         .environmentObject(PreviewUnreadProvider() as UnreadCountProviderBase)
         .environmentObject(JoinedPracticesStore())
+        .environmentObject(MatchPromisesStore())
         .environmentObject(CoachCertificationManager.shared)
         .environmentObject(TabBarVisibility())
 }

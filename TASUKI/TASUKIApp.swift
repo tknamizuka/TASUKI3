@@ -62,6 +62,7 @@ struct TASUKIApp: App {
     @StateObject private var authManager = AuthManager()
     @StateObject private var userManager = UserManager()
     @StateObject private var joinedPracticesStore = JoinedPracticesStore()
+    @StateObject private var matchPromisesStore = MatchPromisesStore()
     @StateObject private var tabBarVisibility = TabBarVisibility()
     @State private var appState: AppState = .loading
     @State private var hasCompletedInitialCheck = false // 初回起動チェック完了フラグ
@@ -126,6 +127,7 @@ struct TASUKIApp: App {
                         .environmentObject(userManager)
                         .environmentObject(ConversationManager.shared)
                         .environmentObject(joinedPracticesStore)
+                        .environmentObject(matchPromisesStore)
                         .environmentObject(CoachCertificationManager.shared)
                         .environmentObject(tabBarVisibility)
                 }

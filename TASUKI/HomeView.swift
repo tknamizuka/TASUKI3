@@ -28,6 +28,7 @@ struct HomeView: View {
     @ObservedObject private var activityStore = RunActivityStore.shared
     @EnvironmentObject private var unreadProvider: UnreadCountProviderBase
     @EnvironmentObject private var joinedPracticesStore: JoinedPracticesStore
+    @EnvironmentObject private var matchPromisesStore: MatchPromisesStore
     @AppStorage("runningDataSource") private var runningDataSourceRaw: String = RunningDataSource.all.rawValue
     @AppStorage("myRank") private var myRank: String = "Rank E"
     @AppStorage("reduceRankingPressure") private var reduceRankingPressure: Bool = false
@@ -88,6 +89,11 @@ struct HomeView: View {
 
     private var sameRankTotal: Int {
         max(sameRankUsers.count, 1)
+    }
+
+    /// カレンダーバッジ用（参加練習会 + マッチング約束の登録件数。サンプル表示は含めない）
+    private var calendarScheduleBadgeCount: Int {
+        joinedPracticesStore.scheduledCount + matchPromisesStore.scheduledCount
     }
 
     private var formattedTotalPoints: String {
@@ -264,7 +270,10 @@ struct HomeView: View {
             RunHistoryListView()
         }
         .sheet(isPresented: $showPracticeCalendar) {
-            PracticeScheduleCalendarView(store: joinedPracticesStore)
+            PracticeScheduleCalendarView(
+                store: joinedPracticesStore,
+                matchPromisesStore: matchPromisesStore
+            )
         }
         .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
@@ -277,8 +286,8 @@ struct HomeView: View {
                         Image(systemName: "calendar")
                             .font(.system(size: 20))
                             .foregroundColor(.black)
-                        if joinedPracticesStore.scheduledCount > 0 {
-                            Text("\(min(joinedPracticesStore.scheduledCount, 99))")
+                        if calendarScheduleBadgeCount > 0 {
+                            Text("\(min(calendarScheduleBadgeCount, 99))")
                                 .font(.system(size: 10, weight: .bold))
                                 .foregroundColor(Color.tasukiOnBrandYellow)
                                 .padding(4)
@@ -350,6 +359,7 @@ struct HomeView: View {
     }
     .environmentObject(PreviewUnreadProvider() as UnreadCountProviderBase)
     .environmentObject(JoinedPracticesStore())
+    .environmentObject(MatchPromisesStore())
 }
 
 /// 円グラフ（黄→紫グラデ・進捗弧）の見え方確認用サンプル。実機では HealthKit の値を使用。
@@ -364,6 +374,7 @@ struct HomeView: View {
     }
     .environmentObject(PreviewUnreadProvider() as UnreadCountProviderBase)
     .environmentObject(JoinedPracticesStore())
+    .environmentObject(MatchPromisesStore())
 }
 
 #Preview("円グラフサンプル・未達（22%）") {
@@ -377,6 +388,7 @@ struct HomeView: View {
     }
     .environmentObject(PreviewUnreadProvider() as UnreadCountProviderBase)
     .environmentObject(JoinedPracticesStore())
+    .environmentObject(MatchPromisesStore())
 }
 
 #Preview("円グラフサンプル・ほぼ達成（91%）") {
@@ -390,6 +402,7 @@ struct HomeView: View {
     }
     .environmentObject(PreviewUnreadProvider() as UnreadCountProviderBase)
     .environmentObject(JoinedPracticesStore())
+    .environmentObject(MatchPromisesStore())
 }
 
 #Preview("円グラフサンプル・目標超え（109%・弧は100%で頭打ち）") {
@@ -403,6 +416,7 @@ struct HomeView: View {
     }
     .environmentObject(PreviewUnreadProvider() as UnreadCountProviderBase)
     .environmentObject(JoinedPracticesStore())
+    .environmentObject(MatchPromisesStore())
 }
 
 #Preview("未読・参加予定バッジあり") {
@@ -418,4 +432,5 @@ struct HomeView: View {
     }
     .environmentObject(PreviewUnreadProvider(unreadCount: 3) as UnreadCountProviderBase)
     .environmentObject(store)
+    .environmentObject(MatchPromisesStore())
 }

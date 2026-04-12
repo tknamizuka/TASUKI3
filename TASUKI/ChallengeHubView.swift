@@ -99,12 +99,6 @@ struct ChallengeHubView: View {
                         .foregroundColor(Color.green)
                 }
             }
-            if !challenge.isCompleted {
-                Text("未達の日があっても問題ありません。休む判断やペース調整も練習の一部です。")
-                    .font(.caption2)
-                    .foregroundColor(Color.tasukiMutedText.opacity(0.9))
-                    .fixedSize(horizontal: false, vertical: true)
-            }
         }
         .padding(.vertical, 4)
     }
