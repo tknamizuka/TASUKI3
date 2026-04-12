@@ -112,17 +112,13 @@ struct HomeView: View {
             ScrollView(showsIndicators: false) {
                 VStack(spacing: 0) {
                     GeometryReader { geo in
-                        ZStack {
-                            Image("runner") // runner asset now points to Runners2.png
+                        HStack {
+                            Spacer(minLength: 0)
+                            Image("main")
                                 .resizable()
                                 .scaledToFit()
-                                .frame(width: geo.size.width * 0.9)
-                                .opacity(0.15)
-                            Text("TASUKI")
-                                .font(.system(size: 50, weight: .heavy))
-                                .tracking(10)
-                                .foregroundColor(Color(hex: "0F1A2E"))
-                                .shadow(color: .white.opacity(0.8), radius: 2, x: 0, y: 0)
+                                .frame(maxWidth: geo.size.width * 0.92, maxHeight: geo.size.height)
+                            Spacer(minLength: 0)
                         }
                         .frame(width: geo.size.width, height: geo.size.height)
                     }

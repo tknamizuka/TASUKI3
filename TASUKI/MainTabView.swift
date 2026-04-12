@@ -4,8 +4,6 @@ struct MainTabView: View {
     @StateObject private var mainTabRouter = MainTabRouter()
     @State private var previousTabIndex: Int = 0
     @State private var tabEnterDate: Date = Date()
-    @State private var showReengagementSheet = false
-    @State private var reengagementGapDays = 0
     @ObservedObject private var runTracker = RunTracker.shared
     @EnvironmentObject private var unreadProvider: UnreadCountProviderBase
     @EnvironmentObject private var authManager: AuthManager
@@ -60,20 +58,6 @@ struct MainTabView: View {
             previousTabIndex = mainTabRouter.selectedTab
             tabEnterDate = Date()
             RealityMiningManager.shared.trackScreenView(name: tabItems[mainTabRouter.selectedTab].label)
-            let gap = EngagementSignals.daysSinceSignificantInteraction()
-            if gap >= 3 {
-                reengagementGapDays = gap
-                showReengagementSheet = true
-                RealityMiningManager.shared.trackEvent(
-                    name: "reengagement_shown",
-                    properties: ["days_away": gap]
-                )
-            }
-        }
-        .fullScreenCover(isPresented: $showReengagementSheet) {
-            ReengagementSheetView(daysAway: reengagementGapDays) {
-                showReengagementSheet = false
-            }
         }
         .onChange(of: mainTabRouter.selectedTab) { newValue in
             // #region agent log
