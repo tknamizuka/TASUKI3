@@ -4,31 +4,47 @@ import Foundation
 enum EkidenJoinMode: String, CaseIterable, Identifiable, Hashable {
     /// 本番志向の駅伝運用
     case realEkiden = "real_ekiden"
-    /// ゆるく楽しむ駅伝
+    /// 指定期間（例: 2週間）のチーム合計走行距離チャレンジ（`enjoy_ekiden`）
     case enjoyEkiden = "enjoy_ekiden"
 
     var id: String { rawValue }
 
     var displayTitle: String {
         switch self {
-        case .realEkiden: return "リアルEKIDENモード"
-        case .enjoyEkiden: return "Enjoy EKIDENモード"
+        case .realEkiden: return "EKIDEN"
+        case .enjoyEkiden: return "Distance Challenge"
         }
     }
 
     var shortLabel: String {
         switch self {
-        case .realEkiden: return "リアル"
-        case .enjoyEkiden: return "Enjoy"
+        case .realEkiden: return "EKIDEN"
+        case .enjoyEkiden: return "Distance"
         }
     }
 
     var description: String {
         switch self {
         case .realEkiden:
-            return "区間・記録・ルールを重視したチーム向け。同じモードのチームだけが一覧・検索に表示されます。"
+            return "箱根10区相当の距離・1チーム10名・襷リレー。前走者が記録を保存した後の走行のみ提出できます。公式順位・コース進捗はこのモードのチーム同士で揃います。"
         case .enjoyEkiden:
-            return "気軽に参加・交流を楽しむチーム向け。従来の未分類チームもこのモードとして扱われます。"
+            return "イベントで指定された期間（例: 2週間）のうち、チーム全員の走行距離を合算して競うモードです。区間襷や箱根コースの制約はありません。未分類の既存チームもこのモードとして扱われます。"
+        }
+    }
+
+    /// モード選択カード上部のイメージ（`Assets.xcassets` の名前。`nil` のときはシステムアイコンを表示）
+    var selectionHeroAssetName: String? {
+        switch self {
+        case .realEkiden: return "runner"
+        case .enjoyEkiden: return nil
+        }
+    }
+
+    /// `selectionHeroAssetName` がないときに使う SF Symbol
+    var selectionHeroSystemImage: String {
+        switch self {
+        case .realEkiden: return "figure.run.circle.fill"
+        case .enjoyEkiden: return "hands.and.sparkles.fill"
         }
     }
 
@@ -37,7 +53,7 @@ enum EkidenJoinMode: String, CaseIterable, Identifiable, Hashable {
 
     /// `teams` ドキュメントのデータが、この参加モードの画面に表示・参加してよいか。
     /// - Real: `ekidenMode == real_ekiden` のみ。
-    /// - Enjoy: `ekidenMode` 未設定（移行前）または `enjoy_ekiden`。
+    /// - Distance Challenge: `ekidenMode` 未設定（移行前）または `enjoy_ekiden`。
     func matchesTeamDocument(_ data: [String: Any]) -> Bool {
         let stored = data["ekidenMode"] as? String
         switch self {

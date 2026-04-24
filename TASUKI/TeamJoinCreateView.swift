@@ -354,8 +354,8 @@ struct TeamJoinCreateView: View {
                     return
                 }
                 let mockCandidate: TeamCandidate = self.ekidenJoinMode == .realEkiden
-                    ? TeamCandidate(id: "example_ekiden_real", name: "リアルEKIDEN サンプルチーム", requiresApproval: true, inviteCode: "RL5678")
-                    : TeamCandidate(id: "example_member", name: "Enjoy EKIDEN サンプルチーム", requiresApproval: true, inviteCode: "EX1234")
+                    ? TeamCandidate(id: "example_ekiden_real", name: "EKIDEN サンプルチーム", requiresApproval: true, inviteCode: "RL5678")
+                    : TeamCandidate(id: "example_member", name: "Distance Challenge サンプル", requiresApproval: true, inviteCode: "EX1234")
                 self.searchResults = [mockCandidate]
                 self.isProcessing = false
                 self.showResultsSheet = true
@@ -407,8 +407,8 @@ struct TeamJoinCreateView: View {
             }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
                 let mockCandidate: TeamCandidate = self.ekidenJoinMode == .realEkiden
-                    ? TeamCandidate(id: "example_ekiden_real", name: "リアルEKIDEN サンプルチーム", requiresApproval: true, inviteCode: "RL5678")
-                    : TeamCandidate(id: "example_member", name: "Enjoy EKIDEN サンプルチーム", requiresApproval: true, inviteCode: "EX1234")
+                    ? TeamCandidate(id: "example_ekiden_real", name: "EKIDEN サンプルチーム", requiresApproval: true, inviteCode: "RL5678")
+                    : TeamCandidate(id: "example_member", name: "Distance Challenge サンプル", requiresApproval: true, inviteCode: "EX1234")
                 self.searchResults = [mockCandidate]
                 self.isProcessing = false
                 self.showResultsSheet = true

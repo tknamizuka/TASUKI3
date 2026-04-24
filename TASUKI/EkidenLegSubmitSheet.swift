@@ -42,6 +42,8 @@ struct EkidenLegSubmitSheet: View {
     @State private var isSubmitting = false
     @State private var submitError: String?
     @State private var showRecorder = false
+    @State private var showFinishRelayView = false
+    @State private var didTapRelayConnect = false
 
     @ObservedObject private var tracker = RunTracker.shared
     @ObservedObject private var activityStore = RunActivityStore.shared
@@ -57,6 +59,18 @@ struct EkidenLegSubmitSheet: View {
     }
 
     private var targetKm: Double { leg.targetKm }
+
+    /// EKIDEN（箱根）: 前走者が区間を完了（記録保存）した日時より前に開始した走行は提出不可
+    private var minimumRunStartDateForStrictRelay: Date? {
+        state.minimumActivityStartDateForRelay(legIndex: leg.id)
+    }
+
+    private var filteredRunRecordingsForRelay: [RunActivity] {
+        let base = eventPeriodRunRecordingsBase
+        guard let minD = minimumRunStartDateForStrictRelay else { return base }
+        return base.filter { $0.startedAt >= minD }
+    }
+
     
     private var selectedSourceLabel: String {
         if selectedRecordedActivityId != nil {
@@ -68,7 +82,7 @@ struct EkidenLegSubmitSheet: View {
         return EkidenSubmitSource.appRecord.rawValue
     }
     
-    private var eventPeriodRunRecordings: [RunActivity] {
+    private var eventPeriodRunRecordingsBase: [RunActivity] {
         activityStore.activities.filter {
             $0.startedAt >= state.event.startAt && $0.startedAt <= state.event.endAt
         }
@@ -104,6 +118,9 @@ struct EkidenLegSubmitSheet: View {
             ekidenRecorderView
                 .onReceive(elapsedTimer) { recorderNow = $0 }
         }
+        .fullScreenCover(isPresented: $showFinishRelayView) {
+            finishRelayCelebrationView
+        }
         .onAppear {
             activityStore.refreshFromRemote()
             if phase == .healthKitList && healthKitWorkouts.isEmpty {
@@ -122,6 +139,12 @@ struct EkidenLegSubmitSheet: View {
                 Text("イベント期間内の記録を選んで提出できます")
                     .font(.caption)
                     .foregroundColor(Color.tasukiMutedText)
+                if let cut = minimumRunStartDateForStrictRelay {
+                    Text("EKIDEN: 走行の開始は「\(formatWorkoutFullDate(cut))」以降の記録のみ有効です（前走者の保存完了後）。")
+                        .font(.caption)
+                        .foregroundColor(Color.tasukiAccentOrange)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .tasukiCard()
@@ -186,9 +209,11 @@ struct EkidenLegSubmitSheet: View {
     // MARK: - RunRecording List
     private var runRecordingListView: some View {
         VStack(spacing: 0) {
-            if eventPeriodRunRecordings.isEmpty {
+            if filteredRunRecordingsForRelay.isEmpty {
                 VStack(spacing: 12) {
-                    Text("イベント期間内の RunRecording がありません")
+                    Text(minimumRunStartDateForStrictRelay != nil
+                         ? "条件を満たす RunRecording がありません（前走者完了後に開始した記録のみ）"
+                         : "イベント期間内の RunRecording がありません")
                         .font(.subheadline)
                         .foregroundColor(Color.tasukiMutedText)
                         .multilineTextAlignment(.center)
@@ -199,7 +224,7 @@ struct EkidenLegSubmitSheet: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 List {
-                    ForEach(eventPeriodRunRecordings) { activity in
+                    ForEach(filteredRunRecordingsForRelay) { activity in
                         Button {
                             applyRunRecording(activity)
                             phase = .confirm
@@ -235,12 +260,6 @@ struct EkidenLegSubmitSheet: View {
                 .listStyle(.plain)
                 .scrollContentBackground(.hidden)
                 .background(Color.tasukiDarkBackground)
-            }
-        }
-        .toolbar {
-            ToolbarItem(placement: .cancellationAction) {
-                Button("戻る") { phase = .sourcePicker }
-                    .foregroundColor(Color.tasukiMutedText)
             }
         }
     }
@@ -295,12 +314,6 @@ struct EkidenLegSubmitSheet: View {
                 .listStyle(.plain)
                 .scrollContentBackground(.hidden)
                 .background(Color.tasukiDarkBackground)
-            }
-        }
-        .toolbar {
-            ToolbarItem(placement: .cancellationAction) {
-                Button("戻る") { phase = .sourcePicker }
-                    .foregroundColor(Color.tasukiMutedText)
             }
         }
     }
@@ -590,8 +603,14 @@ struct EkidenLegSubmitSheet: View {
                 healthKitLoading = false
                 switch result {
                 case .success(let list):
-                    healthKitWorkouts = list
-                    if list.isEmpty { healthKitError = "イベント期間内のデバイス記録がありません" }
+                    let minD = self.state.minimumActivityStartDateForRelay(legIndex: self.leg.id)
+                    let filtered = minD.map { cut in list.filter { $0.startDate >= cut } } ?? list
+                    healthKitWorkouts = filtered
+                    if filtered.isEmpty {
+                        healthKitError = minD != nil
+                            ? "前走者の区間保存完了より後に開始したデバイス記録がありません"
+                            : "イベント期間内のデバイス記録がありません"
+                    }
                 case .failure(let e):
                     healthKitError = e.localizedDescription
                     healthKitWorkouts = []
@@ -661,6 +680,18 @@ struct EkidenLegSubmitSheet: View {
             return
         }
 
+        if let minD = state.minimumActivityStartDateForRelay(legIndex: leg.id) {
+            if let hk = selectedHealthKitDetail, hk.startDate < minD {
+                submitError = "この走行は前走者の保存完了（\(formatWorkoutFullDate(minD))）より前に開始されています。"
+                return
+            }
+            if let rid = selectedRecordedActivityId, let uuid = UUID(uuidString: rid),
+               let act = activityStore.activities.first(where: { $0.id == uuid }), act.startedAt < minD {
+                submitError = "この走行は前走者の保存完了より前に開始されています。"
+                return
+            }
+        }
+
         isSubmitting = true
         submitError = nil
         let source: String
@@ -697,12 +728,62 @@ struct EkidenLegSubmitSheet: View {
                 isSubmitting = false
                 switch result {
                 case .success:
-                    onSuccess()
-                    onDismiss()
+                    let accumulatedDistance = (leg.actualDistanceKm ?? 0) + confirmDistanceKm
+                    if !state.isCumulativeMode && accumulatedDistance >= targetKm {
+                        didTapRelayConnect = false
+                        showFinishRelayView = true
+                    } else {
+                        TasukiHandoffNotifier.notifyAfterLegSubmission(state: state, completedLegIndex: leg.id)
+                        onSuccess()
+                        onDismiss()
+                    }
                 case .failure(let e):
                     submitError = e.localizedDescription
                 }
             }
         }
+    }
+
+    private var finishRelayCelebrationView: some View {
+        ZStack {
+            Color.tasukiDarkBackground.ignoresSafeArea()
+            VStack(spacing: 20) {
+                Spacer()
+                Image(systemName: didTapRelayConnect ? "sparkles" : "figure.run")
+                    .font(.system(size: 56, weight: .bold))
+                    .foregroundColor(Color.tasukiBrandYellow)
+                    .symbolEffect(.pulse.byLayer, options: .repeating, value: didTapRelayConnect)
+                Text(didTapRelayConnect ? "お疲れ様！\(leg.id + 1)区を走破した！" : "お疲れ様！ここまでよく頑張ったね！")
+                    .font(.system(size: 26, weight: .heavy))
+                    .foregroundColor(Color.tasukiPrimary)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 24)
+                if !didTapRelayConnect {
+                    Button {
+                        didTapRelayConnect = true
+                        Task {
+                            TasukiHandoffNotifier.notifyAfterLegSubmission(state: state, completedLegIndex: leg.id)
+                            try? await Task.sleep(nanoseconds: 3_000_000_000)
+                            await MainActor.run {
+                                showFinishRelayView = false
+                                onSuccess()
+                                onDismiss()
+                            }
+                        }
+                    } label: {
+                        Text("TASUKIをつなぐ")
+                            .font(.system(size: 18, weight: .bold))
+                            .foregroundColor(Color.tasukiOnBrandYellow)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 16)
+                            .background(Capsule().fill(Color.tasukiPrimaryButtonFill))
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.horizontal, 28)
+                }
+                Spacer()
+            }
+        }
+        .interactiveDismissDisabled(true)
     }
 }

@@ -284,7 +284,7 @@ struct TeamDetailView: View {
         if teamId == "example_member" {
             await MainActor.run {
                 self.teamData = [
-                    "name": "Enjoy EKIDEN サンプルチーム",
+                    "name": "Distance Challenge サンプル",
                     "inviteCode": "EX1234",
                     "requiresApproval": true,
                     "ekidenMode": EkidenJoinMode.enjoyEkiden.rawValue,
@@ -299,7 +299,7 @@ struct TeamDetailView: View {
         if teamId == "example_ekiden_real" {
             await MainActor.run {
                 self.teamData = [
-                    "name": "リアルEKIDEN サンプルチーム",
+                    "name": "EKIDEN サンプルチーム",
                     "inviteCode": "RL5678",
                     "requiresApproval": true,
                     "ekidenMode": EkidenJoinMode.realEkiden.rawValue,

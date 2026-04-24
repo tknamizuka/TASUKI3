@@ -57,6 +57,8 @@ struct EkidenEvent: Identifiable {
     let createdAt: Date
     /// チーム全体の目標距離（km）。累計モード用。未設定なら区間ベースUIにフォールバック
     let teamGoalKm: Double?
+    /// コースプリセット（例: `"hakone"` で箱根10区・襷ルール・提出フィルタを有効化）
+    let coursePreset: String?
     
     /// イベント期間内であるか
     var isWithinEventWindow: Bool {
@@ -91,6 +93,8 @@ struct EkidenEntry: Identifiable {
     var tasukiState: String?
     let createdAt: Date
     let updatedAt: Date
+    /// 棄権等で公式合計タイムランキングから除外（参考記録扱い）
+    let officialResultDisqualified: Bool
 }
 
 // MARK: - EkidenLeg（Firestore: ekiden_entries/{entryId}/legs/{legIndex}）
@@ -157,6 +161,7 @@ extension EkidenEvent {
         let status = EkidenEventStatus(rawValue: statusRaw) ?? .scheduled
         let createdAt = (data["createdAt"] as? Timestamp)?.dateValue() ?? Date()
         let teamGoalKm = data["teamGoalKm"] as? Double
+        let coursePreset = data["coursePreset"] as? String
         return EkidenEvent(
             id: id,
             startAt: startTs.dateValue(),
@@ -166,7 +171,8 @@ extension EkidenEvent {
             status: status,
             rulesText: data["rulesText"] as? String,
             createdAt: createdAt,
-            teamGoalKm: teamGoalKm
+            teamGoalKm: teamGoalKm,
+            coursePreset: coursePreset
         )
     }
 }
@@ -181,6 +187,7 @@ extension EkidenEntry {
         let tasukiState = data["tasukiState"] as? String
         let createdAt = (data["createdAt"] as? Timestamp)?.dateValue() ?? Date()
         let updatedAt = (data["updatedAt"] as? Timestamp)?.dateValue() ?? createdAt
+        let officialResultDisqualified = data["officialResultDisqualified"] as? Bool ?? false
         return EkidenEntry(
             id: id,
             teamId: teamId,
@@ -189,7 +196,8 @@ extension EkidenEntry {
             currentLegIndex: currentLegIndex,
             tasukiState: tasukiState,
             createdAt: createdAt,
-            updatedAt: updatedAt
+            updatedAt: updatedAt,
+            officialResultDisqualified: officialResultDisqualified
         )
     }
 }

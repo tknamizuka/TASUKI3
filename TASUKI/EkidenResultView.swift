@@ -51,9 +51,20 @@ struct EkidenResultView: View {
                 .font(.system(size: 36, weight: .heavy, design: .rounded))
                 .foregroundColor(Color.tasukiPrimary)
                 .monospacedDigit()
+            if state.entry.officialResultDisqualified {
+                Text("公式記録: 失格（参考記録・OP参加扱い）")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundColor(Color.tasukiAccentOrange)
+            }
             Text("\(state.submittedLegCount)/\(state.event.legCount) 区間完了")
                 .font(.system(size: 13))
                 .foregroundColor(Color.tasukiMutedText)
+            if state.usesOfficialHakoneRelayRules {
+                Text(HakoneEkidenCourse.mapProgressLabel(cumulativeRunKm: state.cumulativeDistanceKm))
+                    .font(.system(size: 12))
+                    .foregroundColor(Color.tasukiMutedText)
+                    .multilineTextAlignment(.center)
+            }
         }
         .frame(maxWidth: .infinity)
         .padding(24)

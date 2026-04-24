@@ -4,12 +4,11 @@ struct MainTabView: View {
     @StateObject private var mainTabRouter = MainTabRouter()
     @State private var previousTabIndex: Int = 0
     @State private var tabEnterDate: Date = Date()
-    @ObservedObject private var runTracker = RunTracker.shared
     @EnvironmentObject private var unreadProvider: UnreadCountProviderBase
     @EnvironmentObject private var authManager: AuthManager
     @EnvironmentObject private var coachCertification: CoachCertificationManager
     @EnvironmentObject private var tabBarVisibility: TabBarVisibility
-    
+
     private let tabItems: [(icon: String, label: String)] = [
         ("house.fill", "Home"),
         ("figure.run", "Run"),
@@ -17,7 +16,12 @@ struct MainTabView: View {
         ("magnifyingglass", "Find"),
         ("person.fill", "Me")
     ]
-    
+
+    /// Home 以外はモード画面として扱い、下部メニューを隠す。
+    private var shouldShowMenuBar: Bool {
+        mainTabRouter.selectedTab == 0 && !tabBarVisibility.isHidden
+    }
+
     var body: some View {
         Group {
             switch mainTabRouter.selectedTab {
@@ -44,12 +48,14 @@ struct MainTabView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .environmentObject(mainTabRouter)
+        .overlay(alignment: .topLeading) {
+            if mainTabRouter.selectedTab != 0 {
+                backToHomeButton
+            }
+        }
+        .simultaneousGesture(returnToHomeGesture)
         .safeAreaInset(edge: .bottom, spacing: 0) {
-            if tabBarVisibility.isHidden {
-                EmptyView()
-            } else if mainTabRouter.selectedTab == 1 && runTracker.isTracking {
-                EmptyView()
-            } else {
+            if shouldShowMenuBar {
                 customTabBar
             }
         }
@@ -87,7 +93,50 @@ struct MainTabView: View {
             previousTabIndex = newValue
         }
     }
-    
+
+    private var backToHomeButton: some View {
+        Button {
+            returnToHome()
+        } label: {
+            HStack(spacing: 4) {
+                Image(systemName: "chevron.left")
+                    .font(.system(size: 15, weight: .bold))
+                Text("Home")
+                    .font(.system(size: 13, weight: .semibold))
+            }
+            .foregroundColor(.black)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 7)
+            .background(
+                Capsule()
+                    .fill(Color.white.opacity(0.95))
+                    .shadow(color: Color.black.opacity(0.12), radius: 6, x: 0, y: 2)
+            )
+        }
+        .buttonStyle(.plain)
+        .padding(.top, 6)
+        .padding(.leading, 12)
+    }
+
+    /// 右フリック（強め）で Home に戻す。
+    private var returnToHomeGesture: some Gesture {
+        DragGesture(minimumDistance: 26, coordinateSpace: .local)
+            .onEnded { value in
+                guard mainTabRouter.selectedTab != 0 else { return }
+                let movedRightFarEnough = value.translation.width >= 180
+                let hasStrongRightVelocity = value.predictedEndTranslation.width >= 280
+                if movedRightFarEnough || hasStrongRightVelocity {
+                    returnToHome()
+                }
+            }
+    }
+
+    private func returnToHome() {
+        withAnimation(.easeInOut(duration: 0.22)) {
+            mainTabRouter.selectedTab = 0
+        }
+    }
+
     private func meTabContent() -> some View {
         // #region agent log
         AgentDebugLog.log(
@@ -124,7 +173,7 @@ struct MainTabView: View {
     private func tabSelectionBackground(for index: Int) -> Color {
         mainTabRouter.selectedTab == index ? Color.tasukiTabSelectionFill : .clear
     }
-    
+
     private var customTabBar: some View {
         HStack(spacing: 0) {
             ForEach(0..<tabItems.count, id: \.self) { index in
