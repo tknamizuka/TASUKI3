@@ -263,12 +263,17 @@ enum AgentDebugLog {
         guard let json = try? JSONSerialization.data(withJSONObject: payload),
               let line = String(data: json, encoding: .utf8) else { return }
         print("[AgentDebug f3091f] \(line)")
+        #if targetEnvironment(simulator)
+        // シミュレータではローカル ingest への POST を送らない（接続エラー・ノイズ低減）
+        return
+        #else
         var req = URLRequest(url: ingestURL)
         req.httpMethod = "POST"
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         req.setValue(sessionId, forHTTPHeaderField: "X-Debug-Session-Id")
         req.httpBody = json
         URLSession.shared.dataTask(with: req).resume()
+        #endif
     }
 }
 
@@ -291,11 +296,15 @@ enum DebugSession658Log {
         guard let json = try? JSONSerialization.data(withJSONObject: payload),
               let line = String(data: json, encoding: .utf8) else { return }
         print("[Debug65844b] \(line)")
+        #if targetEnvironment(simulator)
+        return
+        #else
         var req = URLRequest(url: ingestURL)
         req.httpMethod = "POST"
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         req.setValue(sessionId, forHTTPHeaderField: "X-Debug-Session-Id")
         req.httpBody = json
         URLSession.shared.dataTask(with: req).resume()
+        #endif
     }
 }

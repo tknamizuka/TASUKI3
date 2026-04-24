@@ -114,16 +114,18 @@ struct HomeView: View {
                     GeometryReader { geo in
                         HStack {
                             Spacer(minLength: 0)
-                            Image("main")
+                            Image("mainlogo")
                                 .resizable()
                                 .scaledToFit()
-                                .frame(maxWidth: geo.size.width * 0.92, maxHeight: geo.size.height)
+                                .frame(maxWidth: geo.size.width * 0.66, maxHeight: geo.size.height)
                             Spacer(minLength: 0)
                         }
                         .frame(width: geo.size.width, height: geo.size.height)
                     }
                     .frame(height: 100)
+                    .padding(.horizontal, 12)
                     .padding(.top, 20)
+                    .padding(.bottom, 12)
 
                     GeometryReader { geo in
                         let ringSize = min(geo.size.width * 0.58, 260)

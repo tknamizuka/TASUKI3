@@ -20,6 +20,9 @@
     <string>$(MARKETING_VERSION)</string>
     <key>CFBundleVersion</key>
     <string>$(CURRENT_PROJECT_VERSION)</string>
+    <!-- Live Activity 拡張（ActivityKit）。メインアプリの Info と揃えるとシミュレータの descriptor 取得に有利な場合がある -->
+    <key>NSSupportsLiveActivities</key>
+    <true/>
     <key>NSExtension</key>
     <dict>
         <key>NSExtensionPointIdentifier</key>

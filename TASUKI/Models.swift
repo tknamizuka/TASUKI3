@@ -482,7 +482,7 @@ let mockUsers: [User] = [
     User(
         id: UUID(),
         name: "Kenta",
-        profileImage: "runner",
+        profileImage: User.findMockInitialsProfileImageToken,
         profileImageUrl: nil,
         bio: "ガチ勢です。インターバル練習一緒にやりましょう。",
         rank: "Rank S",
@@ -513,7 +513,7 @@ let mockUsers: [User] = [
     User(
         id: UUID(),
         name: "あやか",
-        profileImage: "runner",
+        profileImage: User.findMockInitialsProfileImageToken,
         profileImageUrl: nil,
         bio: "皇居と神宮外苑を行ったり来たり。ゆるく楽しく！",
         rank: "Rank B",
@@ -575,7 +575,7 @@ let mockUsers: [User] = [
     User(
         id: UUID(),
         name: "みお",
-        profileImage: "runner",
+        profileImage: User.findMockInitialsProfileImageToken,
         profileImageUrl: nil,
         bio: "井の頭ポイント練習中。仲間募集中。",
         rank: "Rank B",
@@ -606,7 +606,7 @@ let mockUsers: [User] = [
     User(
         id: UUID(),
         name: "Haruto",
-        profileImage: "runner",
+        profileImage: User.findMockInitialsProfileImageToken,
         profileImageUrl: nil,
         bio: "お台場レインボーブリッジ周り。写真も撮ります。",
         rank: "Rank A",
@@ -668,7 +668,7 @@ let mockUsers: [User] = [
     User(
         id: UUID(),
         name: "Kei",
-        profileImage: "runner",
+        profileImage: User.findMockInitialsProfileImageToken,
         profileImageUrl: nil,
         bio: "二子玉川〜多摩川下流。ロング好き。",
         rank: "Rank A",
@@ -699,7 +699,7 @@ let mockUsers: [User] = [
     User(
         id: UUID(),
         name: "Tomo",
-        profileImage: "runner",
+        profileImage: User.findMockInitialsProfileImageToken,
         profileImageUrl: nil,
         bio: "朝霞の給水所まで往復。マラソン完走経験あり。",
         rank: "Rank B",
@@ -730,7 +730,7 @@ let mockUsers: [User] = [
     User(
         id: UUID(),
         name: "Nana",
-        profileImage: "runner",
+        profileImage: User.findMockInitialsProfileImageToken,
         profileImageUrl: nil,
         bio: "横浜みなとみらいの夜景コース。ナイトラン。",
         rank: "Rank B",

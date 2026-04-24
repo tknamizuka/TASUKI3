@@ -22,25 +22,6 @@ struct PartnerDetailView: View {
         _connectionStatus = State(initialValue: initialStatus)
     }
 
-    private var monthlyDistDisplay: String {
-        "\(Int(user.monthlyDistance))km / \(Int(user.monthlyTarget))km"
-    }
-
-    private var partnerAreaDisplay: String {
-        let p = user.prefecture.trimmingCharacters(in: .whitespacesAndNewlines)
-        let a = user.area.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !p.isEmpty && !a.isEmpty { return "\(p), \(a)" }
-        if !a.isEmpty { return a }
-        if !p.isEmpty { return p }
-        return "—"
-    }
-
-    private var runningSpotTags: [String] {
-        user.spotName.components(separatedBy: ",")
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
-    }
-
     var body: some View {
         ZStack {
             Color.tasukiDarkBackground
@@ -48,19 +29,11 @@ struct PartnerDetailView: View {
 
             ScrollView(showsIndicators: false) {
                 VStack(spacing: 0) {
-                    heroSection
-                        .padding(.bottom, 28)
-
-                    statsSection
-                        .padding(.bottom, 28)
-
-                    profileSection
-                        .padding(.bottom, 28)
-
-                    if !user.bio.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                        aboutSection
-                            .padding(.bottom, 28)
-                    }
+                    UserPublicProfileScrollContent(
+                        user: user,
+                        activityChartPoints: [],
+                        heroAccessory: .partnerOnline
+                    )
 
                     actionButtonsView
                         .padding(.bottom, 36)
@@ -94,172 +67,6 @@ struct PartnerDetailView: View {
         } message: {
             Text("相手にパートナー申請を送ります。よろしいですか？")
         }
-    }
-
-    private var heroSection: some View {
-        VStack(spacing: 14) {
-            Group {
-                if UIImage(named: user.profileImage) != nil {
-                    Image(user.profileImage)
-                        .resizable()
-                        .scaledToFill()
-                        .frame(width: 140, height: 140)
-                        .clipShape(Circle())
-                } else {
-                    Image(systemName: "person.crop.circle.fill")
-                        .font(.system(size: 96))
-                        .foregroundColor(.black)
-                        .frame(width: 140, height: 140)
-                }
-            }
-
-            HStack(spacing: 8) {
-                Text(user.name)
-                    .font(.system(size: 28, weight: .bold))
-                    .foregroundColor(.black)
-                if let tier = PointBadgeHelper.tier(forTotalPoints: user.totalPoints) {
-                    HStack(spacing: 4) {
-                        Image(systemName: tier.iconName)
-                        Text(tier.displayName)
-                    }
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundColor(.black)
-                }
-            }
-
-            Text(user.rank)
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundColor(.black)
-
-            Text("\(user.age)歳 · \(user.gender)")
-                .font(.system(size: 13, weight: .medium))
-                .foregroundColor(.black)
-
-            HStack(spacing: 5) {
-                Text("保有ポイント")
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundColor(.black)
-                Text("\(user.totalPoints)pt")
-                    .font(.system(size: 16, weight: .bold))
-                    .foregroundColor(.black)
-            }
-
-            HStack(spacing: 6) {
-                Circle()
-                    .fill(user.isOnline ? Color.green : Color.gray)
-                    .frame(width: 8, height: 8)
-                Text(user.isOnline ? "オンライン" : "オフライン")
-                    .font(.system(size: 12, weight: .regular))
-                    .foregroundColor(.black.opacity(0.7))
-            }
-        }
-        .frame(maxWidth: .infinity)
-    }
-
-    private var statsSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            sectionEyebrow("RUNNING STATS")
-
-            HStack(spacing: 12) {
-                statItem(title: "Avg Pace", value: user.avgPace)
-                statItem(title: "Monthly Dist", value: monthlyDistDisplay)
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    private var profileSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            sectionEyebrow("PROFILE")
-
-            HStack {
-                Image(systemName: "mappin.and.ellipse")
-                Text(partnerAreaDisplay)
-            }
-            .font(.subheadline)
-            .foregroundColor(.black)
-
-            if !user.purpose.isEmpty {
-                tagView(text: user.purpose, isPrimary: true)
-            }
-
-            if !runningSpotTags.isEmpty {
-                FlowLayout(spacing: 8) {
-                    ForEach(runningSpotTags, id: \.self) { spot in
-                        tagView(text: spot, isPrimary: false)
-                    }
-                }
-            }
-
-            VStack(spacing: 0) {
-                infoRow(icon: "trophy.fill", title: "Personal Best", value: user.personalBest)
-                infoRow(icon: "calendar", title: "Schedule", value: user.schedule)
-                if !user.nextRace.isEmpty {
-                    infoRow(icon: "flag.fill", title: "Next Race", value: user.nextRace)
-                }
-                if !user.targetTime.isEmpty {
-                    infoRow(icon: "scope", title: "Target", value: user.targetTime)
-                }
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    private var aboutSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            sectionEyebrow("ABOUT ME")
-            Text(user.bio)
-                .font(.system(size: 15))
-                .foregroundColor(.black)
-                .frame(maxWidth: .infinity, alignment: .leading)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    private func sectionEyebrow(_ title: String) -> some View {
-        Text(title)
-            .font(.system(size: 11, weight: .bold))
-            .tracking(1.2)
-            .foregroundColor(.black)
-    }
-
-    private func statItem(title: String, value: String) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(title)
-                .font(.system(size: 12))
-                .foregroundColor(.black)
-            Text(value)
-                .font(.system(size: 18, weight: .bold))
-                .foregroundColor(.black)
-                .lineLimit(1)
-                .minimumScaleFactor(0.8)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    private func tagView(text: String, isPrimary: Bool) -> some View {
-        Text(text)
-            .font(.system(size: 13, weight: isPrimary ? .semibold : .medium))
-            .foregroundColor(.black)
-    }
-
-    private func infoRow(icon: String, title: String, value: String) -> some View {
-        HStack(alignment: .top, spacing: 10) {
-            Image(systemName: icon)
-                .font(.system(size: 18, weight: .semibold))
-                .foregroundColor(.black)
-                .frame(width: 28, height: 28)
-            VStack(alignment: .leading, spacing: 3) {
-                Text(title)
-                    .font(.system(size: 12))
-                    .foregroundColor(.black)
-                Text(value)
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundColor(.black)
-            }
-            Spacer()
-        }
-        .padding(.vertical, 10)
     }
 
     @ViewBuilder

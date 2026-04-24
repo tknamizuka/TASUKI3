@@ -5,6 +5,8 @@ import FirebaseFirestore
 struct TeamDetailView: View {
     private let maxTeamMembers = 10
     let teamId: String
+    /// チーム参加ハブで選んだモードと一致しないチームは参加できない
+    var expectedEkidenJoinMode: EkidenJoinMode? = nil
     var onJoined: ((String?) -> Void)? = nil   // 呼び出し元へ参加結果を返す
 
     @State private var teamData: [String: Any]? = nil
@@ -85,6 +87,14 @@ struct TeamDetailView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, 20)
 
+                if let expected = expectedEkidenJoinMode, !expected.matchesTeamDocument(data) {
+                    Text("このチームは、駅伝の参加画面で選んだモード（\(expected.shortLabel)）のチームではありません。「モード」から切り替えるか、別のチームを探してください。")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundColor(Color.tasukiAccentOrange)
+                        .multilineTextAlignment(.leading)
+                        .padding(.horizontal, 20)
+                }
+
                 if membersInfo.isEmpty {
                     Text("メンバー情報を取得中…")
                         .foregroundColor(Color.tasukiMutedText)
@@ -98,10 +108,12 @@ struct TeamDetailView: View {
                 }
 
                 // 参加ボタン（自分がメンバーでもオーナーでもない場合のみ）
+                let modeBlocksJoin = expectedEkidenJoinMode.map { !$0.matchesTeamDocument(data) } ?? false
                 if let currentUid = effectiveCurrentUid,
                    !memberUIDs.contains(currentUid),
                    ownerUid != currentUid,
-                   memberUIDs.count < resolvedMaxMembers {
+                   memberUIDs.count < resolvedMaxMembers,
+                   !modeBlocksJoin {
                     Button(action: { Task { await joinCurrentTeam() } }) {
                         HStack {
                             Spacer()
@@ -166,7 +178,7 @@ struct TeamDetailView: View {
         switch teamId {
         case "example_owner":
             return "sample_owner"
-        case "example_member":
+        case "example_member", "example_ekiden_real":
             return "sample_member"
         default:
             return nil
@@ -176,16 +188,20 @@ struct TeamDetailView: View {
     // MARK: - チーム参加処理
     private func joinCurrentTeam() async {
         let teamName = teamData?["name"] as? String
-        if await TeamLeavePolicy.isRejoinBlocked(teamId: teamId, isMock: teamId == "example_member") {
+        if await TeamLeavePolicy.isRejoinBlocked(teamId: teamId, isMock: teamId == "example_member" || teamId == "example_ekiden_real") {
             await MainActor.run {
                 alertMessage = TeamLeavePolicy.rejoinBlockedMessage(teamName: teamName)
             }
             return
         }
         
-        // サンプルチーム（example_member）の場合はローカルで擬似参加処理のみ行う
-        if teamId == "example_member", let currentUid = effectiveCurrentUid {
+        // サンプルチーム（example_member / example_ekiden_real）の場合はローカルで擬似参加処理のみ行う
+        if teamId == "example_member" || teamId == "example_ekiden_real", let currentUid = effectiveCurrentUid {
             await MainActor.run {
+                if let expected = expectedEkidenJoinMode, let data = teamData, !expected.matchesTeamDocument(data) {
+                    alertMessage = "このチームは選択中のEKIDENモードのチームではありません。"
+                    return
+                }
                 if memberUIDs.count >= resolvedMaxMembers {
                     alertMessage = "このチームは定員\(resolvedMaxMembers)名に達しています。"
                     return
@@ -211,6 +227,10 @@ struct TeamDetailView: View {
             let snap = try await teamRef.getDocument()
             guard let data = snap.data() else {
                 alertMessage = "チームが見つかりません。"
+                return
+            }
+            if let expected = expectedEkidenJoinMode, !expected.matchesTeamDocument(data) {
+                alertMessage = "このチームは選択中のEKIDENモードのチームではありません。"
                 return
             }
             let requiresApproval = data["requiresApproval"] as? Bool ?? false
@@ -251,6 +271,7 @@ struct TeamDetailView: View {
                     "name": "皇居ランナーズ",
                     "inviteCode": "EX1234",
                     "requiresApproval": true,
+                    "ekidenMode": EkidenJoinMode.realEkiden.rawValue,
                     "members": ["sample_owner", "u_kenji", "u_sacchan", "u_taka", "u_momo", "u_runner123", "u_yuki"]
                 ]
                 self.memberUIDs = ["sample_owner", "u_kenji", "u_sacchan", "u_taka", "u_momo", "u_runner123", "u_yuki"]
@@ -263,9 +284,25 @@ struct TeamDetailView: View {
         if teamId == "example_member" {
             await MainActor.run {
                 self.teamData = [
-                    "name": "皇居ランナーズ",
+                    "name": "Enjoy EKIDEN サンプルチーム",
                     "inviteCode": "EX1234",
                     "requiresApproval": true,
+                    "ekidenMode": EkidenJoinMode.enjoyEkiden.rawValue,
+                    "members": ["u_owner", "u_kenji", "u_sacchan", "u_taka", "u_momo", "u_runner123", "u_yuki"]
+                ]
+                self.memberUIDs = ["u_owner", "u_kenji", "u_sacchan", "u_taka", "u_momo", "u_runner123", "u_yuki"]
+                self.ownerUid = "u_owner"
+                self.membersInfo = ["Kenji_Run", "さっちゃん", "Taka@Sub3", "Momo", "Runner123", "Yuki"]
+            }
+            return
+        }
+        if teamId == "example_ekiden_real" {
+            await MainActor.run {
+                self.teamData = [
+                    "name": "リアルEKIDEN サンプルチーム",
+                    "inviteCode": "RL5678",
+                    "requiresApproval": true,
+                    "ekidenMode": EkidenJoinMode.realEkiden.rawValue,
                     "members": ["u_owner", "u_kenji", "u_sacchan", "u_taka", "u_momo", "u_runner123", "u_yuki"]
                 ]
                 self.memberUIDs = ["u_owner", "u_kenji", "u_sacchan", "u_taka", "u_momo", "u_runner123", "u_yuki"]

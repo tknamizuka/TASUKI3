@@ -680,7 +680,10 @@ struct RunRecordingView: View {
                     trendStat(title: "今月距離", value: String(format: "%.1f km", activityStore.monthlyDistanceKm()))
                 }
 
-                TasukiWeeklyActivityLineChart(points: activityStore.weeklyActivityChartPoints())
+                TasukiWeeklyActivityLineChart(
+                    points: activityStore.weeklyActivityChartPoints(),
+                    runActivities: activityStore.activities
+                )
                     .frame(height: 190)
                     .padding(.horizontal, 4)
             }

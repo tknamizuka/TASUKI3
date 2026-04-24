@@ -3,6 +3,9 @@ import SwiftUI
 import WidgetKit
 
 struct RunTrackingLiveActivityWidget: Widget {
+    /// Widget の安定した識別子（Xcode のウィジェットデバッグ／descriptor 解決用）
+    var kind: String { "RunTrackingLiveActivity" }
+
     var body: some WidgetConfiguration {
         ActivityConfiguration(for: RunTrackingActivityAttributes.self) { context in
             RunTrackingLiveActivityLockView(state: context.state)

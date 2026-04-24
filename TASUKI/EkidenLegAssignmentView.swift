@@ -200,7 +200,7 @@ struct EkidenLegAssignmentView: View {
             }
             return
         }
-        if teamId == "example_member" {
+        if teamId == "example_member" || teamId == "example_ekiden_real" {
             await MainActor.run {
                 memberUIDs = ["u_owner", "u_kenji", "u_sacchan", "u_taka", "u_momo", "u_runner123", "u_yuki"]
                 memberNames = [
@@ -292,7 +292,7 @@ struct EkidenLegAssignmentView: View {
         errorMessage = nil
         successMessage = nil
 
-        if teamId == "example" || teamId == "example_owner" || teamId == "example_member" {
+        if teamId == "example" || teamId == "example_owner" || teamId == "example_member" || teamId == "example_ekiden_real" {
             await MainActor.run {
                 successMessage = "区間割当を確定しました。（サンプル）"
                 isSaving = false

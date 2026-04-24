@@ -76,6 +76,8 @@ struct TeamView: View {
     @AppStorage("myName") private var myName: String = "Hiro"
     /// 未所属時に `TeamJoinCreateView` を出すか。脱退直後は `false` で「脱退完了」画面のみ
     @AppStorage("ekidenShowTeamJoinHub") private var showTeamJoinHub: Bool = true
+    /// チーム参加ハブで選んだ EKIDEN モード（脱退後の再参加フローでは毎回選び直し）
+    @State private var hubEkidenJoinMode: EkidenJoinMode? = nil
     
     // コンディション更新シート
     @State private var showConditionSheet = false
@@ -240,21 +242,33 @@ struct TeamView: View {
         NavigationStack {
             if resolvedTeamId == nil {
                 if showTeamJoinHub {
-                    TeamJoinCreateView(onComplete: { teamId in
-                        if isSampleTeamFlow {
-                            self.userTeamId = teamId
-                            if let id = teamId {
-                                UserDefaults.standard.set(id, forKey: "myTeamId")
-                            }
+                    Group {
+                        if let mode = hubEkidenJoinMode {
+                            TeamJoinCreateView(
+                                ekidenJoinMode: mode,
+                                onComplete: { teamId in
+                                    if isSampleTeamFlow {
+                                        self.userTeamId = teamId
+                                        if let id = teamId {
+                                            UserDefaults.standard.set(id, forKey: "myTeamId")
+                                        }
+                                    } else {
+                                        loadUserTeamId()
+                                    }
+                                    if let id = teamId {
+                                        self.selectedTeamId = id
+                                        self.showTeamDetail = true
+                                    }
+                                    self.showTeamJoinHub = true
+                                },
+                                useMockFlow: isSampleTeamFlow
+                            )
                         } else {
-                            loadUserTeamId()
+                            EkidenJoinModeSelectionView { selected in
+                                hubEkidenJoinMode = selected
+                            }
                         }
-                        if let id = teamId {
-                            self.selectedTeamId = id
-                            self.showTeamDetail = true
-                        }
-                        self.showTeamJoinHub = true
-                    }, useMockFlow: isSampleTeamFlow)
+                    }
                     .navigationTitle("")
                     .navigationBarTitleDisplayMode(.inline)
                     .toolbar {
@@ -262,6 +276,14 @@ struct TeamView: View {
                             Text("Ekiden")
                                 .font(.system(size: 19, weight: .bold))
                                 .foregroundColor(.black)
+                        }
+                        if hubEkidenJoinMode != nil {
+                            ToolbarItem(placement: .navigationBarLeading) {
+                                Button("モード") {
+                                    hubEkidenJoinMode = nil
+                                }
+                                .foregroundColor(Color.tasukiPrimary)
+                            }
                         }
                     }
                 } else {
@@ -869,6 +891,7 @@ struct TeamView: View {
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, 28)
                 Button {
+                    hubEkidenJoinMode = nil
                     showTeamJoinHub = true
                 } label: {
                     HStack {
@@ -1099,7 +1122,7 @@ struct TeamView: View {
         switch teamId {
         case "example_owner":
             return assigned == "sample_owner"
-        case "example_member":
+        case "example_member", "example_ekiden_real":
             return assigned == "u_kenji"
         default:
             return assigned == "sample_owner"
@@ -1156,7 +1179,7 @@ struct TeamView: View {
     private func loadTeamOwner(teamId: String) {
         isTeamOwner = false
         // サンプルチーム: example_owner のときだけオーナー視点
-        if teamId == "example_owner" || teamId == "example_member" {
+        if teamId == "example_owner" || teamId == "example_member" || teamId == "example_ekiden_real" {
             isTeamOwner = (teamId == "example_owner")
             return
         }

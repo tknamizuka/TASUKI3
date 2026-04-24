@@ -71,17 +71,6 @@ struct CoachView: View {
                         .padding(.top, 32)
                         .padding(.bottom, 20)
 
-                    NavigationLink(destination: WeeklyReflectionView()) {
-                        TasukiFlatHubRow(
-                            title: "今週の振り返り",
-                            subtitle: "回数・休息も含めて振り返る",
-                            systemImage: "calendar.badge.clock"
-                        )
-                    }
-                    .buttonStyle(.plain)
-                    .padding(.horizontal, 20)
-                    .padding(.bottom, 16)
-                    
                     // あなたの Q&A（サンプル＋自分の質問）
                     VStack(alignment: .leading, spacing: 12) {
                         Text("あなたの Q&A")

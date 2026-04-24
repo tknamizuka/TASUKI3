@@ -8,6 +8,7 @@
 import SwiftUI
 import MapKit
 import Combine
+import HealthKit
 
 // MARK: - エントリ（距離選択 → マッチング）
 struct TimeTrialEntryView: View {
@@ -480,12 +481,31 @@ struct TimeTrialRoomView: View {
         return samples.enumerated().map { index, pair in
             let (dist, sec) = pair
             let start = Calendar.current.date(byAdding: .day, value: -index - 1, to: now) ?? now
+            let end = start.addingTimeInterval(sec)
             return RunningWorkoutInfo(
                 id: UUID(),
                 startDate: start,
+                endDate: end,
                 durationSeconds: sec,
+                wallClockDurationSeconds: sec,
                 totalDistanceKm: dist,
-                timeAtTargetSeconds: sec
+                timeAtTargetSeconds: sec,
+                totalDistanceFromWorkoutMeters: nil,
+                totalEnergyBurnedKcal: nil,
+                averageHeartRateBpm: nil,
+                minHeartRateBpm: nil,
+                maxHeartRateBpm: nil,
+                averageRunningSpeedMps: nil,
+                elevationAscendedMeters: nil,
+                sourceName: "サンプル",
+                sourceBundleIdentifier: nil,
+                deviceManufacturer: nil,
+                deviceModel: nil,
+                deviceHardwareVersion: nil,
+                deviceSoftwareVersion: nil,
+                udiDeviceIdentifier: nil,
+                workoutActivityTypeRaw: Int(HKWorkoutActivityType.running.rawValue),
+                metadata: [:]
             )
         }
     }

@@ -3,7 +3,15 @@ import SwiftUI
 /// Me の Activity と Run 記録で同一の週次距離チャート（`WeeklyActivityChartPoint` を表示）。
 struct TasukiWeeklyActivityLineChart: View {
     let points: [WeeklyActivityChartPoint]
+    /// `nil` のときはブランドイエロー（Me 画面など）。指定時は他ユーザー向けの固定アクセント色。
+    var lineColor: Color? = nil
+    /// 指定時、選択中ポイントの週について日ごとの走行距離をツールチップに表示する。
+    var runActivities: [RunActivity]? = nil
     @State private var selectedPointID: String?
+
+    private var accent: Color {
+        lineColor ?? Color.tasukiBrandYellow
+    }
 
     private var maxY: Double {
         max(points.map(\.distanceKm).max() ?? 0, 1)
@@ -26,6 +34,19 @@ struct TasukiWeeklyActivityLineChart: View {
             let count = max(points.count, 2)
 
             ZStack {
+                VStack(alignment: .leading, spacing: 0) {
+                    Text(String(format: "%.0fkm", maxY))
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(.black)
+                    Spacer()
+                    Text("0km")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(.black)
+                }
+                .padding(.top, topPadding - 4)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .allowsHitTesting(false)
+
                 ForEach(0..<4, id: \.self) { row in
                     let ratio = CGFloat(row) / 3
                     let y = topPadding + plotHeight * ratio
@@ -34,6 +55,7 @@ struct TasukiWeeklyActivityLineChart: View {
                         path.addLine(to: CGPoint(x: width, y: y))
                     }
                     .stroke(Color.gray.opacity(0.2), style: StrokeStyle(lineWidth: 1, dash: [4, 3]))
+                    .allowsHitTesting(false)
                 }
 
                 Path { path in
@@ -59,14 +81,15 @@ struct TasukiWeeklyActivityLineChart: View {
                 .fill(
                     LinearGradient(
                         colors: [
-                            Color.tasukiBrandYellow.opacity(0.42),
-                            Color.tasukiBrandYellow.opacity(0.14),
-                            Color.tasukiBrandYellow.opacity(0.03)
+                            accent.opacity(0.42),
+                            accent.opacity(0.14),
+                            accent.opacity(0.03)
                         ],
                         startPoint: .top,
                         endPoint: .bottom
                     )
                 )
+                .allowsHitTesting(false)
 
                 Path { path in
                     for (index, point) in points.enumerated() {
@@ -80,7 +103,8 @@ struct TasukiWeeklyActivityLineChart: View {
                         }
                     }
                 }
-                .stroke(Color.tasukiBrandYellow, style: StrokeStyle(lineWidth: 2.5, lineCap: .round, lineJoin: .round))
+                .stroke(accent, style: StrokeStyle(lineWidth: 2.5, lineCap: .round, lineJoin: .round))
+                .allowsHitTesting(false)
 
                 ForEach(Array(points.enumerated()), id: \.element.id) { index, point in
                     let x = leftPadding + plotWidth * CGFloat(index) / CGFloat(count - 1)
@@ -88,10 +112,10 @@ struct TasukiWeeklyActivityLineChart: View {
                     let y = topPadding + (1 - normalized) * plotHeight
 
                     Circle()
-                        .fill(selectedPointID == point.id ? Color.tasukiAccent : Color.tasukiBrandYellow)
+                        .fill(selectedPointID == point.id ? Color.tasukiAccent : accent)
                         .overlay(
                             Circle()
-                                .stroke(Color.tasukiOnBrandYellow.opacity(0.35), lineWidth: 1)
+                                .stroke(Color.white.opacity(lineColor == nil ? 0.35 : 0.5), lineWidth: 1)
                         )
                         .frame(width: selectedPointID == point.id ? 10 : 7, height: selectedPointID == point.id ? 10 : 7)
                         .position(x: x, y: y)
@@ -123,34 +147,33 @@ struct TasukiWeeklyActivityLineChart: View {
                     tooltipView(point: selectedPoint)
                         .position(x: bubbleX, y: bubbleY)
                         .transition(.opacity.combined(with: .scale(scale: 0.96)))
+                        .allowsHitTesting(false)
                 }
-
-                VStack(alignment: .leading, spacing: 0) {
-                    Text(String(format: "%.0fkm", maxY))
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundColor(.black)
-                    Spacer()
-                    Text("0km")
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundColor(.black)
-                }
-                .padding(.top, topPadding - 4)
-                .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
     }
 
+    @ViewBuilder
     private func tooltipView(point: WeeklyActivityChartPoint) -> some View {
-        VStack(alignment: .leading, spacing: 3) {
-            Text(Self.tooltipDateFormatter.string(from: point.weekAnchor))
+        let dailyLines = Self.dailyDistanceLines(for: point, activities: runActivities)
+        VStack(alignment: .leading, spacing: 4) {
+            Text(Self.tooltipWeekRangeLabel(for: point.weekAnchor))
                 .font(.system(size: 10, weight: .medium))
                 .foregroundColor(Color.tasukiMutedText)
-            Text(String(format: "%.1f km", point.distanceKm))
+            Text(String(format: "週合計 %.1f km", point.distanceKm))
                 .font(.system(size: 11, weight: .bold))
                 .foregroundColor(Color.tasukiPrimary)
+            if !dailyLines.isEmpty {
+                ForEach(Array(dailyLines.enumerated()), id: \.offset) { _, line in
+                    Text(line)
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundColor(Color.tasukiPrimary.opacity(0.92))
+                }
+            }
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 6)
+        .frame(maxWidth: 200, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: 8)
                 .fill(Color.tasukiDarkCard)
@@ -161,10 +184,42 @@ struct TasukiWeeklyActivityLineChart: View {
         )
     }
 
-    private static let tooltipDateFormatter: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "ja_JP")
-        formatter.dateFormat = "M/d(E) HH:mm"
-        return formatter
+    private static let tooltipDayFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "ja_JP")
+        f.dateFormat = "M/d(E)"
+        return f
     }()
+
+    private static func tooltipWeekRangeLabel(for weekStart: Date) -> String {
+        let cal = Calendar.current
+        guard let interval = cal.dateInterval(of: .weekOfYear, for: weekStart) else {
+            return tooltipDayFormatter.string(from: weekStart)
+        }
+        let lastInclusive = cal.date(byAdding: .day, value: -1, to: interval.end) ?? interval.start
+        let lastDay = cal.startOfDay(for: lastInclusive)
+        let firstDay = cal.startOfDay(for: interval.start)
+        return "\(tooltipDayFormatter.string(from: firstDay))〜\(tooltipDayFormatter.string(from: lastDay))"
+    }
+
+    /// その週の暦日ごとの合計距離（記録なしは 0.0 km）。
+    private static func dailyDistanceLines(for point: WeeklyActivityChartPoint, activities: [RunActivity]?) -> [String] {
+        guard let activities else { return [] }
+        let cal = Calendar.current
+        guard let interval = cal.dateInterval(of: .weekOfYear, for: point.weekAnchor) else { return [] }
+        var byDay: [Date: Double] = [:]
+        for a in activities where interval.contains(a.startedAt) {
+            let day = cal.startOfDay(for: a.startedAt)
+            byDay[day, default: 0] += a.distanceKm
+        }
+        var lines: [String] = []
+        var day = cal.startOfDay(for: interval.start)
+        while day < interval.end {
+            let km = byDay[day] ?? 0
+            lines.append("\(tooltipDayFormatter.string(from: day))　\(String(format: "%.1f km", km))")
+            guard let next = cal.date(byAdding: .day, value: 1, to: day) else { break }
+            day = cal.startOfDay(for: next)
+        }
+        return lines
+    }
 }

@@ -251,7 +251,7 @@ final class EkidenDataService {
                 "u_runner123": "Runner123",
                 "u_yuki": "Yuki"
             ]
-        } else if teamId == "example_member" {
+        } else if teamId == "example_member" || teamId == "example_ekiden_real" {
             memberUids = ["u_owner", "u_kenji", "u_sacchan", "u_taka", "u_momo", "u_runner123", "u_yuki"]
             memberNames = [
                 "u_owner": "オーナー",
@@ -317,7 +317,7 @@ final class EkidenDataService {
                 // 未ログインサンプル時の「自分」と一致させる（TASUKI／提出は担当走者のみ）
                 if teamId == "example_owner" {
                     assignedUid = "sample_owner"
-                } else if teamId == "example_member" {
+                } else if teamId == "example_member" || teamId == "example_ekiden_real" {
                     assignedUid = "u_kenji"
                 } else {
                     assignedUid = "sample_owner"
@@ -373,7 +373,7 @@ final class EkidenDataService {
         switch teamId {
         case "example_owner":
             expectedLeg3 = "sample_owner"
-        case "example_member":
+        case "example_member", "example_ekiden_real":
             expectedLeg3 = "u_kenji"
         default:
             expectedLeg3 = "sample_owner"
@@ -492,6 +492,7 @@ final class EkidenDataService {
     ///   - isSampleTeam: サンプルチームの場合 true
     ///   - source: 提出ソース ("health_kit" | "manual" | "app_record")
     ///   - runActivityId: HealthKit 等の記録ID（オプション）
+    ///   - healthKitFirestorePayload: HealthKit ワークアウト詳細（`submissions` にマージ）
     func submitLeg(
         teamId: String,
         entryId: String,
@@ -505,7 +506,8 @@ final class EkidenDataService {
         submittedByUid: String,
         isSampleTeam: Bool,
         source: String = "manual",
-        runActivityId: String? = nil
+        runActivityId: String? = nil,
+        healthKitFirestorePayload: [String: Any]? = nil
     ) async -> Result<Void, Error> {
         if isSampleTeam || teamId.hasPrefix("example") {
             return await submitLegMock(
@@ -530,7 +532,8 @@ final class EkidenDataService {
             totalLegCount: totalLegCount,
             submittedByUid: submittedByUid,
             source: source,
-            runActivityId: runActivityId
+            runActivityId: runActivityId,
+            healthKitFirestorePayload: healthKitFirestorePayload
         )
     }
 
@@ -569,7 +572,8 @@ final class EkidenDataService {
         totalLegCount: Int,
         submittedByUid: String,
         source: String = "manual",
-        runActivityId: String? = nil
+        runActivityId: String? = nil,
+        healthKitFirestorePayload: [String: Any]? = nil
     ) async -> Result<Void, Error> {
         let now = Date()
         let legsRef = db.collection("ekiden_entries").document(entryId).collection("legs")
@@ -622,6 +626,11 @@ final class EkidenDataService {
                 ]
                 if let s = splitAtTargetSeconds { subData["splitAtTargetSeconds"] = s }
                 if let rid = runActivityId { subData["runActivityId"] = rid }
+                if let hk = healthKitFirestorePayload {
+                    for (k, v) in hk {
+                        subData[k] = v
+                    }
+                }
                 transaction.setData(subData, forDocument: submissionRef)
 
                 return true

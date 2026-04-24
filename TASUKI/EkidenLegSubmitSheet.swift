@@ -29,6 +29,8 @@ struct EkidenLegSubmitSheet: View {
 
     @State private var phase: Phase = .sourcePicker
     @State private var selectedRunActivityId: String? = nil  // デバイス記録の UUID
+    /// HealthKit 選択時の詳細（Firestore 提出用）
+    @State private var selectedHealthKitDetail: RunningWorkoutInfo?
     @State private var selectedRecordedActivityId: String? = nil
     @State private var healthKitWorkouts: [RunningWorkoutInfo] = []
     @State private var healthKitLoading = false
@@ -269,10 +271,10 @@ struct EkidenLegSubmitSheet: View {
                         } label: {
                             HStack {
                                 VStack(alignment: .leading, spacing: 4) {
-                                    Text(formatWorkoutDate(info.startDate))
+                                    Text("\(formatWorkoutDate(info.startDate)) 〜 \(formatWorkoutDate(info.endDate))")
                                         .font(.subheadline)
                                         .foregroundColor(Color.tasukiMutedText)
-                                    Text("\(String(format: "%.2f", info.totalDistanceKm)) km")
+                                    Text("\(String(format: "%.2f", info.totalDistanceKm)) km · \(info.sourceName)")
                                         .font(.caption)
                                         .foregroundColor(Color.tasukiMutedText)
                                 }
@@ -321,6 +323,15 @@ struct EkidenLegSubmitSheet: View {
                 confirmRow("提出元", selectedSourceLabel)
                 confirmRow("距離", "\(String(format: "%.2f", confirmDistanceKm)) km")
                 confirmRow("区間タイム", EkidenViewState.formatElapsed(confirmElapsedSeconds))
+                if let hk = selectedHealthKitDetail {
+                    confirmRow("デバイス開始", formatWorkoutFullDate(hk.startDate))
+                    confirmRow("デバイス終了", formatWorkoutFullDate(hk.endDate))
+                    confirmRow("活動時間 / 壁時計", "\(hk.durationFormatted) / \(hk.wallClockDurationFormatted)")
+                    confirmRow("データソース", hk.sourceName)
+                    if let m = hk.deviceModel, !m.isEmpty {
+                        confirmRow("デバイス", [hk.deviceManufacturer, m].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " "))
+                    }
+                }
             }
             .tasukiCard()
 
@@ -336,6 +347,7 @@ struct EkidenLegSubmitSheet: View {
                     submitError = nil
                     selectedRunActivityId = nil
                     selectedRecordedActivityId = nil
+                    selectedHealthKitDetail = nil
                 } label: {
                     Text("戻る")
                         .font(.system(size: 16, weight: .semibold))
@@ -382,6 +394,7 @@ struct EkidenLegSubmitSheet: View {
                     submitError = nil
                     selectedRunActivityId = nil
                     selectedRecordedActivityId = nil
+                    selectedHealthKitDetail = nil
                 }
                 .foregroundColor(Color.tasukiMutedText)
             }
@@ -519,6 +532,13 @@ struct EkidenLegSubmitSheet: View {
         return f.string(from: date)
     }
 
+    private func formatWorkoutFullDate(_ date: Date) -> String {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "ja_JP")
+        f.dateFormat = "yyyy/M/d HH:mm:ss"
+        return f.string(from: date)
+    }
+
     private func confirmRow(_ title: String, _ value: String) -> some View {
         HStack {
             Text(title)
@@ -600,6 +620,7 @@ struct EkidenLegSubmitSheet: View {
         )
         selectedRecordedActivityId = activity.id.uuidString
         selectedRunActivityId = nil
+        selectedHealthKitDetail = nil
     }
 
     private func applyHealthKitWorkout(_ info: RunningWorkoutInfo) {
@@ -610,6 +631,7 @@ struct EkidenLegSubmitSheet: View {
         )
         selectedRunActivityId = info.id.uuidString
         selectedRecordedActivityId = nil
+        selectedHealthKitDetail = info
     }
 
     private func finishRecorderAndPrepareSubmission() {
@@ -621,6 +643,7 @@ struct EkidenLegSubmitSheet: View {
         )
         selectedRunActivityId = nil
         selectedRecordedActivityId = nil
+        selectedHealthKitDetail = nil
         tracker.reset()
         showRecorder = false
         phase = .confirm
@@ -652,6 +675,7 @@ struct EkidenLegSubmitSheet: View {
             source = "app_record"
             runActivityId = nil
         }
+        let hkPayload = (source == "health_kit") ? selectedHealthKitDetail?.firestoreHealthKitPayload() : nil
         Task {
             let result = await EkidenDataService.shared.submitLeg(
                 teamId: teamId,
@@ -666,7 +690,8 @@ struct EkidenLegSubmitSheet: View {
                 submittedByUid: submittedByUid,
                 isSampleTeam: isSampleTeam,
                 source: source,
-                runActivityId: runActivityId
+                runActivityId: runActivityId,
+                healthKitFirestorePayload: hkPayload
             )
             await MainActor.run {
                 isSubmitting = false

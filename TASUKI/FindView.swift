@@ -68,7 +68,7 @@ struct FindView: View {
     @State private var practiceFilterSpot: String = ""
     @State private var practiceFilterCapacity: String = "指定なし"
     
-    // ダミーデータ（PartnerViewと同じ）
+    // ダミーデータ（Practices 検索用 PartnerUser）
     @State private var partnerMockUsers: [PartnerUser] = [
         PartnerUser(
             name: "Kenji_Run",
@@ -1037,20 +1037,7 @@ struct FindView: View {
     /// `useSpotBasedCopy`: 未検索のおすすめ表示では GPS ではなく「よく走る場所」で近いように見せる
     private func runnerCardView(user: User, useSpotBasedCopy: Bool) -> some View {
         HStack(spacing: 15) {
-            // 丸型プロフィール画像（名前の左側に配置）
-            if UIImage(named: user.profileImage) != nil {
-                Image(user.profileImage)
-                    .resizable()
-                    .scaledToFill()
-                    .frame(width: 60, height: 60)
-                    .clipShape(Circle())
-            } else {
-                // プレースホルダー
-                Image(systemName: "person.circle.fill")
-                    .font(.system(size: 60))
-                    .foregroundColor(Color.tasukiMutedText)
-                    .frame(width: 60, height: 60)
-            }
+            UserProfileAvatarView(user: user, size: 60)
             
             // 情報詳細
             VStack(alignment: .leading, spacing: 6) {
