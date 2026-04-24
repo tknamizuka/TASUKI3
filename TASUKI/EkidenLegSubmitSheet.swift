@@ -42,6 +42,7 @@ struct EkidenLegSubmitSheet: View {
     @State private var isSubmitting = false
     @State private var submitError: String?
     @State private var showRecorder = false
+    @State private var showRunRecordingView = false
     @State private var showFinishRelayView = false
     @State private var didTapRelayConnect = false
 
@@ -118,6 +119,37 @@ struct EkidenLegSubmitSheet: View {
             ekidenRecorderView
                 .onReceive(elapsedTimer) { recorderNow = $0 }
         }
+        .fullScreenCover(isPresented: $showRunRecordingView) {
+            NavigationStack {
+                RunRecordingView(onEkidenActivitySaved: { activity in
+                    let isWithinEventPeriod = activity.startedAt >= state.event.startAt && activity.startedAt <= state.event.endAt
+                    guard isWithinEventPeriod else {
+                        showRunRecordingView = false
+                        submitError = "イベント期間内の記録のみ提出できます。"
+                        phase = .sourcePicker
+                        return
+                    }
+                    if let minDate = minimumRunStartDateForStrictRelay, activity.startedAt < minDate {
+                        showRunRecordingView = false
+                        submitError = "この走行は前走者の保存完了より前に開始されています。"
+                        phase = .sourcePicker
+                        return
+                    }
+                    applyRunRecording(activity)
+                    submitError = nil
+                    showRunRecordingView = false
+                    phase = .confirm
+                })
+                    .toolbar {
+                        ToolbarItem(placement: .cancellationAction) {
+                            Button("閉じる") {
+                                showRunRecordingView = false
+                            }
+                            .foregroundColor(Color.tasukiMutedText)
+                        }
+                    }
+            }
+        }
         .fullScreenCover(isPresented: $showFinishRelayView) {
             finishRelayCelebrationView
         }
@@ -150,9 +182,7 @@ struct EkidenLegSubmitSheet: View {
             .tasukiCard()
 
             Button {
-                tracker.start()
-                recorderNow = Date()
-                showRecorder = true
+                showRunRecordingView = true
             } label: {
                 HStack {
                     Image(systemName: "location.fill")

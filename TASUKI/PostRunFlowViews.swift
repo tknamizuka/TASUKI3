@@ -17,12 +17,21 @@ struct RunFinishDraft: Identifiable {
 
 struct PostRunFlowView: View {
     let draft: RunFinishDraft
+    let onActivitySavedAndDismiss: ((RunActivity) -> Void)?
     @EnvironmentObject private var activityStore: RunActivityStore
     @EnvironmentObject private var mainTabRouter: MainTabRouter
     @Environment(\.dismiss) private var dismiss
 
     @State private var phase: PostRunPhase = .save
     @State private var savedActivity: RunActivity?
+
+    init(
+        draft: RunFinishDraft,
+        onActivitySavedAndDismiss: ((RunActivity) -> Void)? = nil
+    ) {
+        self.draft = draft
+        self.onActivitySavedAndDismiss = onActivitySavedAndDismiss
+    }
 
     private enum PostRunPhase: Equatable {
         case save
@@ -36,6 +45,11 @@ struct PostRunFlowView: View {
             case .save:
                 PostRunActivitySaveView(draft: draft) { activity in
                     savedActivity = activity
+                    if let onActivitySavedAndDismiss {
+                        onActivitySavedAndDismiss(activity)
+                        dismiss()
+                        return
+                    }
                     withAnimation(.easeInOut(duration: 0.28)) {
                         phase = .celebration
                     }

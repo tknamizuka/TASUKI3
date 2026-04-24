@@ -4,11 +4,13 @@ import Combine
 import CoreLocation
 
 struct RunRecordingView: View {
+    let onEkidenActivitySaved: ((RunActivity) -> Void)?
     @ObservedObject private var tracker = RunTracker.shared
     @ObservedObject private var activityStore = RunActivityStore.shared
     @ObservedObject private var qaStore = CoachQAStore.shared
     @EnvironmentObject private var coachCertification: CoachCertificationManager
     @EnvironmentObject private var mainTabRouter: MainTabRouter
+    @Environment(\.dismiss) private var dismiss
     @AppStorage("myName") private var myName: String = "Hiro"
     /// 0 のときは推定に 65kg を使う
     @AppStorage("runnerWeightKg") private var runnerWeightKg: Double = 0
@@ -211,7 +213,11 @@ struct RunRecordingView: View {
             activityStore.refreshFromRemote()
         }
         .fullScreenCover(item: $postRunDraft) { draft in
-            PostRunFlowView(draft: draft)
+            PostRunFlowView(draft: draft, onActivitySavedAndDismiss: { activity in
+                guard let onEkidenActivitySaved else { return }
+                onEkidenActivitySaved(activity)
+                dismiss()
+            })
                 .environmentObject(activityStore)
                 .environmentObject(mainTabRouter)
         }
@@ -725,6 +731,10 @@ struct RunRecordingView: View {
     private var averageSpeedKmh: Double {
         guard elapsedSeconds > 0 else { return 0 }
         return tracker.distanceKm / (elapsedSeconds / 3600.0)
+    }
+
+    init(onEkidenActivitySaved: ((RunActivity) -> Void)? = nil) {
+        self.onEkidenActivitySaved = onEkidenActivitySaved
     }
 
     private func finishAndPrepareDraft() {
