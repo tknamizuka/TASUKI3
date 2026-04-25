@@ -187,6 +187,8 @@ final class ConversationManager: UnreadCountProviderBase {
                 let list = (snapshot?.documents ?? []).map { doc in
                     let data = doc.data()
                     let partnerName = data["partnerName"] as? String ?? ""
+                    let partnerUserId = data["partnerUserId"] as? String
+                    let practiceId = data["practiceId"] as? String
                     let lastMessage = data["lastMessage"] as? String ?? ""
                     let lastMessageAt = (data["lastMessageAt"] as? Timestamp)?.dateValue() ?? (data["createdAt"] as? Timestamp)?.dateValue() ?? Date()
                     let lastReadAt: Date? = {
@@ -196,7 +198,7 @@ final class ConversationManager: UnreadCountProviderBase {
                     }()
                     let hasUnread = lastMessageAt > (lastReadAt ?? .distantPast)
                     // practiceId を持つ会話は「練習会チャット」として扱う
-                    let isPractice = (data["practiceId"] as? String) != nil || partnerName.hasPrefix("練習会:")
+                    let isPractice = practiceId != nil || partnerName.hasPrefix("練習会:")
                     return MessageConversation(
                         conversationId: doc.documentID,
                         partnerName: partnerName,
@@ -204,7 +206,9 @@ final class ConversationManager: UnreadCountProviderBase {
                         lastMessage: lastMessage.isEmpty ? "メッセージがありません" : lastMessage,
                         timestamp: lastMessageAt,
                         hasUnread: hasUnread,
-                        isPractice: isPractice
+                        isPractice: isPractice,
+                        partnerUserId: partnerUserId,
+                        practiceId: practiceId
                     )
                 }
                 completion(.success(list))
@@ -259,7 +263,14 @@ final class ConversationManager: UnreadCountProviderBase {
                 isNew: false
             )
         ]
-        completion(.success(samples))
+        Task { @MainActor in
+            let fromStore = PartnerMatchRequestsStore.shared.matchRequestSummaries()
+            var merged: [String: MatchRequestSummary] = [:]
+            for s in samples { merged[s.id] = s }
+            for s in fromStore { merged[s.id] = s }
+            let list = merged.values.sorted { $0.createdAt > $1.createdAt }
+            completion(.success(list))
+        }
     }
     
     /// 未読会話数を再取得して unreadCount を更新（HomeView のバッジ用）

@@ -32,6 +32,7 @@ struct HomeView: View {
     @EnvironmentObject private var unreadProvider: UnreadCountProviderBase
     @EnvironmentObject private var joinedPracticesStore: JoinedPracticesStore
     @EnvironmentObject private var matchPromisesStore: MatchPromisesStore
+    @EnvironmentObject private var partnerMatchStore: PartnerMatchRequestsStore
     @AppStorage("runningDataSource") private var runningDataSourceRaw: String = RunningDataSource.all.rawValue
     @AppStorage("myRank") private var myRank: String = "Rank E"
     @AppStorage("reduceRankingPressure") private var reduceRankingPressure: Bool = false
@@ -245,6 +246,29 @@ struct HomeView: View {
                     }
                     .padding(.horizontal, 20)
 
+                    if !partnerMatchStore.homeIncomingItems.isEmpty {
+                        VStack(alignment: .leading, spacing: 10) {
+                            Text("マッチングリクエスト")
+                                .font(.system(size: 11, weight: .bold))
+                                .tracking(1.2)
+                                .foregroundColor(Color.tasukiMutedText)
+                                .padding(.horizontal, 24)
+                                .padding(.top, 20)
+
+                            VStack(spacing: 8) {
+                                ForEach(partnerMatchStore.homeIncomingItems) { item in
+                                    NavigationLink(
+                                        destination: RequestDetailView(request: item.toMatchRequestSummary())
+                                    ) {
+                                        homeMatchRequestRow(item: item)
+                                    }
+                                    .buttonStyle(.plain)
+                                }
+                            }
+                            .padding(.horizontal, 20)
+                        }
+                    }
+
                     if !reduceRankingPressure {
                         NavigationLink(destination: RankingView()) {
                             TasukiFlatHubRow(
@@ -387,6 +411,54 @@ struct HomeView: View {
         return String(format: "%02d:%02d", m, s)
     }
 
+    private func homeMatchRequestRow(item: PartnerMatchRequestItem) -> some View {
+        let dateLine = item.proposedDates
+            .map { PartnerMatchRequestsStore.matchDateFormatter.string(from: $0) }
+            .joined(separator: " · ")
+        return HStack(alignment: .top, spacing: 14) {
+            Image(systemName: "person.crop.circle.badge.plus")
+                .font(.system(size: 22, weight: .medium))
+                .foregroundColor(Color.tasukiPrimary)
+                .frame(width: 40, height: 40)
+
+            VStack(alignment: .leading, spacing: 6) {
+                HStack {
+                    Text(item.peerDisplayName)
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundColor(.black)
+                        .lineLimit(1)
+                    if item.status == .pending {
+                        Text("NEW")
+                            .font(.system(size: 10, weight: .bold))
+                            .foregroundColor(Color.tasukiOnBrandYellow)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(Capsule().fill(Color.tasukiBrandYellow))
+                    }
+                    Spacer(minLength: 0)
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundColor(Color.tasukiMutedText)
+                }
+                Text("場所: \(item.proposedPlace)")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundColor(Color.tasukiMutedText)
+                    .lineLimit(2)
+                Text("候補: \(dateLine)")
+                    .font(.system(size: 12, weight: .regular))
+                    .foregroundColor(Color.tasukiMutedText.opacity(0.95))
+                    .lineLimit(3)
+            }
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 14)
+                .fill(Color.white)
+                .shadow(color: Color.black.opacity(0.06), radius: 6, x: 0, y: 2)
+        )
+    }
+
     private func loadDistanceFromHealthKit() {
         HealthKitManager.shared.requestAuthorization { success, error in
             if !success {
@@ -421,6 +493,7 @@ struct HomeView: View {
     .environmentObject(PreviewUnreadProvider() as UnreadCountProviderBase)
     .environmentObject(JoinedPracticesStore())
     .environmentObject(MatchPromisesStore())
+    .environmentObject(PartnerMatchRequestsStore.shared)
 }
 
 /// 円グラフ（黄→紫グラデ・進捗弧）の見え方確認用サンプル。実機では HealthKit の値を使用。
@@ -437,6 +510,7 @@ struct HomeView: View {
     .environmentObject(PreviewUnreadProvider() as UnreadCountProviderBase)
     .environmentObject(JoinedPracticesStore())
     .environmentObject(MatchPromisesStore())
+    .environmentObject(PartnerMatchRequestsStore.shared)
 }
 
 #Preview("円グラフサンプル・未達（22%）") {
@@ -452,6 +526,7 @@ struct HomeView: View {
     .environmentObject(PreviewUnreadProvider() as UnreadCountProviderBase)
     .environmentObject(JoinedPracticesStore())
     .environmentObject(MatchPromisesStore())
+    .environmentObject(PartnerMatchRequestsStore.shared)
 }
 
 #Preview("円グラフサンプル・ほぼ達成（91%）") {
@@ -467,6 +542,7 @@ struct HomeView: View {
     .environmentObject(PreviewUnreadProvider() as UnreadCountProviderBase)
     .environmentObject(JoinedPracticesStore())
     .environmentObject(MatchPromisesStore())
+    .environmentObject(PartnerMatchRequestsStore.shared)
 }
 
 #Preview("円グラフサンプル・目標超え（109%・弧は100%で頭打ち）") {
@@ -482,6 +558,7 @@ struct HomeView: View {
     .environmentObject(PreviewUnreadProvider() as UnreadCountProviderBase)
     .environmentObject(JoinedPracticesStore())
     .environmentObject(MatchPromisesStore())
+    .environmentObject(PartnerMatchRequestsStore.shared)
 }
 
 #Preview("未読・参加予定バッジあり") {
@@ -499,4 +576,5 @@ struct HomeView: View {
     .environmentObject(PreviewUnreadProvider(unreadCount: 3) as UnreadCountProviderBase)
     .environmentObject(store)
     .environmentObject(MatchPromisesStore())
+    .environmentObject(PartnerMatchRequestsStore.shared)
 }

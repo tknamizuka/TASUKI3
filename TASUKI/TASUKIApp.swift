@@ -129,6 +129,7 @@ struct TASUKIApp: App {
                         .environmentObject(ConversationManager.shared)
                         .environmentObject(joinedPracticesStore)
                         .environmentObject(matchPromisesStore)
+                        .environmentObject(PartnerMatchRequestsStore.shared)
                         .environmentObject(CoachCertificationManager.shared)
                         .environmentObject(tabBarVisibility)
                 }

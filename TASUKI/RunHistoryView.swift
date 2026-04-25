@@ -26,16 +26,43 @@ private func routeDistanceKm(_ coordinates: [CLLocationCoordinate2D]) -> Double 
 struct RunHistoryEntry: Identifiable {
     let id: UUID
     let date: Date
+    let endedAt: Date?
+    let durationSeconds: TimeInterval?
     let distanceKm: Double
     let pace: String  // 例: "5:30/km"
     let routeCoordinates: [CLLocationCoordinate2D]
+    let source: String?
+    let title: String?
+    let note: String?
+    let perceivedEffort: Int?
+    let postRunMood: Int?
     
-    init(id: UUID = UUID(), date: Date, distanceKm: Double, pace: String, routeCoordinates: [CLLocationCoordinate2D]) {
+    init(
+        id: UUID = UUID(),
+        date: Date,
+        endedAt: Date? = nil,
+        durationSeconds: TimeInterval? = nil,
+        distanceKm: Double,
+        pace: String,
+        routeCoordinates: [CLLocationCoordinate2D],
+        source: String? = nil,
+        title: String? = nil,
+        note: String? = nil,
+        perceivedEffort: Int? = nil,
+        postRunMood: Int? = nil
+    ) {
         self.id = id
         self.date = date
+        self.endedAt = endedAt
+        self.durationSeconds = durationSeconds
         self.distanceKm = distanceKm
         self.pace = pace
         self.routeCoordinates = routeCoordinates
+        self.source = source
+        self.title = title
+        self.note = note
+        self.perceivedEffort = perceivedEffort
+        self.postRunMood = postRunMood
     }
 }
 
@@ -126,43 +153,73 @@ struct RunHistoryListView: View {
             RunHistoryEntry(
                 id: activity.id,
                 date: activity.startedAt,
+                endedAt: activity.endedAt,
+                durationSeconds: activity.durationSeconds,
                 distanceKm: activity.distanceKm,
                 pace: activity.paceLabel,
-                routeCoordinates: activity.route.map(\.coordinate)
+                routeCoordinates: activity.route.map(\.coordinate),
+                source: activity.source,
+                title: activity.title,
+                note: activity.note,
+                perceivedEffort: activity.perceivedEffort,
+                postRunMood: activity.postRunMood
             )
-        }
-        if converted.isEmpty {
-            return sampleRunHistory
         }
         return converted.sorted { $0.date > $1.date }
     }
     
     var body: some View {
         NavigationStack {
-            List(resolvedEntries) { entry in
-                NavigationLink {
-                    RunHistoryDetailView(entry: entry)
-                } label: {
-                    HStack {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(formatDate(entry.date))
-                                .font(.subheadline)
-                                .foregroundColor(Color.tasukiPrimary)
-                            Text("\(String(format: "%.1f", entry.distanceKm)) km · \(entry.pace)")
-                                .font(.caption)
-                                .foregroundColor(Color.tasukiMutedText)
-                        }
-                        Spacer()
-                        Image(systemName: "chevron.right")
-                            .font(.caption)
+            Group {
+                if resolvedEntries.isEmpty {
+                    VStack(spacing: 10) {
+                        Text("履歴がありません")
+                            .font(.system(size: 16, weight: .semibold))
+                            .foregroundColor(Color.tasukiPrimary)
+                        Text("走行を記録するとここに表示されます。")
+                            .font(.system(size: 13))
                             .foregroundColor(Color.tasukiMutedText)
                     }
-                    .padding(.vertical, 4)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .padding(.horizontal, 24)
+                } else {
+                    List(resolvedEntries) { entry in
+                        NavigationLink {
+                            RunHistoryDetailView(entry: entry)
+                        } label: {
+                            HStack {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text(formatDate(entry.date))
+                                        .font(.subheadline)
+                                        .foregroundColor(Color.tasukiPrimary)
+                                    if let title = entry.title, !title.isEmpty {
+                                        Text(title)
+                                            .font(.system(size: 13, weight: .semibold))
+                                            .foregroundColor(Color.tasukiPrimary)
+                                            .lineLimit(1)
+                                    }
+                                    Text("\(String(format: "%.1f", entry.distanceKm)) km · \(entry.pace)")
+                                        .font(.caption)
+                                        .foregroundColor(Color.tasukiMutedText)
+                                    if let sec = entry.durationSeconds {
+                                        Text("\(formatDuration(sec)) · \(sourceLabel(entry.source))")
+                                            .font(.caption2)
+                                            .foregroundColor(Color.tasukiMutedText)
+                                    }
+                                }
+                                Spacer()
+                                Image(systemName: "chevron.right")
+                                    .font(.caption)
+                                    .foregroundColor(Color.tasukiMutedText)
+                            }
+                            .padding(.vertical, 4)
+                        }
+                        .listRowBackground(Color.tasukiDarkCardSecondary.opacity(0.45))
+                    }
+                    .listStyle(.insetGrouped)
+                    .scrollContentBackground(.hidden)
                 }
-                .listRowBackground(Color.tasukiDarkCardSecondary.opacity(0.45))
             }
-            .listStyle(.insetGrouped)
-            .scrollContentBackground(.hidden)
             .background(Color.tasukiDarkBackground)
             .navigationTitle("")
             .navigationBarTitleDisplayMode(.inline)
@@ -187,6 +244,26 @@ struct RunHistoryListView: View {
         f.locale = Locale(identifier: "ja_JP")
         f.dateFormat = "M月d日(E) HH:mm"
         return f.string(from: date)
+    }
+
+    private func formatDuration(_ sec: TimeInterval) -> String {
+        let total = Int(sec)
+        let h = total / 3600
+        let m = (total % 3600) / 60
+        let s = total % 60
+        if h > 0 { return String(format: "%d:%02d:%02d", h, m, s) }
+        return String(format: "%02d:%02d", m, s)
+    }
+
+    private func sourceLabel(_ source: String?) -> String {
+        switch source {
+        case "run_recorder": return "Run記録"
+        case "health_kit": return "HealthKit"
+        case "app_record": return "アプリ記録"
+        case "manual": return "手入力"
+        case .some(let raw) where !raw.isEmpty: return raw
+        default: return "不明"
+        }
     }
 }
 
@@ -226,10 +303,36 @@ struct RunHistoryDetailView: View {
                         .font(.title2)
                         .fontWeight(.bold)
                         .foregroundColor(Color.tasukiPrimary)
+                    if let title = entry.title, !title.isEmpty {
+                        Text(title)
+                            .font(.system(size: 16, weight: .semibold))
+                            .foregroundColor(Color.tasukiPrimary)
+                    }
                     
                     HStack(spacing: 24) {
                         labelValue(title: "距離", value: "\(String(format: "%.1f", entry.distanceKm)) km")
                         labelValue(title: "ペース", value: entry.pace)
+                    }
+                    HStack(spacing: 24) {
+                        labelValue(title: "時間", value: formatDuration(entry.durationSeconds ?? 0))
+                        labelValue(title: "ソース", value: sourceLabel(entry.source))
+                    }
+                    if let effort = entry.perceivedEffort {
+                        labelValue(title: "きつさ", value: "\(effort)/5")
+                    }
+                    if let mood = entry.postRunMood {
+                        labelValue(title: "気分", value: "\(mood)/5")
+                    }
+                    if let note = entry.note, !note.isEmpty {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("メモ")
+                                .font(.caption)
+                                .foregroundColor(Color.tasukiMutedText)
+                            Text(note)
+                                .font(.system(size: 14, weight: .regular))
+                                .foregroundColor(Color.tasukiPrimary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -267,6 +370,26 @@ struct RunHistoryDetailView: View {
         f.locale = Locale(identifier: "ja_JP")
         f.dateFormat = "M月d日(E) HH:mm"
         return f.string(from: date)
+    }
+
+    private func formatDuration(_ sec: TimeInterval) -> String {
+        let total = Int(sec)
+        let h = total / 3600
+        let m = (total % 3600) / 60
+        let s = total % 60
+        if h > 0 { return String(format: "%d:%02d:%02d", h, m, s) }
+        return String(format: "%02d:%02d", m, s)
+    }
+
+    private func sourceLabel(_ source: String?) -> String {
+        switch source {
+        case "run_recorder": return "Run記録"
+        case "health_kit": return "HealthKit"
+        case "app_record": return "アプリ記録"
+        case "manual": return "手入力"
+        case .some(let raw) where !raw.isEmpty: return raw
+        default: return "不明"
+        }
     }
     
     private func labelValue(title: String, value: String) -> some View {

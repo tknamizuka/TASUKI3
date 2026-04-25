@@ -5,8 +5,6 @@ import UIKit
 struct UserProfileDetailView: View {
     let user: User
     private let activityChartPoints: [WeeklyActivityChartPoint]
-    @State private var showRequestAlert = false
-    @State private var showRequestSent = false
     @Environment(\.dismiss) private var dismiss
 
     init(user: User, activityChartPoints: [WeeklyActivityChartPoint]? = nil) {
@@ -49,9 +47,9 @@ struct UserProfileDetailView: View {
             }
         }
         .overlay(alignment: .bottom) {
-            Button(action: {
-                showRequestAlert = true
-            }) {
+            NavigationLink {
+                MatchingRequestComposeView(recipient: user)
+            } label: {
                 Text("マッチングのリクエストを送る")
                     .font(.headline)
                     .fontWeight(.bold)
@@ -71,20 +69,6 @@ struct UserProfileDetailView: View {
                 .frame(height: 100)
             )
         }
-        .alert("リクエスト送信", isPresented: $showRequestAlert) {
-            Button("キャンセル", role: .cancel) { }
-            Button("送る") {
-                print("\(user.name)さんにマッチングリクエストを送信しました")
-                showRequestSent = true
-            }
-        } message: {
-            Text("\(user.name)さんにマッチングリクエストを送りますか？")
-        }
-        .alert("送信完了", isPresented: $showRequestSent) {
-            Button("OK") { }
-        } message: {
-            Text("\(user.name)さんにマッチングリクエストを送信しました")
-        }
     }
 }
 
@@ -92,4 +76,5 @@ struct UserProfileDetailView: View {
     NavigationStack {
         UserProfileDetailView(user: mockUsers[0])
     }
+    .environmentObject(PartnerMatchRequestsStore.shared)
 }

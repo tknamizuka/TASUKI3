@@ -36,28 +36,52 @@ struct ChatView: View {
     let partnerName: String
     /// 練習会チャットかどうか（true のときメッセージに送信者名を表示）
     var isPractice: Bool = false
+    /// 練習会チャットに紐づく practiceId（存在しない場合は nil）
+    var practiceId: String? = nil
+    /// 1on1 会話相手の userId（取得できない場合は nil）
+    var partnerUserId: String? = nil
     @Environment(\.dismiss) var dismiss
     @EnvironmentObject private var tabBarVisibility: TabBarVisibility
-    
+    @EnvironmentObject private var joinedPracticesStore: JoinedPracticesStore
+    @EnvironmentObject private var partnerMatchStore: PartnerMatchRequestsStore
+    @EnvironmentObject private var matchPromisesStore: MatchPromisesStore
+
     @State private var messages: [ChatMessage] = []
     @State private var messageText: String = ""
     @State private var replyingTo: ChatMessage?
     @FocusState private var isTextFieldFocused: Bool
     @AppStorage("myName") private var myName: String = "Hiro"
+    @AppStorage("blockedConversationIds") private var blockedConversationIdsRaw: String = ""
     
     @State private var showReportSheet = false
-    @State private var reportCategory: String = ""
+    @State private var showReportDetailSheet = false
+    @State private var selectedReportCategory: String = ""
+    @State private var reportOccurredAt: Date = Date()
     @State private var reportDetailText: String = ""
-    @FocusState private var isReportDetailFocused: Bool
+    @State private var reportIncludedBlock = false
     @State private var showReportSuccess = false
     @State private var showReportErrorAlert = false
     @State private var reportErrorMessage: String = ""
     @State private var isSubmittingReport = false
+    @State private var showLinkedProfile = false
+    @State private var showLinkedPractice = false
+    @State private var showBlockConfirmAlert = false
+    @State private var showUnblockConfirmAlert = false
+    @State private var showBlockSuccessAlert = false
+    @State private var showPracticeScheduleSheet = false
 
-    init(conversationId: String = "dummy-preview", partnerName: String = "Tanaka-san", isPractice: Bool = false) {
+    init(
+        conversationId: String = "dummy-preview",
+        partnerName: String = "Kenji_Run",
+        isPractice: Bool = false,
+        practiceId: String? = nil,
+        partnerUserId: String? = nil
+    ) {
         self.conversationId = conversationId
         self.partnerName = partnerName
         self.isPractice = isPractice
+        self.practiceId = practiceId
+        self.partnerUserId = partnerUserId
     }
     
     var body: some View {
@@ -102,10 +126,25 @@ struct ChatView: View {
             }
             ToolbarItem(placement: .navigationBarTrailing) {
                 Menu {
-                    Button("スパム") { openReportSheet(category: "スパム") }
-                    Button("ハラスメント") { openReportSheet(category: "ハラスメント") }
-                    Button("不適切な内容") { openReportSheet(category: "不適切な内容") }
-                    Button("その他") { openReportSheet(category: "その他") }
+                    if !isPractice {
+                        Button("プロフィールを見る") {
+                            showLinkedProfile = true
+                        }
+                    } else {
+                        Button("練習会を見る") {
+                            showLinkedPractice = true
+                        }
+                        .disabled(linkedPracticeForChat == nil)
+                    }
+                    Divider()
+                    Button("通報する") { openReportSheet() }
+                    Button(isBlockedConversation ? "ブロック解除する" : "ブロックする", role: isBlockedConversation ? .none : .destructive) {
+                        if isBlockedConversation {
+                            showUnblockConfirmAlert = true
+                        } else {
+                            showBlockConfirmAlert = true
+                        }
+                    }
                 } label: {
                     Image(systemName: "ellipsis.circle")
                         .font(.system(size: 18, weight: .semibold))
@@ -114,20 +153,50 @@ struct ChatView: View {
                 .disabled(isSubmittingReport)
             }
         }
-        .sheet(isPresented: $showReportSheet, onDismiss: {
-            reportDetailText = ""
-        }) {
+        .sheet(isPresented: $showReportSheet) {
             reportSheetContent
+        }
+        .sheet(isPresented: $showReportDetailSheet) {
+            reportDetailSheetContent
         }
         .alert("受け付けました", isPresented: $showReportSuccess) {
             Button("OK", role: .cancel) {}
         } message: {
-            Text("内容を確認のうえ、適切に対応します。")
+            Text(reportIncludedBlock ? "内容を確認のうえ、適切に対応します。あわせて相手をブロックしました。" : "内容を確認のうえ、適切に対応します。")
+        }
+        .alert("ブロックしますか？", isPresented: $showBlockConfirmAlert) {
+            Button("キャンセル", role: .cancel) {}
+            Button("ブロック", role: .destructive) {
+                blockCurrentConversation()
+            }
+        } message: {
+            Text("相手はあなたにメッセージを送ったり、あなたのプロフィールを見つけたりすることができなくなります。ブロックしたことは相手に通知されません。")
+        }
+        .alert("ブロックしました", isPresented: $showBlockSuccessAlert) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text("この相手との会話をブロックしました。")
+        }
+        .alert("ブロック解除しますか？", isPresented: $showUnblockConfirmAlert) {
+            Button("キャンセル", role: .cancel) {}
+            Button("ブロック解除", role: .destructive) {
+                unblockCurrentConversation()
+            }
+        } message: {
+            Text("この相手をブロック解除します。")
         }
         .alert("通報に失敗しました", isPresented: $showReportErrorAlert) {
             Button("OK", role: .cancel) {}
         } message: {
             Text(reportErrorMessage)
+        }
+        .sheet(isPresented: $showPracticeScheduleSheet) {
+            ChatPracticeScheduleSheet(
+                initialPlace: resolvedDefaultSchedulePlace(),
+                onSend: { place, date in
+                    sendScheduleProposal(place: place, date: date)
+                }
+            )
         }
         .onAppear {
             tabBarVisibility.pushHiddenContext()
@@ -137,25 +206,111 @@ struct ChatView: View {
         .onDisappear {
             tabBarVisibility.popHiddenContext()
         }
+        .navigationDestination(isPresented: $showLinkedProfile) {
+            UserProfileDetailView(user: linkedUserForProfile)
+        }
+        .navigationDestination(isPresented: $showLinkedPractice) {
+            if let practice = linkedPracticeForChat {
+                PracticeDetailView(practice: practice)
+            } else {
+                Text("練習会情報が見つかりません")
+                    .font(.system(size: 14))
+                    .foregroundColor(Color.tasukiMutedText)
+            }
+        }
+    }
+
+    private var linkedUserForProfile: User {
+        let pool = [mockUser] + mockUsers
+        if let id = partnerUserId {
+            if let byId = pool.first(where: { $0.id.uuidString == id }) {
+                return byId
+            }
+        }
+        if let byName = pool.first(where: { $0.name == partnerName }) {
+            return byName
+        }
+        // 一覧に無い表示名でもプロフィール画面へ遷移できるよう、最低限の表示用データを補完する
+        return User(
+            id: UUID(),
+            name: partnerName,
+            profileImage: User.findMockInitialsProfileImageToken,
+            profileImageUrl: nil,
+            bio: "ランニング仲間です。",
+            rank: "Rank C",
+            age: 30,
+            gender: "未設定",
+            purpose: "ランニングを楽しむ",
+            prefecture: "未設定",
+            area: "未設定",
+            pace: "--:-- /km",
+            runningFrequency: "未設定",
+            personalBest: "未設定",
+            schedule: "未設定",
+            nextRace: "",
+            targetTime: "",
+            monthlyDistance: 0,
+            monthlyTarget: 100,
+            avgPace: "--:-- /km",
+            totalPoints: 0,
+            monthlyPoints: 0,
+            matchRate: 50,
+            lastLogin: Date(),
+            spotName: "未設定",
+            latitude: 35.68,
+            longitude: 139.76,
+            distanceFromUserMock: 0,
+            monthlyGpsActivityCount: nil
+        )
+    }
+
+    private var linkedPracticeForChat: Practice? {
+        if let pid = practiceId,
+           let recruitment = mockRecruitments.first(where: { $0.practiceId == pid }) {
+            return recruitment.toPractice()
+        }
+        if let rawTitle = partnerName.split(separator: ":").dropFirst().first {
+            let title = String(rawTitle).trimmingCharacters(in: .whitespaces)
+            if let recruitment = mockRecruitments.first(where: { $0.title == title }) {
+                return recruitment.toPractice()
+            }
+        }
+        if let recruitment = mockRecruitments.first(where: { partnerName.contains($0.title) }) {
+            return recruitment.toPractice()
+        }
+        return nil
     }
     
     private var reportSheetContent: some View {
         NavigationStack {
-            VStack(alignment: .leading, spacing: 16) {
-                Text("選択した理由: \(reportCategory)")
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundColor(Color.tasukiPrimary)
-                Text("詳しい内容を入力してください（運営が確認します）")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                TextField("具体的な理由を入力", text: $reportDetailText, axis: .vertical)
-                    .textFieldStyle(.roundedBorder)
-                    .lineLimit(3...6)
-                    .focused($isReportDetailFocused)
-                Spacer(minLength: 0)
+            VStack(alignment: .leading, spacing: 0) {
+                Text("理由を選択してください。")
+                    .font(.system(size: 24, weight: .bold))
+                    .padding(.horizontal, 20)
+                    .padding(.top, 20)
+                    .padding(.bottom, 12)
+                List {
+                    ForEach(reportCategories, id: \.self) { category in
+                        Button {
+                            selectedReportCategory = category
+                        } label: {
+                            HStack {
+                                Text(category)
+                                    .font(.system(size: 16))
+                                    .foregroundColor(Color.tasukiPrimary)
+                                Spacer()
+                                Image(systemName: selectedReportCategory == category ? "checkmark.circle.fill" : "circle")
+                                    .foregroundColor(selectedReportCategory == category ? Color.tasukiAccent : Color.gray.opacity(0.5))
+                            }
+                        }
+                        .buttonStyle(.plain)
+                        .listRowBackground(Color.tasukiSurface)
+                    }
+                }
+                .listStyle(.plain)
             }
-            .padding(20)
-            .navigationTitle("会話を通報")
+            .background(Color.tasukiDarkBackground)
+            .navigationTitle("会話を報告")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -165,35 +320,182 @@ struct ChatView: View {
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("通報する") {
-                        submitReportFromSheet()
+                        openReportDetailSheet()
                     }
-                    .disabled(isSubmittingReport)
+                    .disabled(isSubmittingReport || selectedReportCategory.isEmpty)
                 }
             }
-            .onAppear {
-                isReportDetailFocused = true
+        }
+        .presentationDetents([.medium, .large])
+    }
+
+    private var reportDetailSheetContent: some View {
+        NavigationStack {
+            VStack(alignment: .leading, spacing: 14) {
+                Text("通報カテゴリ: \(selectedReportCategory)")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundColor(Color.tasukiPrimary)
+                DatePicker("発生日時", selection: $reportOccurredAt, displayedComponents: [.date, .hourAndMinute])
+                    .datePickerStyle(.compact)
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("理由（テキスト）")
+                        .font(.system(size: 12, weight: .bold))
+                        .foregroundColor(Color.tasukiMutedText)
+                    TextEditor(text: $reportDetailText)
+                        .frame(minHeight: 140)
+                        .padding(6)
+                        .background(
+                            RoundedRectangle(cornerRadius: 10)
+                                .stroke(Color.tasukiDarkCardSecondary, lineWidth: 1)
+                        )
+                }
+                Spacer()
+                HStack(spacing: 10) {
+                    Button("報告してブロック") {
+                        submitReportDetail(alsoBlock: true)
+                    }
+                    .font(.system(size: 15, weight: .bold))
+                    .foregroundColor(Color.pureWhite)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 12)
+                    .background(RoundedRectangle(cornerRadius: 12).fill(Color.tasukiPrimary))
+                    .disabled(isSubmittingReport || reportDetailText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+
+                    Button("報告する") {
+                        submitReportDetail(alsoBlock: false)
+                    }
+                    .font(.system(size: 15, weight: .bold))
+                    .foregroundColor(Color.tasukiOnBrandYellow)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 12)
+                    .background(RoundedRectangle(cornerRadius: 12).fill(Color.tasukiPrimaryButtonFill))
+                    .disabled(isSubmittingReport || reportDetailText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
+            }
+            .padding(20)
+            .background(Color.tasukiDarkBackground)
+            .navigationTitle("通報内容を入力")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("キャンセル") {
+                        showReportDetailSheet = false
+                    }
+                }
             }
         }
         .presentationDetents([.medium, .large])
     }
     
-    private func openReportSheet(category: String) {
-        reportCategory = category
+    private var reportCategories: [String] {
+        ["スパム", "ハラスメント", "不適切な内容", "その他"]
+    }
+
+    private func openReportSheet() {
+        selectedReportCategory = ""
         reportDetailText = ""
+        reportOccurredAt = Date()
         showReportSheet = true
     }
     
-    private func submitReportFromSheet() {
-        let detail = reportDetailText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !detail.isEmpty else {
-            reportErrorMessage = "詳しい内容を入力してください。"
+    private func openReportDetailSheet() {
+        showReportSheet = false
+        showReportDetailSheet = true
+    }
+
+    private func submitReportDetail(alsoBlock: Bool) {
+        let text = reportDetailText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else {
+            reportErrorMessage = "理由（テキスト）を入力してください。"
             showReportErrorAlert = true
             return
         }
-        showReportSheet = false
-        submitReport(category: reportCategory, detail: detail)
+        reportIncludedBlock = alsoBlock
+        if alsoBlock {
+            blockCurrentConversation(showSuccessAlert: false)
+        }
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "ja_JP")
+        f.dateFormat = "yyyy/MM/dd HH:mm"
+        let detail = "発生日時: \(f.string(from: reportOccurredAt))\n理由: \(text)"
+        showReportDetailSheet = false
+        submitReport(category: selectedReportCategory, detail: detail)
     }
-    
+
+    private func blockCurrentConversation(showSuccessAlert: Bool = true) {
+        var blocked = Set(blockedConversationIdsRaw.split(separator: ",").map(String.init))
+        blocked.insert(conversationId)
+        blockedConversationIdsRaw = blocked.sorted().joined(separator: ",")
+        if showSuccessAlert {
+            showBlockSuccessAlert = true
+        }
+    }
+
+    private func unblockCurrentConversation() {
+        var blocked = Set(blockedConversationIdsRaw.split(separator: ",").map(String.init))
+        blocked.remove(conversationId)
+        blockedConversationIdsRaw = blocked.sorted().joined(separator: ",")
+    }
+
+    private var isBlockedConversation: Bool {
+        Set(blockedConversationIdsRaw.split(separator: ",").map(String.init)).contains(conversationId)
+    }
+
+    private var userDefaultsSchedulePlaceKey: String {
+        "ChatSchedule.lastPlace.\(conversationId)"
+    }
+
+    /// 次回練習シートの既定の場所: この会話で最後に送った場所 → マッチング／約束／参加練習会から推定
+    private func resolvedDefaultSchedulePlace() -> String {
+        if let saved = UserDefaults.standard.string(forKey: userDefaultsSchedulePlaceKey)?
+            .trimmingCharacters(in: .whitespacesAndNewlines), !saved.isEmpty {
+            return saved
+        }
+        if isPractice {
+            if let pid = practiceId,
+               let loc = joinedPracticesStore.items.first(where: { $0.practiceId == pid })?.location
+                .trimmingCharacters(in: .whitespacesAndNewlines), !loc.isEmpty {
+                return loc
+            }
+            if let loc = joinedPracticesStore.items.first(where: { $0.chatId == conversationId })?.location
+                .trimmingCharacters(in: .whitespacesAndNewlines), !loc.isEmpty {
+                return loc
+            }
+            return ""
+        }
+        if let loc = partnerMatchStore.lastKnownPlace(peerName: partnerName, conversationId: conversationId)?
+            .trimmingCharacters(in: .whitespacesAndNewlines), !loc.isEmpty {
+            return loc
+        }
+        if let loc = matchPromisesStore.items.first(where: { $0.conversationId == conversationId })?.location
+            .trimmingCharacters(in: .whitespacesAndNewlines), !loc.isEmpty {
+            return loc
+        }
+        return ""
+    }
+
+    private static let scheduleMessageDateFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "ja_JP")
+        f.dateStyle = .medium
+        f.timeStyle = .short
+        return f
+    }()
+
+    private func sendScheduleProposal(place: String, date: Date) {
+        let trimmed = place.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        UserDefaults.standard.set(trimmed, forKey: userDefaultsSchedulePlaceKey)
+        let when = Self.scheduleMessageDateFormatter.string(from: date)
+        let body = "【次回練習の提案】\n場所: \(trimmed)\n日時: \(when)"
+        let newMessage = ChatMessage(
+            text: body,
+            isFromMe: true,
+            senderName: isPractice ? myName : nil
+        )
+        messages.append(newMessage)
+    }
+
     private var composerStack: some View {
         VStack(spacing: 0) {
             if let target = replyingTo {
@@ -298,7 +600,7 @@ struct ChatView: View {
     }
     
     private var inputAreaView: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: 10) {
             TextField("メッセージを入力", text: $messageText)
                 .textFieldStyle(.plain)
                 .padding(.horizontal, 16)
@@ -308,7 +610,23 @@ struct ChatView: View {
                         .fill(Color(.systemGray6))
                 )
                 .focused($isTextFieldFocused)
-            
+
+            Button {
+                showPracticeScheduleSheet = true
+            } label: {
+                Image(systemName: "calendar.badge.clock")
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundColor(Color.tasukiPrimary)
+                    .frame(width: 44, height: 44)
+                    .background(
+                        Circle()
+                            .strokeBorder(Color.tasukiPrimary.opacity(0.35), lineWidth: 1.5)
+                            .background(Circle().fill(Color.tasukiPrimary.opacity(0.08)))
+                    )
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("次回の練習の日程調整")
+
             Button(action: {
                 sendMessage()
             }) {
@@ -326,6 +644,8 @@ struct ChatView: View {
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
         .background(Color.white)
+        .disabled(isBlockedConversation)
+        .opacity(isBlockedConversation ? 0.45 : 1)
     }
     
     private func sendMessage() {
@@ -355,7 +675,7 @@ struct ChatView: View {
         }
     }
     
-    private func submitReport(category: String, detail: String) {
+    private func submitReport(category: String, detail: String?) {
         isSubmittingReport = true
         ConversationManager.shared.submitConversationReport(
             conversationId: conversationId,
@@ -408,7 +728,10 @@ struct ChatView: View {
 
 #Preview {
     NavigationStack {
-        ChatView(conversationId: "preview-1", partnerName: "Tanaka-san")
+        ChatView(conversationId: "preview-1", partnerName: "Kenji_Run")
             .environmentObject(TabBarVisibility())
+            .environmentObject(JoinedPracticesStore())
+            .environmentObject(PartnerMatchRequestsStore.shared)
+            .environmentObject(MatchPromisesStore())
     }
 }

@@ -215,6 +215,7 @@ struct MainTabView: View {
         .environmentObject(PreviewUnreadProvider() as UnreadCountProviderBase)
         .environmentObject(JoinedPracticesStore())
         .environmentObject(MatchPromisesStore())
+        .environmentObject(PartnerMatchRequestsStore.shared)
         .environmentObject(CoachCertificationManager.shared)
         .environmentObject(TabBarVisibility())
 }

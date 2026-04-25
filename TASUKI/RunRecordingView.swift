@@ -194,6 +194,11 @@ struct RunRecordingView: View {
                 trackingMapFillContent
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .transition(.opacity.combined(with: .move(edge: .bottom)))
+
+                trackingBottomCollapsedHandle
+                    .padding(.horizontal, 16)
+                    .padding(.top, 8)
+                    .padding(.bottom, 6)
             }
 
             HStack(spacing: 14) {
@@ -487,6 +492,55 @@ struct RunRecordingView: View {
         }
         .padding(.horizontal, 16)
         .padding(.top, 8)
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 20)
+                .onEnded { value in
+                    if value.translation.height < -48 {
+                        withAnimation(.spring(response: 0.38, dampingFraction: 0.86)) {
+                            isTrackingMapExpanded = false
+                        }
+                    }
+                }
+        )
+    }
+
+    /// 地図表示中でも下部に残す「引き出し」風ハンドル。
+    private var trackingBottomCollapsedHandle: some View {
+        HStack(spacing: 10) {
+            Capsule()
+                .fill(Color.tasukiPrimary.opacity(0.25))
+                .frame(width: 34, height: 5)
+            Text("上に引き出して記録ビューへ")
+                .font(.system(size: 11, weight: .bold))
+                .tracking(1.2)
+                .foregroundColor(Color.tasukiMutedText)
+            Image(systemName: "chevron.up")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundColor(Color.tasukiMutedText.opacity(0.85))
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 12)
+        .background(
+            RoundedRectangle(cornerRadius: 14)
+                .fill(Color.tasukiSurface)
+                .shadow(color: Color.black.opacity(0.08), radius: 8, y: 2)
+        )
+        .contentShape(Rectangle())
+        .onTapGesture {
+            withAnimation(.spring(response: 0.38, dampingFraction: 0.86)) {
+                isTrackingMapExpanded = false
+            }
+        }
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 18)
+                .onEnded { value in
+                    if value.translation.height < -28 {
+                        withAnimation(.spring(response: 0.38, dampingFraction: 0.86)) {
+                            isTrackingMapExpanded = false
+                        }
+                    }
+                }
+        )
     }
 
     private var titleCard: some View {
@@ -622,7 +676,7 @@ struct RunRecordingView: View {
                     .tracking(1.2)
                     .foregroundColor(Color.tasukiMutedText)
                 Spacer()
-                NavigationLink(destination: RunHistoryListView()) {
+                NavigationLink(destination: RunHistoryListView(entries: historyEntriesFromActivities)) {
                     Text("すべて見る")
                         .font(.caption)
                         .foregroundColor(Color.tasukiAccent)
@@ -662,6 +716,25 @@ struct RunRecordingView: View {
                     .padding(.vertical, 10)
                 }
             }
+        }
+    }
+
+    private var historyEntriesFromActivities: [RunHistoryEntry] {
+        activityStore.activities.map { activity in
+            RunHistoryEntry(
+                id: activity.id,
+                date: activity.startedAt,
+                endedAt: activity.endedAt,
+                durationSeconds: activity.durationSeconds,
+                distanceKm: activity.distanceKm,
+                pace: activity.paceLabel,
+                routeCoordinates: activity.route.map(\.coordinate),
+                source: activity.source,
+                title: activity.title,
+                note: activity.note,
+                perceivedEffort: activity.perceivedEffort,
+                postRunMood: activity.postRunMood
+            )
         }
     }
 

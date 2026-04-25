@@ -294,7 +294,8 @@ struct PracticeScheduleCalendarView: View {
                                                     destination: ChatView(
                                                         conversationId: cid,
                                                         partnerName: "練習会: \(item.title)",
-                                                        isPractice: true
+                                                        isPractice: true,
+                                                        practiceId: item.practiceId
                                                     )
                                                 ) {
                                                     HStack(spacing: 8) {
@@ -495,5 +496,8 @@ struct PracticeScheduleCalendarView: View {
     store.add(JoinedPracticeItem(id: "2", practiceId: "p2", title: "代々木ジョグ", location: "代々木公園", date: cal.date(byAdding: .day, value: 5, to: Date())!, chatId: nil))
     return PracticeScheduleCalendarView(store: store, matchPromisesStore: matchStore)
         .environmentObject(TabBarVisibility())
+        .environmentObject(store)
+        .environmentObject(matchStore)
+        .environmentObject(PartnerMatchRequestsStore.shared)
 }
 #endif

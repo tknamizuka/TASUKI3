@@ -45,8 +45,10 @@ struct LoginView: View {
                 // 入力フォーム
                 VStack(spacing: 16) {
                     TextField("メールアドレス", text: $email)
-                        .keyboardType(.emailAddress)
+                        // .emailAddress キーボードは日本語環境で「@」が打てない／出しにくい報告があるため、ASCII 入力可能なキーボードにする
+                        .keyboardType(.asciiCapable)
                         .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled(true)
                         .textContentType(.emailAddress)
                         .padding()
                         .background(

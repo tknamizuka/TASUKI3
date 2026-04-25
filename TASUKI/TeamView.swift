@@ -256,7 +256,8 @@ struct TeamView: View {
         if let override = debugLeaveAllowedOverride {
             return override
         }
-        guard let state = ekidenViewState else { return true }
+        // EKIDEN 状態の読み込み前は一時的に脱退ボタンを出さない（文言ちらつき防止）
+        guard let state = ekidenViewState else { return false }
         return !state.isWithinEventWindow
     }
     
@@ -688,35 +689,51 @@ struct TeamView: View {
     @ViewBuilder
     private var leaveTeamSection: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Button {
-                if isTeamOwner {
-                    ownerLeaveError = nil
-                    selectedSuccessorUid = ""
-                    showOwnerLeaveSheet = true
-                } else {
-                    showLeaveTeamConfirm = true
+            if ekidenViewState == nil && debugLeaveAllowedOverride == nil {
+                HStack(spacing: 8) {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text("読み込み中…")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundColor(Color.tasukiMutedText)
                 }
-            } label: {
-                HStack {
-                    Spacer()
-                    Text("チームから脱退")
-                        .font(.system(size: 15, weight: .semibold))
-                    Spacer()
-                }
+                .frame(maxWidth: .infinity, alignment: .center)
                 .frame(height: 44)
                 .background(
                     RoundedRectangle(cornerRadius: 12)
-                        .fill(canLeaveTeam ? Color.white : Color.gray.opacity(0.22))
+                        .fill(Color.gray.opacity(0.12))
                 )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 12)
-                        .stroke(Color.gray.opacity(canLeaveTeam ? 0.4 : 0.2), lineWidth: 1)
-                )
+            } else {
+                Button {
+                    if isTeamOwner {
+                        ownerLeaveError = nil
+                        selectedSuccessorUid = ""
+                        showOwnerLeaveSheet = true
+                    } else {
+                        showLeaveTeamConfirm = true
+                    }
+                } label: {
+                    HStack {
+                        Spacer()
+                        Text("チームから脱退")
+                            .font(.system(size: 15, weight: .semibold))
+                        Spacer()
+                    }
+                    .frame(height: 44)
+                    .background(
+                        RoundedRectangle(cornerRadius: 12)
+                            .fill(canLeaveTeam ? Color.white : Color.gray.opacity(0.22))
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 12)
+                            .stroke(Color.gray.opacity(canLeaveTeam ? 0.4 : 0.2), lineWidth: 1)
+                    )
+                }
+                .foregroundColor(canLeaveTeam ? Color.tasukiPrimary : Color.gray)
+                .disabled(!canLeaveTeam)
             }
-            .foregroundColor(canLeaveTeam ? Color.tasukiPrimary : Color.gray)
-            .disabled(!canLeaveTeam)
             
-            if !canLeaveTeam {
+            if ekidenViewState != nil && !canLeaveTeam {
                 Text("駅伝レースの開催期間中は脱退できません（期間終了後に再度お試しください）")
                     .font(.caption)
                     .foregroundColor(Color.tasukiMutedText)
