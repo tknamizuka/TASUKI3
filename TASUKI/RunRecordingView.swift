@@ -7,11 +7,8 @@ struct RunRecordingView: View {
     let onEkidenActivitySaved: ((RunActivity) -> Void)?
     @ObservedObject private var tracker = RunTracker.shared
     @ObservedObject private var activityStore = RunActivityStore.shared
-    @ObservedObject private var qaStore = CoachQAStore.shared
-    @EnvironmentObject private var coachCertification: CoachCertificationManager
     @EnvironmentObject private var mainTabRouter: MainTabRouter
     @Environment(\.dismiss) private var dismiss
-    @AppStorage("myName") private var myName: String = "Hiro"
     /// 0 のときは推定に 65kg を使う
     @AppStorage("runnerWeightKg") private var runnerWeightKg: Double = 0
 
@@ -23,9 +20,11 @@ struct RunRecordingView: View {
         )
     )
     @State private var postRunDraft: RunFinishDraft?
-    @State private var navigateToCoach = false
     /// 走行開始直後は false。黄帯を下にスワイプすると true になり地図表示＋ヘッダー折りたたみ
     @State private var isTrackingMapExpanded = false
+    /// 「走行を開始」後の 3→2→1。nil のときは表示しない。
+    @State private var runStartCountdownPhase: Int? = nil
+    @State private var runStartCountdownTask: Task<Void, Never>? = nil
 
     private let elapsedTimer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
@@ -76,23 +75,6 @@ struct RunRecordingView: View {
         return MKCoordinateRegion(center: center, span: span)
     }
 
-    /// 自分宛てでコーチ回答済みの Q&A のうち、最新（サンプル＋保存済みを合算）。
-    private var latestAnsweredQAForHub: QAItem? {
-        let answered =
-            qaStore.items.filter { $0.askerName == myName && $0.answer != nil }
-            + coachPersonalSampleQAItems.filter { $0.askerName == myName && $0.answer != nil }
-        return answered.max(by: { $0.postedDate < $1.postedDate })
-    }
-
-    /// COACH 行右側サムネイル用の短文。
-    private var coachHubReplySnippet: String? {
-        guard let text = latestAnsweredQAForHub?.answer?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !text.isEmpty else { return nil }
-        let maxChars = 100
-        if text.count <= maxChars { return text }
-        return String(text.prefix(maxChars)) + "…"
-    }
-
     private var mapRegion: MKCoordinateRegion {
         guard let first = routeCoordinates.first else {
             return MKCoordinateRegion(
@@ -114,7 +96,8 @@ struct RunRecordingView: View {
     }
 
     var body: some View {
-        Group {
+        ZStack {
+            Group {
             if tracker.isTracking {
                 trackingFocusedView
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -125,32 +108,6 @@ struct RunRecordingView: View {
                             .padding(.horizontal, 20)
                             .padding(.top, 12)
                             .padding(.bottom, 20)
-
-                        Button {
-                            // #region agent log
-                            AgentDebugLog.log(
-                                location: "RunRecordingView.coachLink.tap",
-                                message: "coach_link_tapped",
-                                hypothesisId: "C1",
-                                data: [
-                                    "hasReplySnippet": "\(coachHubReplySnippet != nil)",
-                                    "isCertifiedCoach": "\(coachCertification.isCertifiedCoach)"
-                                ]
-                            )
-                            // #endregion
-                            navigateToCoach = true
-                        } label: {
-                            TasukiFlatHubRow(
-                                title: "COACH",
-                                subtitle: "パーソナルコーチ",
-                                systemImage: "graduationcap.fill",
-                                iconForegroundColor: Color.tasukiAccent,
-                                replySnippet: coachHubReplySnippet
-                            )
-                        }
-                        .buttonStyle(.plain)
-                        .padding(.horizontal, 20)
-                        .padding(.bottom, 20)
 
                         metricCard
                             .padding(.horizontal, 20)
@@ -174,6 +131,10 @@ struct RunRecordingView: View {
                     }
                 }
             }
+            }
+            if let phase = runStartCountdownPhase {
+                runStartCountdownOverlay(phase: phase)
+            }
         }
         .background(Color.tasukiDarkBackground.ignoresSafeArea())
         .navigationTitle(tracker.isTracking ? "" : "Run")
@@ -184,19 +145,6 @@ struct RunRecordingView: View {
                 isTrackingMapExpanded = false
             }
         }
-        .navigationDestination(isPresented: $navigateToCoach) {
-            CoachView(embedNavigationStack: false)
-                .onAppear {
-                    // #region agent log
-                    AgentDebugLog.log(
-                        location: "RunRecordingView.coachNavigationDestination",
-                        message: "coach_destination_onAppear",
-                        hypothesisId: "C5",
-                        data: ["runId": "post-fix"]
-                    )
-                    // #endregion
-                }
-        }
         .onReceive(elapsedTimer) { now = $0 }
         .onAppear {
             // #region agent log
@@ -204,13 +152,15 @@ struct RunRecordingView: View {
                 location: "RunRecordingView.onAppear",
                 message: "run_screen_appeared",
                 hypothesisId: "C4",
-                data: [
-                    "qaCount": "\(qaStore.items.count)",
-                    "hasReplySnippet": "\(coachHubReplySnippet != nil)"
-                ]
+                data: [:]
             )
             // #endregion
             activityStore.refreshFromRemote()
+        }
+        .onDisappear {
+            runStartCountdownTask?.cancel()
+            runStartCountdownTask = nil
+            runStartCountdownPhase = nil
         }
         .fullScreenCover(item: $postRunDraft) { draft in
             PostRunFlowView(draft: draft, onActivitySavedAndDismiss: { activity in
@@ -274,10 +224,10 @@ struct RunRecordingView: View {
                         Text("終了")
                     }
                     .font(.system(size: 17, weight: .bold))
-                    .foregroundColor(Color.tasukiOnBrandYellow)
+                    .foregroundColor(Color.pureWhite)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 16)
-                    .background(Capsule().fill(Color.tasukiPrimaryButtonFill))
+                    .background(Capsule().fill(Color.tasukiPrimary))
                 }
                 .buttonStyle(.plain)
             }
@@ -313,16 +263,17 @@ struct RunRecordingView: View {
     private var trackingExpandedYellowHeaderOnly: some View {
         VStack(spacing: 12) {
             Text("記録中")
-                .font(.system(size: 12, weight: .bold))
-                .tracking(0.8)
+                .font(.system(size: 11, weight: .bold))
+                .tracking(1.2)
                 .foregroundColor(Color.tasukiPrimary.opacity(0.75))
             HStack(alignment: .top, spacing: 0) {
                 VStack(alignment: .center, spacing: 6) {
                     Text("時間")
-                        .font(.system(size: 12, weight: .semibold))
+                        .font(.system(size: 11, weight: .bold))
+                        .tracking(1.2)
                         .foregroundColor(Color.tasukiPrimary.opacity(0.7))
                     Text(formatDuration(elapsedSeconds))
-                        .font(.system(size: 36, weight: .bold))
+                        .font(.system(size: 32, weight: .bold))
                         .foregroundColor(Color.tasukiPrimary)
                         .monospacedDigit()
                         .minimumScaleFactor(0.7)
@@ -331,18 +282,20 @@ struct RunRecordingView: View {
                 .frame(maxWidth: .infinity)
                 Rectangle()
                     .fill(Color.tasukiPrimary.opacity(0.2))
-                    .frame(width: 1, height: 56)
+                    .frame(width: 1, height: 48)
                 VStack(alignment: .center, spacing: 6) {
                     Text("消費カロリー")
-                        .font(.system(size: 12, weight: .semibold))
+                        .font(.system(size: 11, weight: .bold))
+                        .tracking(1.2)
                         .foregroundColor(Color.tasukiPrimary.opacity(0.7))
                     HStack(alignment: .firstTextBaseline, spacing: 2) {
                         Text("\(estimatedCaloriesKcal)")
-                            .font(.system(size: 36, weight: .bold))
+                            .font(.system(size: 32, weight: .bold))
                             .foregroundColor(Color.tasukiPrimary)
                             .monospacedDigit()
                         Text("kcal")
-                            .font(.system(size: 14, weight: .semibold))
+                            .font(.system(size: 11, weight: .bold))
+                            .tracking(1.2)
                             .foregroundColor(Color.tasukiPrimary.opacity(0.75))
                     }
                 }
@@ -352,7 +305,8 @@ struct RunRecordingView: View {
                 Image(systemName: "arrow.down")
                     .font(.system(size: 11, weight: .semibold))
                 Text("下にスワイプして地図を表示")
-                    .font(.system(size: 11, weight: .medium))
+                    .font(.system(size: 11, weight: .bold))
+                    .tracking(1.2)
             }
             .foregroundColor(Color.tasukiPrimary.opacity(0.55))
         }
@@ -381,14 +335,15 @@ struct RunRecordingView: View {
         HStack(alignment: .center, spacing: 0) {
             VStack(alignment: .leading, spacing: 4) {
                 Text("時間")
-                    .font(.system(size: 11, weight: .semibold))
+                    .font(.system(size: 11, weight: .bold))
+                    .tracking(1.2)
                     .foregroundColor(Color.tasukiPrimary.opacity(0.65))
                 Text(formatDuration(elapsedSeconds))
-                    .font(.system(size: 22, weight: .bold))
+                    .font(.system(size: 32, weight: .bold))
                     .foregroundColor(Color.tasukiPrimary)
                     .monospacedDigit()
                     .lineLimit(1)
-                    .minimumScaleFactor(0.8)
+                    .minimumScaleFactor(0.65)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             Rectangle()
@@ -396,14 +351,15 @@ struct RunRecordingView: View {
                 .frame(width: 1, height: 40)
             VStack(alignment: .leading, spacing: 4) {
                 Text("平均ペース")
-                    .font(.system(size: 11, weight: .semibold))
+                    .font(.system(size: 11, weight: .bold))
+                    .tracking(1.2)
                     .foregroundColor(Color.tasukiPrimary.opacity(0.65))
                 Text(currentPaceText)
-                    .font(.system(size: 20, weight: .bold))
+                    .font(.system(size: 32, weight: .bold))
                     .foregroundColor(Color.tasukiPrimary)
                     .monospacedDigit()
                     .lineLimit(1)
-                    .minimumScaleFactor(0.75)
+                    .minimumScaleFactor(0.65)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             Image(systemName: "chevron.up")
@@ -436,13 +392,14 @@ struct RunRecordingView: View {
         VStack(spacing: 18) {
             VStack(spacing: 6) {
                 Text(String(format: "%.1f", averageSpeedKmh))
-                    .font(.system(size: 56, weight: .bold))
+                    .font(.system(size: 32, weight: .bold))
                     .foregroundColor(Color.tasukiPrimary)
                     .monospacedDigit()
                     .lineLimit(1)
-                    .minimumScaleFactor(0.55)
+                    .minimumScaleFactor(0.65)
                 Text("平均速度（km/h）")
-                    .font(.system(size: 14, weight: .medium))
+                    .font(.system(size: 11, weight: .bold))
+                    .tracking(1.2)
                     .foregroundColor(Color.tasukiMutedText)
             }
             .frame(maxWidth: .infinity)
@@ -462,16 +419,18 @@ struct RunRecordingView: View {
         VStack(alignment: .leading, spacing: 6) {
             Text(title)
                 .font(.system(size: 11, weight: .bold))
+                .tracking(1.2)
                 .foregroundColor(Color.tasukiMutedText)
             HStack(alignment: .firstTextBaseline, spacing: 4) {
                 Text(value)
-                    .font(.system(size: 22, weight: .bold))
+                    .font(.system(size: 32, weight: .bold))
                     .foregroundColor(Color.tasukiPrimary)
                     .monospacedDigit()
                     .lineLimit(1)
-                    .minimumScaleFactor(0.75)
+                    .minimumScaleFactor(0.55)
                 Text(unit)
-                    .font(.system(size: 13, weight: .medium))
+                    .font(.system(size: 11, weight: .bold))
+                    .tracking(1.2)
                     .foregroundColor(Color.tasukiMutedText)
             }
         }
@@ -606,10 +565,9 @@ struct RunRecordingView: View {
                 .buttonStyle(.plain)
             } else {
                 Button {
-                    tracker.start()
-                    now = Date()
+                    beginRunStartCountdown()
                 } label: {
-                    Text("走行を開始")
+                    Text(runStartCountdownPhase != nil ? "準備中…" : "走行を開始")
                         .font(.system(size: 16, weight: .bold))
                         .foregroundColor(Color.tasukiOnBrandYellow)
                         .frame(maxWidth: .infinity)
@@ -617,6 +575,41 @@ struct RunRecordingView: View {
                         .background(RoundedRectangle(cornerRadius: 12).fill(Color.tasukiPrimaryButtonFill))
                 }
                 .buttonStyle(.plain)
+                .disabled(runStartCountdownPhase != nil)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func runStartCountdownOverlay(phase: Int) -> some View {
+        ZStack {
+            Color.black.opacity(0.55)
+                .ignoresSafeArea()
+            Text("\(phase)")
+                .font(.system(size: 72, weight: .bold))
+                .foregroundColor(Color.tasukiBrandYellow)
+                .monospacedDigit()
+                .shadow(color: .black.opacity(0.35), radius: 8, y: 4)
+        }
+        .allowsHitTesting(true)
+        .transition(.opacity)
+    }
+
+    private func beginRunStartCountdown() {
+        runStartCountdownTask?.cancel()
+        runStartCountdownTask = Task { @MainActor in
+            defer { runStartCountdownTask = nil }
+            do {
+                for phase in (1...3).reversed() {
+                    runStartCountdownPhase = phase
+                    try await Task.sleep(nanoseconds: 1_000_000_000)
+                    try Task.checkCancellation()
+                }
+                runStartCountdownPhase = nil
+                tracker.start()
+                now = Date()
+            } catch {
+                runStartCountdownPhase = nil
             }
         }
     }
@@ -700,15 +693,20 @@ struct RunRecordingView: View {
     private func metricItem(title: String, value: String, unit: String) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             Text(title)
-                .font(.caption2)
+                .font(.system(size: 11, weight: .bold))
+                .tracking(1.2)
                 .foregroundColor(Color.tasukiMutedText)
             HStack(alignment: .firstTextBaseline, spacing: 2) {
                 Text(value)
-                    .font(.system(size: 18, weight: .bold))
+                    .font(.system(size: 32, weight: .bold))
                     .foregroundColor(Color.tasukiPrimary)
+                    .monospacedDigit()
+                    .minimumScaleFactor(0.5)
+                    .lineLimit(1)
                 if !unit.isEmpty {
                     Text(unit)
-                        .font(.caption2)
+                        .font(.system(size: 11, weight: .bold))
+                        .tracking(1.2)
                         .foregroundColor(Color.tasukiMutedText)
                 }
             }
@@ -790,7 +788,6 @@ private struct RunRecordingNavigationBarHiddenModifier: ViewModifier {
 #Preview {
     NavigationStack {
         RunRecordingView()
-            .environmentObject(CoachCertificationManager.shared)
             .environmentObject(MainTabRouter())
     }
 }

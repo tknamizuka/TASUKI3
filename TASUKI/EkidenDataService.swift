@@ -8,6 +8,7 @@
 import Foundation
 import FirebaseFirestore
 import FirebaseAuth
+import CoreLocation
 
 // MARK: - Mock State Holder（サンプルチーム用の可変状態）
 
@@ -106,6 +107,7 @@ final class MockEkidenStateHolder {
             legs: newLegs,
             memberNames: state.memberNames,
             provisionalRank: state.provisionalRank,
+            outboundRank: state.outboundRank,
             totalTeams: state.totalTeams
         )
         stateByTeam[teamId] = newState
@@ -166,6 +168,7 @@ final class MockEkidenStateHolder {
             legs: newLegs,
             memberNames: state.memberNames,
             provisionalRank: state.provisionalRank,
+            outboundRank: state.outboundRank,
             totalTeams: state.totalTeams
         )
         stateByTeam[teamId] = newState
@@ -200,6 +203,35 @@ final class MockEkidenStateHolder {
             legs: newLegs,
             memberNames: state.memberNames,
             provisionalRank: state.provisionalRank,
+            outboundRank: state.outboundRank,
+            totalTeams: state.totalTeams
+        )
+        stateByTeam[teamId] = newState
+        return newState
+    }
+
+    func markOfficialResultDisqualified(teamId: String, isDisqualified: Bool) -> EkidenViewState? {
+        lock.lock()
+        defer { lock.unlock() }
+        guard let state = stateByTeam[teamId] else { return nil }
+        let updatedEntry = EkidenEntry(
+            id: state.entry.id,
+            teamId: state.entry.teamId,
+            eventId: state.entry.eventId,
+            ownerUid: state.entry.ownerUid,
+            currentLegIndex: state.entry.currentLegIndex,
+            tasukiState: state.entry.tasukiState,
+            createdAt: state.entry.createdAt,
+            updatedAt: Date(),
+            officialResultDisqualified: isDisqualified
+        )
+        let newState = EkidenViewState(
+            event: state.event,
+            entry: updatedEntry,
+            legs: state.legs,
+            memberNames: state.memberNames,
+            provisionalRank: state.provisionalRank,
+            outboundRank: state.outboundRank,
             totalTeams: state.totalTeams
         )
         stateByTeam[teamId] = newState
@@ -360,6 +392,7 @@ final class EkidenDataService {
             legs: legs,
             memberNames: memberNames,
             provisionalRank: 5,
+            outboundRank: 3,
             totalTeams: 12
         )
         MockEkidenStateHolder.shared.setState(state, teamId: teamId)
@@ -503,6 +536,7 @@ final class EkidenDataService {
             legs: legs,
             memberNames: memberNames,
             provisionalRank: 5,
+            outboundRank: 3,
             totalTeams: 12
         )
         MockEkidenStateHolder.shared.setState(state, teamId: teamId)
@@ -577,15 +611,28 @@ final class EkidenDataService {
             }
 
             var provisionalRank: Int?
+            var outboundRank: Int?
             let rankingsSnapshot = try? await db.collection("ekiden_events").document(event.id)
                 .collection("rankings")
                 .order(by: "totalElapsedSeconds", descending: false)
+                .getDocuments()
+            let outboundRankingsSnapshot = try? await db.collection("ekiden_events").document(event.id)
+                .collection("rankings")
+                .order(by: "outboundElapsedSeconds", descending: false)
                 .getDocuments()
 
             if let docs = rankingsSnapshot?.documents {
                 for (index, doc) in docs.enumerated() {
                     if doc.documentID == entry.id || (doc.data()["teamId"] as? String) == teamId {
                         provisionalRank = index + 1
+                        break
+                    }
+                }
+            }
+            if let docs = outboundRankingsSnapshot?.documents {
+                for (index, doc) in docs.enumerated() {
+                    if doc.documentID == entry.id || (doc.data()["teamId"] as? String) == teamId {
+                        outboundRank = index + 1
                         break
                     }
                 }
@@ -597,6 +644,7 @@ final class EkidenDataService {
                 legs: legs,
                 memberNames: memberNames,
                 provisionalRank: provisionalRank,
+                outboundRank: outboundRank,
                 totalTeams: rankingsSnapshot?.documents.count ?? 0
             )
         } catch {
@@ -935,6 +983,30 @@ final class EkidenDataService {
         }
     }
 
+    /// チームの公式記録を棄権扱い（参考記録）に切り替える。想定呼び出し元はオーナーUI。
+    func setOfficialResultDisqualified(
+        teamId: String,
+        entryId: String,
+        isSampleTeam: Bool,
+        isDisqualified: Bool = true
+    ) async -> Result<Void, Error> {
+        if isSampleTeam || teamId.hasPrefix("example") {
+            guard MockEkidenStateHolder.shared.markOfficialResultDisqualified(teamId: teamId, isDisqualified: isDisqualified) != nil else {
+                return .failure(NSError(domain: "EkidenDataService", code: -1, userInfo: [NSLocalizedDescriptionKey: "棄権状態の更新に失敗しました。"]))
+            }
+            return .success(())
+        }
+        do {
+            try await db.collection("ekiden_entries").document(entryId).updateData([
+                "officialResultDisqualified": isDisqualified,
+                "updatedAt": Timestamp(date: Date())
+            ])
+            return .success(())
+        } catch {
+            return .failure(error)
+        }
+    }
+
     /// 区間担当者を変更（代走: オーナー承認）
     /// - Parameters:
     ///   - teamId: チームID（サンプル時はモック更新に使用）
@@ -977,6 +1049,125 @@ final class EkidenDataService {
             return .failure(error)
         }
     }
+
+    func loadActiveEkidenSpectatorStatuses(isSampleTeam: Bool) async -> [EkidenSpectatorTeamStatus] {
+        if isSampleTeam {
+            let sampleTeams: [(String, String)] = [
+                ("example_owner", "皇居ランナーズ"),
+                ("example_member", "東京スピードスターズ"),
+                ("example_ekiden_real", "EKIDENチャレンジャーズ")
+            ]
+            let now = Date()
+            var statuses: [EkidenSpectatorTeamStatus] = []
+            for (teamId, name) in sampleTeams {
+                guard let state = await loadMockEkidenState(teamId: teamId) else { continue }
+                let coordinate = HakoneEkidenCourse.currentCoordinate(cumulativeRunKm: state.cumulativeDistanceKm)
+                statuses.append(EkidenSpectatorTeamStatus(
+                    teamId: teamId,
+                    teamName: name,
+                    eventId: state.event.id,
+                    currentRunnerName: state.nextRunnerName(),
+                    cumulativeDistanceKm: state.cumulativeDistanceKm,
+                    mapCoordinate: coordinate,
+                    lastUpdatedAt: now
+                ))
+            }
+            return statuses
+        }
+
+        do {
+            let now = Date()
+            let eventsSnapshot = try await db.collection("ekiden_events")
+                .whereField("status", isEqualTo: EkidenEventStatus.active.rawValue)
+                .whereField("endAt", isGreaterThan: Timestamp(date: now))
+                .limit(to: 1)
+                .getDocuments()
+            guard let eventDoc = eventsSnapshot.documents.first,
+                  let event = EkidenEvent.parse(id: eventDoc.documentID, data: eventDoc.data()) else {
+                return []
+            }
+
+            let entriesSnapshot = try await db.collection("ekiden_entries")
+                .whereField("eventId", isEqualTo: event.id)
+                .getDocuments()
+
+            var result: [EkidenSpectatorTeamStatus] = []
+            for entryDoc in entriesSnapshot.documents {
+                guard let entry = EkidenEntry.parse(id: entryDoc.documentID, data: entryDoc.data()) else { continue }
+                let teamDoc = try? await db.collection("teams").document(entry.teamId).getDocument()
+                let teamName = teamDoc?.data()?["name"] as? String ?? "Team \(entry.teamId.prefix(6))"
+
+                let legsSnapshot = try await db.collection("ekiden_entries").document(entry.id)
+                    .collection("legs")
+                    .getDocuments()
+                var legs: [EkidenLeg] = []
+                for doc in legsSnapshot.documents {
+                    if let legIndex = Int(doc.documentID) {
+                        legs.append(EkidenLeg.parse(legIndex: legIndex, data: doc.data()))
+                    }
+                }
+                legs.sort { $0.id < $1.id }
+
+                var memberNames: [String: String] = [:]
+                let uids = Set(legs.compactMap { $0.assignedUid })
+                for uid in uids {
+                    if let userDoc = try? await db.collection("users").document(uid).getDocument(),
+                       let data = userDoc.data(),
+                       let name = data["name"] as? String {
+                        memberNames[uid] = name
+                    }
+                }
+
+                let state = EkidenViewState(
+                    event: event,
+                    entry: entry,
+                    legs: legs,
+                    memberNames: memberNames,
+                    provisionalRank: nil,
+                    outboundRank: nil,
+                    totalTeams: entriesSnapshot.documents.count
+                )
+                let coordinate = HakoneEkidenCourse.currentCoordinate(cumulativeRunKm: state.cumulativeDistanceKm)
+                result.append(
+                    EkidenSpectatorTeamStatus(
+                        teamId: entry.teamId,
+                        teamName: teamName,
+                        eventId: event.id,
+                        currentRunnerName: state.nextRunnerName(),
+                        cumulativeDistanceKm: state.cumulativeDistanceKm,
+                        mapCoordinate: coordinate,
+                        lastUpdatedAt: entry.updatedAt
+                    )
+                )
+            }
+            return result
+        } catch {
+            return []
+        }
+    }
+
+    func sendSpectatorCheerOncePerDay(
+        teamId: String,
+        eventId: String,
+        spectatorUid: String,
+        cheerDateKey: String
+    ) async -> Result<Void, Error> {
+        let cheerId = "\(eventId)_\(spectatorUid)_\(cheerDateKey)"
+        do {
+            try await db.collection("teams").document(teamId)
+                .collection("spectator_cheer_daily")
+                .document(cheerId)
+                .setData([
+                    "eventId": eventId,
+                    "spectatorUid": spectatorUid,
+                    "dateKey": cheerDateKey,
+                    "createdAt": Timestamp(date: Date())
+                ], merge: false)
+            return .success(())
+        } catch {
+            return .failure(error)
+        }
+    }
 }
 
 // MARK: - TeamView 用の駅伝表示状態
@@ -986,6 +1177,7 @@ struct EkidenViewState {
     let legs: [EkidenLeg]
     let memberNames: [String: String]
     let provisionalRank: Int?
+    let outboundRank: Int?
     let totalTeams: Int
 
     /// イベント期間内であるか
@@ -1062,4 +1254,15 @@ struct EkidenViewState {
         let s = Int(seconds) % 60
         return String(format: "%d:%02d", m, s)
     }
+}
+
+struct EkidenSpectatorTeamStatus: Identifiable {
+    let id = UUID()
+    let teamId: String
+    let teamName: String
+    let eventId: String
+    let currentRunnerName: String?
+    let cumulativeDistanceKm: Double
+    let mapCoordinate: CLLocationCoordinate2D
+    let lastUpdatedAt: Date
 }

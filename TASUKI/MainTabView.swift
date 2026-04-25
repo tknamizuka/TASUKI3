@@ -33,7 +33,6 @@ struct MainTabView: View {
             case 1:
                 NavigationStack {
                     RunRecordingView()
-                        .environmentObject(coachCertification)
                         .environmentObject(mainTabRouter)
                 }
             case 2:

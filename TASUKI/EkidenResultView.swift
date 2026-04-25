@@ -22,7 +22,7 @@ struct EkidenResultView: View {
                     VStack(spacing: 20) {
                         summarySection
                         legResultsSection
-                        if state.provisionalRank != nil {
+                        if state.provisionalRank != nil || state.outboundRank != nil {
                             rankSection
                         }
                     }
@@ -133,10 +133,21 @@ struct EkidenResultView: View {
     }
 
     private var rankSection: some View {
-        VStack(spacing: 8) {
+        VStack(spacing: 10) {
+            if let outbound = state.outboundRank {
+                HStack {
+                    Text("往路（5区通過）")
+                        .font(.system(size: 14))
+                        .foregroundColor(Color.tasukiMutedText)
+                    Spacer()
+                    Text("\(outbound)位")
+                        .font(.system(size: 18, weight: .bold))
+                        .foregroundColor(Color.tasukiAccentOrange)
+                }
+            }
             if let rank = state.provisionalRank {
                 HStack {
-                    Text("暫定順位")
+                    Text("総合（復路含む）")
                         .font(.system(size: 14))
                         .foregroundColor(Color.tasukiMutedText)
                     Spacer()
@@ -144,11 +155,11 @@ struct EkidenResultView: View {
                         .font(.system(size: 20, weight: .bold))
                         .foregroundColor(Color.tasukiAccentOrange)
                 }
-                if state.totalTeams > 0 {
-                    Text("/ \(state.totalTeams)チーム中")
-                        .font(.system(size: 12))
-                        .foregroundColor(Color.tasukiMutedText)
-                }
+            }
+            if state.totalTeams > 0 {
+                Text("/ \(state.totalTeams)チーム中")
+                    .font(.system(size: 12))
+                    .foregroundColor(Color.tasukiMutedText)
             }
         }
         .padding(16)
