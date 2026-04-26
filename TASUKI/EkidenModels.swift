@@ -7,6 +7,7 @@
 
 import Foundation
 import FirebaseFirestore
+import CoreLocation
 
 // MARK: - Firestore Collection Paths
 
@@ -119,6 +120,37 @@ struct EkidenLeg: Identifiable {
     
     /// TASUKIが渡っていて提出可能か
     var canSubmit: Bool { status == .ready }
+}
+
+extension Array where Element == EkidenLeg {
+    /// 総合順位・コース上の位置に使う進捗距離（km）。提出済み＋走行中（ready）の `actualDistanceKm` を合算し、パス区間は除外。
+    func cumulativeProgressKmForStandings() -> Double {
+        reduce(0) { sum, leg in
+            guard !leg.isPass, let km = leg.actualDistanceKm, km > 0 else { return sum }
+            let capped = Swift.min(km, Swift.max(0, leg.targetKm))
+            switch leg.status {
+            case .submitted, .ready:
+                return sum + capped
+            case .awaitingTasuki:
+                return sum
+            }
+        }
+    }
+
+    /// パスなしで区間 `0..<legCount` がすべて提出済みなら、規定区間を走破したとみなす（完走判定）。
+    func hasCompletedAllNonPassLegs(legCount: Int) -> Bool {
+        guard legCount > 0 else { return false }
+        for i in 0..<legCount {
+            guard let leg = first(where: { $0.id == i }) else { return false }
+            if leg.isPass { return false }
+            guard leg.status == .submitted else { return false }
+        }
+        return true
+    }
+
+    func submittedAtForLeg(legIndex: Int) -> Date? {
+        first(where: { $0.id == legIndex })?.submittedAt
+    }
 }
 
 // MARK: - EkidenSubmission（Firestore: ekiden_entries/{entryId}/submissions/{submissionId}）
@@ -297,7 +329,10 @@ struct EkidenLegRankingSnapshot {
             guard let entryId = row["entryId"] as? String,
                   let teamId = row["teamId"] as? String,
                   let runnerUid = row["runnerUid"] as? String else { return nil }
-            let rank = row["rank"] as? Int ?? 0
+            var rank = row["rank"] as? Int ?? 0
+            if rank <= 0, let fromMap = rankMap[entryId] {
+                rank = fromMap
+            }
             let elapsed = row["elapsedSeconds"] as? Double ?? Double(row["elapsedSeconds"] as? Int ?? 0)
             let name = row["displayName"] as? String ?? runnerUid
             return EkidenLegRankingRow(
@@ -309,9 +344,17 @@ struct EkidenLegRankingSnapshot {
                 displayName: name
             )
         }
+        // Firestore の配列順は保証されないため、表示は常に順位順に揃える（順位欠損は末尾）
+        let topSorted = top.sorted {
+            let ra = $0.rank > 0 ? $0.rank : Int.max
+            let rb = $1.rank > 0 ? $1.rank : Int.max
+            if ra != rb { return ra < rb }
+            if $0.elapsedSeconds != $1.elapsedSeconds { return $0.elapsedSeconds < $1.elapsedSeconds }
+            return $0.entryId < $1.entryId
+        }
         return EkidenLegRankingSnapshot(
             legIndex: legIndex,
-            top: top,
+            top: topSorted,
             ranksByEntryId: rankMap,
             totalFinishers: total,
             updatedAt: updatedAt
@@ -366,5 +409,25 @@ struct EkidenLegRankingSnapshot {
             totalFinishers: rows.count,
             updatedAt: Date()
         )
+    }
+}
+
+// MARK: - 総合ランキングコースマップ用（各チーム累計距離・順位）
+
+/// イベント内の各チームを箱根仮想コース上に載せるための1行（`EkidenDataService.loadEventTeamRankingMapRows` が生成）
+struct EkidenTeamRankingMapRow: Identifiable {
+    /// `entryId` がモック等で重複し得るため teamId を連結
+    var id: String { "\(entryId)|\(teamId)" }
+    let entryId: String
+    let teamId: String
+    let teamDisplayName: String
+    let cumulativeDistanceKm: Double
+    /// エントリーの現在区間 index（0 = 1区）
+    let currentLegIndex: Int
+    let overallRank: Int
+    let totalElapsedSeconds: Double
+
+    var mapCoordinate: CLLocationCoordinate2D {
+        HakoneEkidenCourse.currentCoordinate(cumulativeRunKm: cumulativeDistanceKm)
     }
 }

@@ -59,9 +59,10 @@ final class MockEkidenStateHolder {
         let current = state.legs[legIndex]
         let baseDistance = current.actualDistanceKm ?? 0
         let baseElapsed = current.elapsedSeconds ?? 0
-        let accumulatedDistance = max(0, baseDistance + actualDistanceKm)
+        let rawDistance = max(0, baseDistance + actualDistanceKm)
+        let accumulatedDistance = min(rawDistance, max(0, current.targetKm))
         let accumulatedElapsed = max(0, baseElapsed + elapsedSeconds)
-        let reachedTarget = accumulatedDistance >= current.targetKm
+        let reachedTarget = accumulatedDistance >= current.targetKm - 1e-9
         var newLegs = state.legs
         newLegs[legIndex] = EkidenLeg(
             id: legIndex,
@@ -239,6 +240,12 @@ final class MockEkidenStateHolder {
     }
 }
 
+// MARK: - 総合マップ用ランキング行の日次キャッシュ（同一イベント・同日中は再フェッチしない）
+private enum EkidenTeamRankingMapDailyCache {
+    static let lock = NSLock()
+    static var storage: [String: (day: Date, rows: [EkidenTeamRankingMapRow])] = [:]
+}
+
 /// 駅伝データ取得サービス
 final class EkidenDataService {
     static let shared = EkidenDataService()
@@ -262,15 +269,43 @@ final class EkidenDataService {
     private func loadMockEkidenState(teamId: String) async -> EkidenViewState? {
         let isDistanceChallengeSample = (teamId == "example_member")
         let expectedLegCount = isDistanceChallengeSample ? 7 : 10
+        let base: EkidenViewState?
         if let existing = MockEkidenStateHolder.shared.getState(teamId: teamId),
            existing.event.legCount == expectedLegCount,
            mockReadyLegAssigneeMatchesSchema(existing: existing, teamId: teamId) {
-            return await MainActor.run { existing }
+            base = existing
+        } else if isDistanceChallengeSample {
+            base = await loadMockDistanceChallengeEkidenState(teamId: teamId)
+        } else {
+            base = await loadMockOfficialHakoneEkidenState(teamId: teamId)
         }
-        if isDistanceChallengeSample {
-            return await loadMockDistanceChallengeEkidenState(teamId: teamId)
+        guard let found = base else { return nil }
+        let synced = await ekidenViewStateSyncingMapRank(state: found, teamId: teamId)
+        await MainActor.run {
+            MockEkidenStateHolder.shared.setState(synced, teamId: teamId)
         }
-        return await loadMockOfficialHakoneEkidenState(teamId: teamId)
+        return synced
+    }
+
+    /// マップ用ランキング行と同じ基準で `provisionalRank` / `totalTeams` を埋める（サムネ・一覧の数字を一致させる）
+    private func ekidenViewStateSyncingMapRank(state: EkidenViewState, teamId: String) async -> EkidenViewState {
+        let isSample = teamId.hasPrefix("example_")
+        let rows = await loadEventTeamRankingMapRowsDailyCached(
+            eventId: state.event.id,
+            isSampleTeam: isSample
+        )
+        let idx = rows.firstIndex { $0.teamId == teamId } ?? rows.firstIndex { $0.entryId == state.entry.id }
+        let rank = idx.map { $0 + 1 }
+        let total = rows.isEmpty ? max(1, state.totalTeams) : rows.count
+        return EkidenViewState(
+            event: state.event,
+            entry: state.entry,
+            legs: state.legs,
+            memberNames: state.memberNames,
+            provisionalRank: rank ?? state.provisionalRank,
+            outboundRank: state.outboundRank,
+            totalTeams: total
+        )
     }
 
     /// Distance Challenge 用モック（2週間ウィンドウ・チーム累計距離チャレンジ。UI は区間行で進捗表示）
@@ -391,9 +426,9 @@ final class EkidenDataService {
             entry: entry,
             legs: legs,
             memberNames: memberNames,
-            provisionalRank: 5,
-            outboundRank: 3,
-            totalTeams: 12
+            provisionalRank: nil,
+            outboundRank: nil,
+            totalTeams: 0
         )
         MockEkidenStateHolder.shared.setState(state, teamId: teamId)
         return await MainActor.run { state }
@@ -518,8 +553,9 @@ final class EkidenDataService {
             ))
         }
 
+        let entryIdSafe = teamId.replacingOccurrences(of: "/", with: "_")
         let entry = EkidenEntry(
-            id: "mock_entry_hakone",
+            id: "mock_entry_hakone_\(entryIdSafe)",
             teamId: teamId,
             eventId: event.id,
             ownerUid: memberUids.first ?? "",
@@ -535,9 +571,9 @@ final class EkidenDataService {
             entry: entry,
             legs: legs,
             memberNames: memberNames,
-            provisionalRank: 5,
-            outboundRank: 3,
-            totalTeams: 12
+            provisionalRank: nil,
+            outboundRank: nil,
+            totalTeams: 0
         )
         MockEkidenStateHolder.shared.setState(state, teamId: teamId)
         return await MainActor.run { state }
@@ -610,25 +646,12 @@ final class EkidenDataService {
                 }
             }
 
-            var provisionalRank: Int?
             var outboundRank: Int?
-            let rankingsSnapshot = try? await db.collection("ekiden_events").document(event.id)
-                .collection("rankings")
-                .order(by: "totalElapsedSeconds", descending: false)
-                .getDocuments()
             let outboundRankingsSnapshot = try? await db.collection("ekiden_events").document(event.id)
                 .collection("rankings")
                 .order(by: "outboundElapsedSeconds", descending: false)
                 .getDocuments()
 
-            if let docs = rankingsSnapshot?.documents {
-                for (index, doc) in docs.enumerated() {
-                    if doc.documentID == entry.id || (doc.data()["teamId"] as? String) == teamId {
-                        provisionalRank = index + 1
-                        break
-                    }
-                }
-            }
             if let docs = outboundRankingsSnapshot?.documents {
                 for (index, doc) in docs.enumerated() {
                     if doc.documentID == entry.id || (doc.data()["teamId"] as? String) == teamId {
@@ -638,6 +661,12 @@ final class EkidenDataService {
                 }
             }
 
+            let mapRows = await loadEventTeamRankingMapRowsDailyCached(
+                eventId: event.id,
+                isSampleTeam: teamId.hasPrefix("example_")
+            )
+            let provisionalRank = mapRows.firstIndex { $0.entryId == entry.id }.map { $0 + 1 }
+
             return EkidenViewState(
                 event: event,
                 entry: entry,
@@ -645,7 +674,7 @@ final class EkidenDataService {
                 memberNames: memberNames,
                 provisionalRank: provisionalRank,
                 outboundRank: outboundRank,
-                totalTeams: rankingsSnapshot?.documents.count ?? 0
+                totalTeams: mapRows.isEmpty ? 1 : mapRows.count
             )
         } catch {
             return nil
@@ -806,9 +835,10 @@ final class EkidenDataService {
                 let targetKm = legData["targetKm"] as? Double ?? 0
                 let existingDistance = legData["actualDistanceKm"] as? Double ?? 0
                 let existingElapsed = legData["elapsedSeconds"] as? Double ?? 0
-                let accumulatedDistance = max(0, existingDistance + actualDistanceKm)
+                let rawDistance = max(0, existingDistance + actualDistanceKm)
+                let accumulatedDistance = min(rawDistance, max(0, targetKm))
                 let accumulatedElapsed = max(0, existingElapsed + elapsedSeconds)
-                let reachedTarget = accumulatedDistance >= targetKm
+                let reachedTarget = accumulatedDistance >= targetKm - 1e-9
 
                 var updateData: [String: Any] = [
                     "status": reachedTarget ? EkidenLegStatus.submitted.rawValue : EkidenLegStatus.ready.rawValue,
@@ -1146,6 +1176,249 @@ final class EkidenDataService {
         }
     }
 
+    /// サンプル用: コースマップに常に12チーム（同一イベントのモック実チーム＋ダミーで埋める）
+    /// - Note: `loadMockEkidenState` を呼ばずシードのみ行い、`ekidenViewStateSyncingMapRank` との再帰を避ける。
+    private func buildSampleTeamRankingMapRows12(eventId: String) async -> [EkidenTeamRankingMapRow] {
+        let pairs: [(teamId: String, displayName: String)] = [
+            ("example_owner", "皇居ランナーズ"),
+            ("example_member", "東京スピードスターズ"),
+            ("example_ekiden_real", "EKIDENチャレンジャーズ")
+        ]
+        var drafts: [(row: EkidenTeamRankingMapRow, st: EkidenViewState?)] = []
+        for p in pairs {
+            if MockEkidenStateHolder.shared.getState(teamId: p.teamId) == nil {
+                if p.teamId == "example_member" {
+                    _ = await loadMockDistanceChallengeEkidenState(teamId: p.teamId)
+                } else {
+                    _ = await loadMockOfficialHakoneEkidenState(teamId: p.teamId)
+                }
+            }
+            guard let st = MockEkidenStateHolder.shared.getState(teamId: p.teamId), st.event.id == eventId else { continue }
+            drafts.append((
+                EkidenTeamRankingMapRow(
+                    entryId: st.entry.id,
+                    teamId: p.teamId,
+                    teamDisplayName: p.displayName,
+                    cumulativeDistanceKm: st.cumulativeDistanceKm,
+                    currentLegIndex: st.entry.currentLegIndex,
+                    overallRank: 0,
+                    totalElapsedSeconds: st.totalElapsedSeconds
+                ),
+                st
+            ))
+        }
+        let dummyTeamNames: [String] = [
+            "多摩川AC", "湘南国際RC", "山梨大学OB会", "秩父連合", "石垣島走友会",
+            "大阪ベイランナーズ", "千葉シーサイド", "筑波ステップ", "札幌ウィンター走友",
+            "横浜ベイサイド", "名古屋東海RC", "広島アトミックRC"
+        ]
+        let totalKm = HakoneEkidenCourse.totalKm
+        for j in drafts.count..<12 {
+            let name = dummyTeamNames[j]
+            let seed = j &* 7919 &+ eventId.hashValue
+            let progress = 0.12 + 0.78 * (Double(j + 1) / 12.0) + Double(seed % 80) / 800.0
+            let elapsed = Double(j + 1) * 2600 + Double(abs(seed % 900))
+            let (cumulative, legIdx): (Double, Int)
+            if eventId == "mock_event_hakone" {
+                let c = min(totalKm, max(0, totalKm * progress))
+                cumulative = c
+                legIdx = HakoneEkidenCourse.currentLegIndex(forCumulativeRunKm: c)
+            } else if let ref = drafts.first?.st {
+                let cap = max(
+                    HakoneEkidenCourse.totalTargetKm(fromLegDefinitions: ref.event.legs),
+                    ref.teamGoalKm
+                )
+                let c = min(cap, max(0, cap * progress))
+                cumulative = c
+                legIdx = HakoneEkidenCourse.currentLegIndex(forCumulativeRunKm: c, legDefinitions: ref.event.legs)
+            } else {
+                cumulative = min(totalKm, max(0, totalKm * progress))
+                legIdx = HakoneEkidenCourse.currentLegIndex(forCumulativeRunKm: cumulative)
+            }
+            drafts.append((
+                EkidenTeamRankingMapRow(
+                    entryId: "mock_map_entry_\(j)",
+                    teamId: "mock_map_team_\(j)",
+                    teamDisplayName: name,
+                    cumulativeDistanceKm: cumulative,
+                    currentLegIndex: legIdx,
+                    overallRank: 0,
+                    totalElapsedSeconds: elapsed
+                ),
+                nil
+            ))
+        }
+        let hakoneBoard = (eventId == "mock_event_hakone")
+        drafts.sort { a, b in
+            sampleDraftPairPrecedes(a, b, hakoneBoard: hakoneBoard, totalKm: totalKm)
+        }
+        return drafts.enumerated().map { item in
+            let idx = item.offset
+            let r = item.element.row
+            return EkidenTeamRankingMapRow(
+                entryId: r.entryId,
+                teamId: r.teamId,
+                teamDisplayName: r.teamDisplayName,
+                cumulativeDistanceKm: r.cumulativeDistanceKm,
+                currentLegIndex: r.currentLegIndex,
+                overallRank: idx + 1,
+                totalElapsedSeconds: r.totalElapsedSeconds
+            )
+        }
+    }
+
+    /// `true` なら `a` を `b` より前（上位）に並べる
+    private func sampleDraftPairPrecedes(
+        _ a: (row: EkidenTeamRankingMapRow, st: EkidenViewState?),
+        _ b: (row: EkidenTeamRankingMapRow, st: EkidenViewState?),
+        hakoneBoard: Bool,
+        totalKm: Double
+    ) -> Bool {
+        if !hakoneBoard {
+            if a.row.cumulativeDistanceKm != b.row.cumulativeDistanceKm {
+                return a.row.cumulativeDistanceKm > b.row.cumulativeDistanceKm
+            }
+            if a.row.currentLegIndex != b.row.currentLegIndex {
+                return a.row.currentLegIndex > b.row.currentLegIndex
+            }
+            if a.row.totalElapsedSeconds != b.row.totalElapsedSeconds {
+                return a.row.totalElapsedSeconds < b.row.totalElapsedSeconds
+            }
+            return a.row.teamId < b.row.teamId
+        }
+        let doneA = a.st?.legs.hasCompletedAllNonPassLegs(legCount: 10) == true
+            || (a.st == nil && a.row.cumulativeDistanceKm >= totalKm - 0.05)
+        let doneB = b.st?.legs.hasCompletedAllNonPassLegs(legCount: 10) == true
+            || (b.st == nil && b.row.cumulativeDistanceKm >= totalKm - 0.05)
+        if doneA != doneB { return doneA && !doneB }
+        if doneA && doneB {
+            if a.row.totalElapsedSeconds != b.row.totalElapsedSeconds {
+                return a.row.totalElapsedSeconds < b.row.totalElapsedSeconds
+            }
+            let ta = a.st?.legs.submittedAtForLeg(legIndex: 9)?.timeIntervalSince1970 ?? .infinity
+            let tb = b.st?.legs.submittedAtForLeg(legIndex: 9)?.timeIntervalSince1970 ?? .infinity
+            if ta != tb { return ta < tb }
+            return a.row.teamId < b.row.teamId
+        }
+        if a.row.cumulativeDistanceKm != b.row.cumulativeDistanceKm {
+            return a.row.cumulativeDistanceKm > b.row.cumulativeDistanceKm
+        }
+        if a.row.currentLegIndex != b.row.currentLegIndex {
+            return a.row.currentLegIndex > b.row.currentLegIndex
+        }
+        if a.row.totalElapsedSeconds != b.row.totalElapsedSeconds {
+            return a.row.totalElapsedSeconds < b.row.totalElapsedSeconds
+        }
+        return a.row.teamId < b.row.teamId
+    }
+
+    /// イベント内の全エントリーの順位を返す（コースマップ UI 用）。
+    /// 箱根10区プリセットでは「全区間を規定提出で完走したチーム」は合計タイム昇順（早いほど上位）、それ以外は進捗（距離・区間）優先。
+    func loadEventTeamRankingMapRows(eventId: String, isSampleTeam: Bool) async -> [EkidenTeamRankingMapRow] {
+        if isSampleTeam {
+            return await buildSampleTeamRankingMapRows12(eventId: eventId)
+        }
+
+        do {
+            let entriesSnapshot = try await db.collection("ekiden_entries")
+                .whereField("eventId", isEqualTo: eventId)
+                .getDocuments()
+
+            var built: [(entry: EkidenEntry, legs: [EkidenLeg], teamName: String)] = []
+            for entryDoc in entriesSnapshot.documents {
+                guard let entry = EkidenEntry.parse(id: entryDoc.documentID, data: entryDoc.data()) else { continue }
+                let legsSnapshot = try await db.collection("ekiden_entries").document(entry.id)
+                    .collection("legs")
+                    .getDocuments()
+                var legs: [EkidenLeg] = []
+                for doc in legsSnapshot.documents {
+                    if let legIndex = Int(doc.documentID) {
+                        legs.append(EkidenLeg.parse(legIndex: legIndex, data: doc.data()))
+                    }
+                }
+                legs.sort { $0.id < $1.id }
+                let teamDoc = try? await db.collection("teams").document(entry.teamId).getDocument()
+                let teamName = teamDoc?.data()?["name"] as? String ?? "Team \(entry.teamId.prefix(6))"
+                built.append((entry, legs, teamName))
+            }
+
+            let eventDoc = try await db.collection("ekiden_events").document(eventId).getDocument()
+            let event = eventDoc.exists ? EkidenEvent.parse(id: eventId, data: eventDoc.data() ?? [:]) : nil
+            let hakoneFinishLegCount: Int? = {
+                guard let event,
+                      event.coursePreset == "hakone",
+                      event.legCount == HakoneEkidenCourse.segments.count else { return nil }
+                return event.legCount
+            }()
+
+            let ordered = built.sorted { a, b in
+                let dqA = a.entry.officialResultDisqualified
+                let dqB = b.entry.officialResultDisqualified
+                if dqA != dqB { return !dqA && dqB }
+                if let legN = hakoneFinishLegCount {
+                    let doneA = a.legs.hasCompletedAllNonPassLegs(legCount: legN)
+                    let doneB = b.legs.hasCompletedAllNonPassLegs(legCount: legN)
+                    if doneA != doneB { return doneA && !doneB }
+                    if doneA && doneB {
+                        let elapsedA = a.legs.compactMap { $0.elapsedSeconds }.reduce(0, +)
+                        let elapsedB = b.legs.compactMap { $0.elapsedSeconds }.reduce(0, +)
+                        if elapsedA != elapsedB { return elapsedA < elapsedB }
+                        let ta = a.legs.submittedAtForLeg(legIndex: legN - 1)?.timeIntervalSince1970 ?? .infinity
+                        let tb = b.legs.submittedAtForLeg(legIndex: legN - 1)?.timeIntervalSince1970 ?? .infinity
+                        if ta != tb { return ta < tb }
+                        return a.entry.id < b.entry.id
+                    }
+                }
+                let kmA = a.legs.cumulativeProgressKmForStandings()
+                let kmB = b.legs.cumulativeProgressKmForStandings()
+                if kmA != kmB { return kmA > kmB }
+                if a.entry.currentLegIndex != b.entry.currentLegIndex {
+                    return a.entry.currentLegIndex > b.entry.currentLegIndex
+                }
+                let elapsedA = a.legs.compactMap { $0.elapsedSeconds }.reduce(0, +)
+                let elapsedB = b.legs.compactMap { $0.elapsedSeconds }.reduce(0, +)
+                if elapsedA != elapsedB { return elapsedA < elapsedB }
+                return a.entry.id < b.entry.id
+            }
+
+            return ordered.enumerated().map { idx, item in
+                let cumulative = item.legs.cumulativeProgressKmForStandings()
+                let elapsed = item.legs.compactMap { $0.elapsedSeconds }.reduce(0, +)
+                return EkidenTeamRankingMapRow(
+                    entryId: item.entry.id,
+                    teamId: item.entry.teamId,
+                    teamDisplayName: item.teamName,
+                    cumulativeDistanceKm: cumulative,
+                    currentLegIndex: item.entry.currentLegIndex,
+                    overallRank: idx + 1,
+                    totalElapsedSeconds: elapsed
+                )
+            }
+        } catch {
+            return []
+        }
+    }
+
+    /// 各チームの累計距離・総合順位をマップ表示する用。同一カレンダー日・同一イベントではキャッシュを返す。
+    func loadEventTeamRankingMapRowsDailyCached(eventId: String, isSampleTeam: Bool) async -> [EkidenTeamRankingMapRow] {
+        // 順位ロジック変更時はサフィックスを上げて当日キャッシュを無効化
+        let key = "\(eventId)|\(isSampleTeam)|progressRank_v3"
+        let today = Calendar.current.startOfDay(for: Date())
+        EkidenTeamRankingMapDailyCache.lock.lock()
+        if let pair = EkidenTeamRankingMapDailyCache.storage[key],
+           Calendar.current.isDate(pair.day, inSameDayAs: today) {
+            let rows = pair.rows
+            EkidenTeamRankingMapDailyCache.lock.unlock()
+            return rows
+        }
+        EkidenTeamRankingMapDailyCache.lock.unlock()
+        let fetched = await loadEventTeamRankingMapRows(eventId: eventId, isSampleTeam: isSampleTeam)
+        EkidenTeamRankingMapDailyCache.lock.lock()
+        EkidenTeamRankingMapDailyCache.storage[key] = (today, fetched)
+        EkidenTeamRankingMapDailyCache.lock.unlock()
+        return fetched
+    }
+
     func sendSpectatorCheerOncePerDay(
         teamId: String,
         eventId: String,
@@ -1206,11 +1479,9 @@ struct EkidenViewState {
         legs.filter { $0.status == .submitted }.count
     }
 
-    /// チーム累計走行距離（km）。提出済み区間の actualDistanceKm の合計。パス（isPass）区間は除外
+    /// チーム累計走行距離（km）。提出済み＋走行中（ready）の実走を合算。パス（isPass）区間は除外。
     var cumulativeDistanceKm: Double {
-        legs.filter { $0.status == .submitted && !($0.isPass) }
-            .compactMap { $0.actualDistanceKm }
-            .reduce(0, +)
+        legs.cumulativeProgressKmForStandings()
     }
 
     /// チーム目標距離（km）。累計モード用。未設定なら legCount * 5 をデフォルト
@@ -1238,6 +1509,17 @@ struct EkidenViewState {
         let total = HakoneEkidenCourse.totalKm
         guard usesOfficialHakoneRelayRules, total > 0 else { return 0 }
         return min(1.0, cumulativeDistanceKm / total)
+    }
+
+    /// ランキングバーで「全区間 = 100%」の右端に使う規定距離（km）。`累計 ÷ この値` で横位置を決める（順位とは独立）。
+    var rankingProgressReferenceKm: Double {
+        if usesOfficialHakoneRelayRules {
+            return max(HakoneEkidenCourse.totalKm, 0.001)
+        }
+        if let g = event.teamGoalKm, g > 0 {
+            return max(g, 0.001)
+        }
+        return max(HakoneEkidenCourse.totalTargetKm(fromLegDefinitions: event.legs), 0.001)
     }
 
     /// EKIDEN 公式襷: この区間に提出する走行の開始時刻がこれより前なら不可（前区 `submittedAt`）

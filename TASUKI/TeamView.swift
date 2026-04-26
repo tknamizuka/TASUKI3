@@ -8,7 +8,6 @@
 import SwiftUI
 import FirebaseAuth
 import FirebaseFirestore
-import MapKit
 
 // MARK: - Team Member Model
 struct TeamMember: Identifiable {
@@ -57,12 +56,6 @@ private struct EkidenSubmitSheetItem: Identifiable {
     }
 }
 
-private struct EkidenCourseMapMarker: Identifiable {
-    let id = UUID()
-    let coordinate: CLLocationCoordinate2D
-    let title: String
-}
-
 // MARK: - Team View
 struct TeamView: View {
     private let maxTeamMembers = 10
@@ -93,6 +86,7 @@ struct TeamView: View {
     @State private var isLoadingGuestSpectator = false
     @State private var guestSpectatorError: String?
     @State private var guestSpectatorDayKey: String = ""
+    @State private var guestSpectatorFocusedMarkerId: String?
     
     // コンディション更新シート
     @State private var showConditionSheet = false
@@ -126,6 +120,10 @@ struct TeamView: View {
 
     /// 区間賞
     @State private var showLegRankingSheet = false
+    /// 総合順位タップ → 全チームランキング（プログレスバー）
+    @State private var showOverallStandingsMap = false
+    /// 総合シートの「区間賞」から閉じた直後に区間賞シートを開く
+    @State private var openLegRankingAfterStandingsDismiss = false
     @State private var legRankingSnapshot: EkidenLegRankingSnapshot?
     @State private var legRankingSelectedLegIndex: Int = 0
     /// 沿道応援（観客投稿・チーム内フィード）
@@ -480,6 +478,27 @@ struct TeamView: View {
                         )
                     }
                 }
+                .sheet(isPresented: $showOverallStandingsMap) {
+                    if let ekiden = ekidenViewState {
+                        EkidenOverallStandingsMapView(
+                            eventId: ekiden.event.id,
+                            isSampleTeam: isSampleTeamFlow || selectedTeamId.hasPrefix("example"),
+                            usesHakoneCourse: ekiden.usesOfficialHakoneRelayRules,
+                            highlightTeamId: selectedTeamId,
+                            myOutboundRank: ekiden.outboundRank,
+                            referenceTotalKm: ekiden.rankingProgressReferenceKm,
+                            onOpenLegRanking: {
+                                openLegRankingAfterStandingsDismiss = true
+                                showOverallStandingsMap = false
+                            }
+                        )
+                    }
+                }
+                .onChange(of: showOverallStandingsMap) { _, presented in
+                    guard !presented, openLegRankingAfterStandingsDismiss else { return }
+                    openLegRankingAfterStandingsDismiss = false
+                    showLegRankingSheet = true
+                }
                 .onAppear {
                     selectedCondition = myCondition
                     if !isSampleTeamFlow {
@@ -614,37 +633,38 @@ struct TeamView: View {
                 }
 
                 if !spectatorStatusesForGuest.isEmpty {
-                    let points = spectatorStatusesForGuest.map {
-                        EkidenCourseMapMarker(coordinate: $0.mapCoordinate, title: $0.teamName)
+                    let guestMarkers = spectatorStatusesForGuest.map {
+                        EkidenTeamsCourseProgressBar.Marker(
+                            id: $0.teamId,
+                            title: $0.teamName,
+                            cumulativeKm: $0.cumulativeDistanceKm
+                        )
                     }
-                    Map(
-                        coordinateRegion: .constant(HakoneEkidenCourse.mapRegion(center: points.first?.coordinate ?? HakoneEkidenCourse.routeCoordinates.first ?? CLLocationCoordinate2D(latitude: 35.68, longitude: 139.76))),
-                        interactionModes: [.pan, .zoom],
-                        annotationItems: points
-                    ) { marker in
-                        MapAnnotation(coordinate: marker.coordinate) {
-                            VStack(spacing: 2) {
-                                Image(systemName: "figure.run.circle.fill")
-                                    .font(.system(size: 18))
-                                    .foregroundColor(Color.tasukiAccentOrange)
-                                Text(marker.title)
-                                    .font(.system(size: 9, weight: .bold))
-                                    .foregroundColor(.black)
-                                    .padding(.horizontal, 5)
-                                    .padding(.vertical, 2)
-                                    .background(RoundedRectangle(cornerRadius: 5).fill(Color.tasukiDarkCard))
-                            }
-                        }
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("横軸は全区間を 100% とした累計の進捗（箱根 \(String(format: "%.1f", HakoneEkidenCourse.totalKm)) km）")
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundColor(Color.tasukiMutedText)
+                            .fixedSize(horizontal: false, vertical: true)
+                        EkidenTeamsCourseProgressBar(
+                            markers: guestMarkers,
+                            referenceTotalKm: HakoneEkidenCourse.totalKm,
+                            emphasizedMarkerIds: [],
+                            ownTeamMarkerIds: [],
+                            focusedMarkerId: $guestSpectatorFocusedMarkerId
+                        )
                     }
-                    .frame(height: 240)
-                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                    .padding(14)
+                    .background(
+                        RoundedRectangle(cornerRadius: 12)
+                            .fill(Color.tasukiDarkCardSecondary)
+                    )
                     .overlay(
                         RoundedRectangle(cornerRadius: 12)
                             .stroke(Color.tasukiMutedText.opacity(0.25), lineWidth: 1)
                     )
                     .padding(.horizontal, 20)
 
-                    Text("観戦マップは1日1回更新されます（\(guestSpectatorDayKey)時点）")
+                    Text("観戦データは1日1回更新されます（\(guestSpectatorDayKey)時点）")
                         .font(.system(size: 11))
                         .foregroundColor(Color.tasukiMutedText)
                         .padding(.horizontal, 20)
@@ -664,6 +684,10 @@ struct TeamView: View {
                                 Text(String(format: "累計 %.1f km", status.cumulativeDistanceKm))
                                     .font(.system(size: 11))
                                     .foregroundColor(.black.opacity(0.66))
+                            }
+                            .contentShape(Rectangle())
+                            .onTapGesture {
+                                guestSpectatorFocusedMarkerId = status.teamId
                             }
                             Spacer()
                             Button {
@@ -1121,7 +1145,12 @@ struct TeamView: View {
         let defaultLegIdx: Int
         if let s = state {
             let maxIdx = max(0, s.event.legCount - 1)
-            defaultLegIdx = min(max(0, s.entry.currentLegIndex), maxIdx)
+            var idx = min(max(0, s.entry.currentLegIndex), maxIdx)
+            // 区間賞のモックは「提出済み区間」だけ生成するため、未提出の現在区間だと一覧が空になる
+            if isSample, !s.legs.indices.contains(idx) || s.legs[idx].status != .submitted || s.legs[idx].isPass {
+                idx = s.legs.firstIndex(where: { $0.status == .submitted && !$0.isPass }) ?? 0
+            }
+            defaultLegIdx = min(max(0, idx), maxIdx)
         } else {
             defaultLegIdx = 0
         }
@@ -1578,21 +1607,40 @@ struct TeamView: View {
                         .foregroundColor(.black)
                 }
                 Spacer()
-                if state.provisionalRank != nil || state.outboundRank != nil {
-                    VStack(alignment: .trailing, spacing: 2) {
-                        if let outbound = state.outboundRank {
-                            Text("往路 \(outbound)位")
-                                .font(.system(size: 11, weight: .semibold))
-                                .foregroundColor(.black.opacity(0.8))
+                if state.provisionalRank != nil || state.outboundRank != nil || state.totalTeams > 0 {
+                    VStack(alignment: .trailing, spacing: 6) {
+                        Button {
+                            showOverallStandingsMap = true
+                        } label: {
+                            VStack(alignment: .trailing, spacing: 2) {
+                                if let outbound = state.outboundRank {
+                                    Text("往路 \(outbound)位")
+                                        .font(.system(size: 11, weight: .semibold))
+                                        .foregroundColor(.black.opacity(0.8))
+                                }
+                                if let rank = state.provisionalRank {
+                                    Text("総合 \(rank)位")
+                                        .font(.system(size: 14, weight: .bold))
+                                        .foregroundColor(.black)
+                                } else if state.totalTeams > 0 {
+                                    Text("総合ランキング")
+                                        .font(.system(size: 12, weight: .semibold))
+                                        .foregroundColor(.black.opacity(0.85))
+                                }
+                                Text(state.totalTeams > 0 ? "/\(state.totalTeams)チーム" : "")
+                                    .font(.system(size: 10))
+                                    .foregroundColor(.black)
+                                Text("タップで一覧・区間賞へ")
+                                    .font(.system(size: 9, weight: .medium))
+                                    .foregroundColor(Color.tasukiMutedText)
+                            }
+                            .padding(.vertical, 4)
+                            .padding(.horizontal, 4)
+                            .contentShape(Rectangle())
                         }
-                        if let rank = state.provisionalRank {
-                            Text("総合 \(rank)位")
-                                .font(.system(size: 14, weight: .bold))
-                                .foregroundColor(.black)
-                        }
-                        Text(state.totalTeams > 0 ? "/\(state.totalTeams)チーム" : "")
-                            .font(.system(size: 10))
-                            .foregroundColor(.black)
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("総合ランキングを開く")
+
                         Button {
                             showLegRankingSheet = true
                         } label: {
@@ -1671,29 +1719,33 @@ struct TeamView: View {
                 .fixedSize(horizontal: false, vertical: true)
 
             if state.usesOfficialHakoneRelayRules {
-                let currentCoordinate = HakoneEkidenCourse.currentCoordinate(cumulativeRunKm: state.cumulativeDistanceKm)
-                let marker = EkidenCourseMapMarker(
-                    coordinate: currentCoordinate,
-                    title: HakoneEkidenCourse.mapProgressLabel(cumulativeRunKm: state.cumulativeDistanceKm)
-                )
-                Map(
-                    coordinateRegion: .constant(HakoneEkidenCourse.mapRegion(center: currentCoordinate)),
-                    interactionModes: [.pan, .zoom],
-                    annotationItems: [marker]
-                ) { row in
-                    MapAnnotation(coordinate: row.coordinate) {
-                        VStack(spacing: 3) {
-                            Image(systemName: "figure.run.circle.fill")
-                                .font(.system(size: 22))
-                                .foregroundColor(Color.tasukiAccentOrange)
-                            Text("現在地")
-                                .font(.system(size: 10, weight: .bold))
-                                .foregroundColor(.black)
-                        }
-                    }
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("コース上の進捗（累計距離）")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundColor(.black)
+                    EkidenTeamsCourseProgressBar(
+                        markers: [
+                            EkidenTeamsCourseProgressBar.Marker(
+                                id: state.entry.teamId,
+                                title: "あなたのチーム",
+                                cumulativeKm: state.cumulativeDistanceKm
+                            )
+                        ],
+                        referenceTotalKm: HakoneEkidenCourse.totalKm,
+                        emphasizedMarkerIds: Set([state.entry.teamId]),
+                        ownTeamMarkerIds: Set([state.entry.teamId]),
+                        focusedMarkerId: .constant(nil)
+                    )
+                    Text(HakoneEkidenCourse.mapProgressLabel(cumulativeRunKm: state.cumulativeDistanceKm))
+                        .font(.system(size: 11))
+                        .foregroundColor(.black.opacity(0.72))
+                        .fixedSize(horizontal: false, vertical: true)
                 }
-                .frame(height: 190)
-                .clipShape(RoundedRectangle(cornerRadius: 12))
+                .padding(12)
+                .background(
+                    RoundedRectangle(cornerRadius: 12)
+                        .fill(Color.tasukiDarkCardSecondary)
+                )
                 .overlay(
                     RoundedRectangle(cornerRadius: 12)
                         .stroke(Color.tasukiMutedText.opacity(0.25), lineWidth: 1)
@@ -2160,7 +2212,12 @@ struct TeamView: View {
     }
 }
 
-// MARK: - 区間賞シート
+// MARK: - 区間賞シート（ランキング行タップ → コースマップ）
+private struct LegRankingMapTapPayload: Identifiable {
+    let id: String
+    let row: EkidenLegRankingRow
+}
+
 private struct EkidenLegRankingSheetView: View {
     let state: EkidenViewState
     @Binding var selectedLegIndex: Int
@@ -2171,6 +2228,7 @@ private struct EkidenLegRankingSheetView: View {
     let reload: (Int) async -> Void
 
     @Environment(\.dismiss) private var dismiss
+    @State private var mapTapPayload: LegRankingMapTapPayload?
 
     var body: some View {
         NavigationStack {
@@ -2212,22 +2270,31 @@ private struct EkidenLegRankingSheetView: View {
                                         Divider()
                                             .background(Color.tasukiMutedText.opacity(0.2))
                                     }
-                                    HStack(alignment: .top, spacing: 10) {
-                                        Text("\(row.rank)")
-                                            .font(.system(size: 14, weight: .bold))
-                                            .frame(width: 28, alignment: .leading)
-                                            .foregroundColor(.black)
-                                        VStack(alignment: .leading, spacing: 2) {
-                                            Text(row.displayName)
-                                                .font(.system(size: 15, weight: .semibold))
+                                    Button {
+                                        mapTapPayload = LegRankingMapTapPayload(id: row.entryId, row: row)
+                                    } label: {
+                                        HStack(alignment: .top, spacing: 10) {
+                                            Text(row.rank > 0 ? "\(row.rank)位" : "—")
+                                                .font(.system(size: 14, weight: .bold))
+                                                .frame(minWidth: 40, alignment: .leading)
                                                 .foregroundColor(.black)
-                                            Text(EkidenViewState.formatElapsed(row.elapsedSeconds))
-                                                .font(.caption)
-                                                .foregroundColor(.black)
+                                            VStack(alignment: .leading, spacing: 2) {
+                                                Text(row.displayName)
+                                                    .font(.system(size: 15, weight: .semibold))
+                                                    .foregroundColor(.black)
+                                                Text(EkidenViewState.formatElapsed(row.elapsedSeconds))
+                                                    .font(.caption)
+                                                    .foregroundColor(.black)
+                                            }
+                                            Spacer(minLength: 0)
+                                            Image(systemName: "chart.line.uptrend.xyaxis")
+                                                .font(.system(size: 14, weight: .semibold))
+                                                .foregroundColor(Color.tasukiAccent.opacity(0.85))
                                         }
-                                        Spacer(minLength: 0)
+                                        .padding(.vertical, 12)
+                                        .contentShape(Rectangle())
                                     }
-                                    .padding(.vertical, 12)
+                                    .buttonStyle(.plain)
                                 }
                             }
                             .padding(.bottom, 16)
@@ -2252,6 +2319,20 @@ private struct EkidenLegRankingSheetView: View {
             }
             .task {
                 await reload(selectedLegIndex)
+            }
+            .sheet(item: $mapTapPayload) { payload in
+                EkidenRankingCourseMapView(
+                    eventId: state.event.id,
+                    isSampleTeam: isSampleTeam,
+                    usesHakoneCourse: state.usesOfficialHakoneRelayRules,
+                    referenceTotalKm: state.rankingProgressReferenceKm,
+                    ownEntryId: myEntryId,
+                    selectedLegIndex: selectedLegIndex,
+                    legRankForHighlight: snapshot?.rank(forEntryId: payload.row.entryId),
+                    legTotalFinishers: snapshot?.totalFinishers ?? 0,
+                    highlightEntryId: payload.row.entryId,
+                    tappedRowDisplayName: payload.row.displayName
+                )
             }
         }
     }
