@@ -28,6 +28,10 @@ struct MatchRequestSummary: Identifiable {
     let storeRequestId: String?
     let isOutgoing: Bool
     let partnerStatus: PartnerMatchRequestStatus?
+    /// パートナー申請で「毎週同じ曜日」での走行希望が含まれる場合 true（候補日は直近の具体例）
+    let isWeeklyRecurringProposal: Bool
+    /// 自分が送り返した日時候補が「毎週希望」として付いている場合 true
+    let counterIsWeeklyRecurringProposal: Bool
 
     init(
         id: String,
@@ -42,7 +46,9 @@ struct MatchRequestSummary: Identifiable {
         counterProposedDateLabels: [String]? = nil,
         storeRequestId: String? = nil,
         isOutgoing: Bool = false,
-        partnerStatus: PartnerMatchRequestStatus? = nil
+        partnerStatus: PartnerMatchRequestStatus? = nil,
+        isWeeklyRecurringProposal: Bool = false,
+        counterIsWeeklyRecurringProposal: Bool = false
     ) {
         self.id = id
         self.fromName = fromName
@@ -57,6 +63,8 @@ struct MatchRequestSummary: Identifiable {
         self.storeRequestId = storeRequestId
         self.isOutgoing = isOutgoing
         self.partnerStatus = partnerStatus
+        self.isWeeklyRecurringProposal = isWeeklyRecurringProposal
+        self.counterIsWeeklyRecurringProposal = counterIsWeeklyRecurringProposal
     }
 
     var listTitle: String {
@@ -122,7 +130,14 @@ enum MessageListTab: String, CaseIterable {
 
 // MARK: - Message List View
 struct MessageListView: View {
-    @State private var selectedTab: MessageListTab = .chat
+    @State private var selectedTab: MessageListTab
+    /// `MainTabView` の `NavigationStack` から `NavigationLink` で開くときは `false`（二重スタックでナビバーがずれるのを防ぐ）
+    private let embedNavigationStack: Bool
+
+    init(initialTab: MessageListTab = .chat, embedNavigationStack: Bool = true) {
+        _selectedTab = State(initialValue: initialTab)
+        self.embedNavigationStack = embedNavigationStack
+    }
     @State private var conversations: [MessageConversation] = []
     @State private var requests: [MatchRequestSummary] = []
     @State private var isLoading = true
@@ -130,10 +145,21 @@ struct MessageListView: View {
     /// シングルトンを `@StateObject` で保持すると未定義動作・起動時クラッシュの原因になるため `ObservedObject` を使う
     @ObservedObject private var conversationManager = ConversationManager.shared
     @EnvironmentObject private var partnerMatchStore: PartnerMatchRequestsStore
-    
+
     var body: some View {
-        NavigationStack {
-            VStack(spacing: 0) {
+        Group {
+            if embedNavigationStack {
+                NavigationStack {
+                    messageListContent
+                }
+            } else {
+                messageListContent
+            }
+        }
+    }
+
+    private var messageListContent: some View {
+        VStack(spacing: 0) {
                 // チャット / メッセージ 切り替えタブ
                 Picker("", selection: $selectedTab) {
                     ForEach(MessageListTab.allCases, id: \.self) { tab in
@@ -238,26 +264,25 @@ struct MessageListView: View {
                         }
                     }
                 }
+        }
+        .navigationTitle("")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .principal) {
+                Text(
+                    selectedTab == .chat ? "チャット" :
+                    selectedTab == .message ? "メッセージ" : "リクエスト"
+                )
+                .font(.system(size: 19, weight: .bold))
+                .foregroundColor(Color.tasukiPrimary)
             }
-            .navigationTitle("")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .principal) {
-                    Text(
-                        selectedTab == .chat ? "チャット" :
-                        selectedTab == .message ? "メッセージ" : "リクエスト"
-                    )
-                    .font(.system(size: 19, weight: .bold))
-                    .foregroundColor(Color.tasukiPrimary)
-                }
-            }
-            .onAppear {
-                loadConversations()
-                loadRequests()
-            }
-            .onReceive(partnerMatchStore.$items) { _ in
-                loadRequests()
-            }
+        }
+        .onAppear {
+            loadConversations()
+            loadRequests()
+        }
+        .onReceive(partnerMatchStore.$items) { _ in
+            loadRequests()
         }
     }
     
@@ -377,6 +402,37 @@ struct MessageListView: View {
                             Capsule()
                                 .fill(Color.tasukiBrandYellow.opacity(0.35))
                         )
+                    if request.type == .partner, request.partnerStatus == .rejected {
+                        Text(request.isOutgoing ? "相手が見送り" : "見送り済み")
+                            .font(.system(size: 11, weight: .bold))
+                            .foregroundColor(Color.tasukiMutedText)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 2)
+                            .background(
+                                Capsule()
+                                    .fill(Color.tasukiDarkCardSecondary)
+                            )
+                    }
+                    if request.isWeeklyRecurringProposal {
+                        Text("毎週希望")
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundColor(.black)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(
+                                Capsule()
+                                    .fill(Color.tasukiAccent.opacity(0.28))
+                            )
+                    }
+                }
+
+                if request.type == .partner, request.partnerStatus == .rejected {
+                    Text(request.isOutgoing
+                         ? "相手がこのマッチングリクエストを見送りました。"
+                         : "あなたがこのマッチングリクエストを見送りました。")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundColor(.black.opacity(0.72))
+                        .fixedSize(horizontal: false, vertical: true)
                 }
 
                 if let p = request.proposedPlace, !p.isEmpty {
@@ -523,7 +579,32 @@ struct RequestDetailView: View {
     @State private var showRejectEntry = false
     @State private var counterPlace: String = ""
     @State private var counterDates: [Date] = [Date()]
+    @State private var counterProposeWeekly = false
+    @State private var counterWeekday: Int = 4
+    /// 毎週希望のときの時刻（日付部分は無視し、時・分のみ使用）
+    @State private var counterWeeklyTime: Date = Date()
     @State private var rejectMessage: String = ""
+
+    private func counterWeekdayShortName(_ weekday: Int) -> String {
+        let symbols = ["日", "月", "火", "水", "木", "金", "土"]
+        guard weekday >= 1, weekday <= 7 else { return "?" }
+        return symbols[weekday - 1]
+    }
+
+    /// 毎週の曜日＋時刻から、直近の具体日時を2件（今週以降の次回とその1週間後）
+    private static func nextTwoWeeklyOccurrences(weekday: Int, timeFrom: Date) -> [Date]? {
+        let cal = Calendar.current
+        guard (1...7).contains(weekday) else { return nil }
+        let hour = cal.component(.hour, from: timeFrom)
+        let minute = cal.component(.minute, from: timeFrom)
+        var comps = DateComponents()
+        comps.weekday = weekday
+        comps.hour = hour
+        comps.minute = minute
+        guard let first = cal.nextDate(after: Date(), matching: comps, matchingPolicy: .nextTime) else { return nil }
+        guard let second = cal.date(byAdding: .weekOfYear, value: 1, to: first) else { return nil }
+        return [first, second]
+    }
 
     private var isPartnerStoreRequest: Bool {
         request.type == .partner && request.storeRequestId != nil
@@ -558,6 +639,17 @@ struct RequestDetailView: View {
                         Capsule()
                             .fill(Color.tasukiBrandYellow.opacity(0.35))
                     )
+                if request.isWeeklyRecurringProposal {
+                    Text("毎週希望")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundColor(.black)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 4)
+                        .background(
+                            Capsule()
+                                .fill(Color.tasukiAccent.opacity(0.28))
+                        )
+                }
             }
             .padding(.top, 32)
 
@@ -566,14 +658,26 @@ struct RequestDetailView: View {
                     if let p = request.proposedPlace, !p.isEmpty {
                         detailBlock(title: "場所", body: p)
                     }
+                    if request.isWeeklyRecurringProposal {
+                        detailBlock(
+                            title: "毎週希望について",
+                            body: "相手は毎週同じ曜日・時間帯での走行を希望しています。日時候補の先頭行はその要約で、続く行は直近の具体例です。OK後もチャットで調整できます。"
+                        )
+                    }
                     if let labels = request.proposedDateLabels, !labels.isEmpty {
                         detailBlock(title: "日時候補", body: labels.joined(separator: "\n"))
                     }
                     if let cp = request.counterProposedPlace, !cp.isEmpty {
                         detailBlock(title: "あなたが送り返した場所", body: cp)
                     }
+                    if request.counterIsWeeklyRecurringProposal {
+                        detailBlock(
+                            title: "送り返した毎週希望について",
+                            body: "あなたは送り返し画面で指定した曜日・時刻で、毎週同じリズムでの走行を提案しています。日時候補の先頭行がその要約で、続く行は直近の具体例です。"
+                        )
+                    }
                     if let cl = request.counterProposedDateLabels, !cl.isEmpty {
-                        detailBlock(title: "あなたが送り返した日時", body: cl.joined(separator: "\n"))
+                        detailBlock(title: "あなたが送り返した日時候補", body: cl.joined(separator: "\n"))
                     }
 
                     detailBlock(title: "メッセージ", body: request.message.isEmpty ? "（なし）" : request.message)
@@ -698,6 +802,20 @@ struct RequestDetailView: View {
         .onDisappear {
             tabBarVisibility.popHiddenContext()
         }
+        .onChange(of: showCounterSheet) { _, isPresented in
+            if isPresented {
+                counterProposeWeekly = false
+                let cal = Calendar.current
+                let base = counterDates.first ?? Date()
+                counterWeekday = cal.component(.weekday, from: base)
+                counterWeeklyTime = cal.date(
+                    bySettingHour: cal.component(.hour, from: base),
+                    minute: cal.component(.minute, from: base),
+                    second: 0,
+                    of: Date()
+                ) ?? Date()
+            }
+        }
         .sheet(isPresented: $showCounterSheet) {
             NavigationStack {
                 Form {
@@ -705,12 +823,37 @@ struct RequestDetailView: View {
                         TextField("場所", text: $counterPlace)
                     }
                     Section("送り返す日時候補") {
-                        ForEach(counterDates.indices, id: \.self) { i in
-                            DatePicker("候補 \(i + 1)", selection: $counterDates[i], displayedComponents: [.date, .hourAndMinute])
-                        }
-                        if counterDates.count < 5 {
-                            Button("候補を追加") {
-                                counterDates.append(Date())
+                        Toggle("毎週の希望として送る", isOn: $counterProposeWeekly)
+                            .onChange(of: counterProposeWeekly) { _, on in
+                                guard on, let d = counterDates.first else { return }
+                                let cal = Calendar.current
+                                counterWeekday = cal.component(.weekday, from: d)
+                                counterWeeklyTime = cal.date(
+                                    bySettingHour: cal.component(.hour, from: d),
+                                    minute: cal.component(.minute, from: d),
+                                    second: 0,
+                                    of: Date()
+                                ) ?? counterWeeklyTime
+                            }
+                        if counterProposeWeekly {
+                            Picker("毎週の曜日", selection: $counterWeekday) {
+                                ForEach(1...7, id: \.self) { w in
+                                    Text("毎週\(counterWeekdayShortName(w))").tag(w)
+                                }
+                            }
+                            DatePicker("希望の時刻", selection: $counterWeeklyTime, displayedComponents: .hourAndMinute)
+                                .environment(\.locale, Locale(identifier: "ja_JP"))
+                            Text("この曜日と時刻から、次回分と1週間後の2件を「直近の例」として付けて送信します。")
+                                .font(.caption)
+                                .foregroundColor(Color.tasukiMutedText)
+                        } else {
+                            ForEach(counterDates.indices, id: \.self) { i in
+                                DatePicker("候補 \(i + 1)", selection: $counterDates[i], displayedComponents: [.date, .hourAndMinute])
+                            }
+                            if counterDates.count < 5 {
+                                Button("候補を追加") {
+                                    counterDates.append(Date())
+                                }
                             }
                         }
                     }
@@ -726,7 +869,20 @@ struct RequestDetailView: View {
                             guard let sid = request.storeRequestId else { return }
                             let place = counterPlace.trimmingCharacters(in: .whitespacesAndNewlines)
                             guard !place.isEmpty else { return }
-                            partnerMatchStore.sendCounterIncoming(id: sid, place: place, dates: counterDates)
+                            let datesToSend: [Date] = {
+                                if counterProposeWeekly {
+                                    return Self.nextTwoWeeklyOccurrences(weekday: counterWeekday, timeFrom: counterWeeklyTime) ?? counterDates
+                                }
+                                return counterDates
+                            }()
+                            guard !datesToSend.isEmpty else { return }
+                            partnerMatchStore.sendCounterIncoming(
+                                id: sid,
+                                place: place,
+                                dates: datesToSend,
+                                counterWeeklyPreferred: counterProposeWeekly,
+                                counterWeekday: counterProposeWeekly ? counterWeekday : nil
+                            )
                             showCounterSheet = false
                             dismiss()
                         }
@@ -784,7 +940,12 @@ struct RequestDetailView: View {
 }
 
 #Preview {
-    MessageListView()
-        .environmentObject(TabBarVisibility())
-        .environmentObject(PartnerMatchRequestsStore.shared)
+    NavigationStack {
+        MessageListView(embedNavigationStack: false)
+            .environmentObject(TabBarVisibility())
+            .environmentObject(PartnerMatchRequestsStore.shared)
+            .environmentObject(JoinedPracticesStore())
+            .environmentObject(MatchPromisesStore())
+            .environmentObject(PracticeRecruitmentsStore.shared)
+    }
 }

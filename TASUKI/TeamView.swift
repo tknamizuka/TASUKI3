@@ -271,7 +271,8 @@ struct TeamView: View {
                         ToolbarItem(placement: .principal) {
                             Text("Ekiden")
                                 .font(.system(size: 19, weight: .bold))
-                                .foregroundColor(.black)
+                                .foregroundColor(Color.tasukiPrimary)
+                                .fixedSize(horizontal: true, vertical: false)
                         }
                     }
             } else if resolvedTeamId == nil {
@@ -315,7 +316,8 @@ struct TeamView: View {
                         ToolbarItem(placement: .principal) {
                             Text("Ekiden")
                                 .font(.system(size: 19, weight: .bold))
-                                .foregroundColor(.black)
+                                .foregroundColor(Color.tasukiPrimary)
+                                .fixedSize(horizontal: true, vertical: false)
                         }
                         if hubEkidenJoinMode != nil {
                             ToolbarItem(placement: .navigationBarLeading) {
@@ -412,10 +414,12 @@ struct TeamView: View {
                 .navigationTitle("")
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
+                    // principal を広げない（中央タイトルが trailing を圧縮してアイコンが小さく見えるのを防ぐ）
                     ToolbarItem(placement: .principal) {
                         Text("Ekiden")
                             .font(.system(size: 19, weight: .bold))
-                            .foregroundColor(.black)
+                            .foregroundColor(Color.tasukiPrimary)
+                            .fixedSize(horizontal: true, vertical: false)
                     }
                     ToolbarItem(placement: .topBarTrailing) {
                         Button {
@@ -423,8 +427,11 @@ struct TeamView: View {
                         } label: {
                             Image(systemName: "message.fill")
                                 .font(.system(size: 20))
-                                .foregroundColor(.black)
+                                .foregroundColor(Color.tasukiPrimary)
+                                .frame(width: 44, height: 44)
+                                .contentShape(Rectangle())
                         }
+                        .buttonStyle(.borderless)
                     }
                 }
                 .sheet(isPresented: $showTeamChatSheet) {
@@ -1101,7 +1108,8 @@ struct TeamView: View {
             ToolbarItem(placement: .principal) {
                 Text("Ekiden")
                     .font(.system(size: 19, weight: .bold))
-                    .foregroundColor(.black)
+                    .foregroundColor(Color.tasukiPrimary)
+                    .fixedSize(horizontal: true, vertical: false)
             }
         }
     }
@@ -1404,6 +1412,7 @@ struct TeamView: View {
             return
         }
         let entryId = state.entry.id
+        let passedLegIndex = legIndex
         showPassTasukiConfirm = false
         passTasukiLegIndex = nil
         isPassingTasuki = true
@@ -1418,8 +1427,12 @@ struct TeamView: View {
             )
             await MainActor.run {
                 isPassingTasuki = false
-                if case .success = result {
-                    Task { await loadEkidenState(teamId: teamId) }
+            }
+            guard case .success = result else { return }
+            await loadEkidenState(teamId: teamId)
+            await MainActor.run {
+                if let st = ekidenViewState {
+                    TasukiHandoffNotifier.notifyAfterPassTasuki(state: st, passedLegIndex: passedLegIndex)
                 }
             }
         }
@@ -2269,7 +2282,7 @@ struct TeamChatSheetView: View {
     var body: some View {
         NavigationStack {
             ZStack {
-                Color.tasukiDarkBackground
+                Color.white
                     .ignoresSafeArea()
                 
                 VStack(spacing: 0) {
@@ -2302,17 +2315,23 @@ struct TeamChatSheetView: View {
                                     Text(phrase)
                                         .font(.system(size: 11, weight: .semibold))
                                         .foregroundColor(.black)
+                                        .padding(.horizontal, 10)
                                         .padding(.vertical, 7)
+                                        .background(
+                                            Capsule()
+                                                .fill(Color(.systemGray6))
+                                        )
                                 }
                                 .buttonStyle(.plain)
                             }
                         }
                         .padding(.horizontal, 16)
-                        .padding(.vertical, 6)
+                        .padding(.vertical, 8)
                     }
+                    .background(Color.white)
                     
                     HStack(spacing: 12) {
-                        TextField("メッセージを入力...", text: $messageText, axis: .vertical)
+                        TextField("メッセージを入力", text: $messageText, axis: .vertical)
                             .textFieldStyle(.plain)
                             .font(.system(size: 16))
                             .foregroundColor(.black)
@@ -2320,7 +2339,7 @@ struct TeamChatSheetView: View {
                             .padding(.vertical, 10)
                             .background(
                                 RoundedRectangle(cornerRadius: 20)
-                                    .fill(Color.tasukiDarkCardSecondary)
+                                    .fill(Color(.systemGray6))
                             )
                             .focused($isTextFieldFocused)
                             .lineLimit(1...4)
@@ -2341,17 +2360,24 @@ struct TeamChatSheetView: View {
                     }
                     .padding(.horizontal, 16)
                     .padding(.vertical, 12)
-                    .background(Color.tasukiDarkBackground)
+                    .background(Color.white)
                 }
             }
-            .navigationTitle("チームチャット")
+            .navigationTitle("")
             .navigationBarTitleDisplayMode(.inline)
+            .navigationBarBackButtonHidden(true)
             .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button("閉じる") {
-                        dismiss()
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button(action: { dismiss() }) {
+                        Image(systemName: "chevron.left")
+                            .font(.system(size: 16, weight: .semibold))
+                            .foregroundColor(Color.tasukiAccent)
                     }
-                    .foregroundColor(.black)
+                }
+                ToolbarItem(placement: .principal) {
+                    Text("チームチャット")
+                        .font(.system(size: 19, weight: .bold))
+                        .foregroundColor(Color.tasukiPrimary)
                 }
             }
         }
@@ -2424,7 +2450,7 @@ struct TeamChatSheetView: View {
                 Spacer()
                 Text("--- \(message.content) ---")
                     .font(.system(size: 11, weight: .regular))
-                    .foregroundColor(.black)
+                    .foregroundColor(Color.tasukiMutedText)
                 Spacer()
             }
             .padding(.vertical, 8)
@@ -2449,18 +2475,18 @@ struct TeamChatSheetView: View {
                 VStack(alignment: isFromMe ? .trailing : .leading, spacing: 4) {
                     if !isFromMe {
                         Text(message.user.name)
-                            .font(.system(size: 11, weight: .semibold))
-                            .foregroundColor(.black)
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundColor(Color.tasukiPrimary.opacity(0.7))
                     }
                     
                     Text(message.content)
-                        .font(.system(size: 15, weight: .regular))
-                        .foregroundColor(isFromMe ? Color.tasukiOnBrandYellow : .black)
-                        .padding(.horizontal, 14)
+                        .font(.system(size: 16, weight: .regular))
+                        .foregroundColor(isFromMe ? .white : .black)
+                        .padding(.horizontal, 12)
                         .padding(.vertical, 10)
                         .background(
                             RoundedRectangle(cornerRadius: 18)
-                                .fill(isFromMe ? Color.tasukiPrimaryButtonFill : Color.clear)
+                                .fill(isFromMe ? Color.royalBlue : Color.gray.opacity(0.2))
                         )
                 }
                 .frame(maxWidth: UIScreen.main.bounds.width * 0.7, alignment: isFromMe ? .trailing : .leading)

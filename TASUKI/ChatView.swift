@@ -7,6 +7,50 @@
 
 import SwiftUI
 
+// MARK: - 次回練習の案内メッセージ（送信フォーマットと受信UIの判定で共有）
+enum ChatNextPracticeMessages {
+    static let proposalPrefix = "【次回練習の提案】"
+    static let attendingReplyLine = "【次回練習の回答】参加します"
+    static let decliningReplyLine = "【次回練習の回答】今回は参加できません"
+
+    /// 提案本文の「日時:」行と同一（送信時と解析で共有）
+    static let proposalLineDateFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "ja_JP")
+        f.dateStyle = .medium
+        f.timeStyle = .short
+        return f
+    }()
+
+    static func isProposalBody(_ text: String) -> Bool {
+        text.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix(proposalPrefix)
+    }
+
+    static func isPracticeAnswerLine(_ text: String) -> Bool {
+        text.trimmingCharacters(in: .whitespacesAndNewlines).contains("【次回練習の回答】")
+    }
+
+    /// 「場所:」「日時:」行を読み取り、日時を解析できれば返す（カレンダー登録用）
+    static func parseProposalPlaceAndDate(_ text: String) -> (place: String, date: Date)? {
+        guard isProposalBody(text) else { return nil }
+        var placeValue: String?
+        var dateLine: String?
+        for line in text.components(separatedBy: .newlines) {
+            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+            if trimmed.hasPrefix("場所:") {
+                placeValue = String(trimmed.dropFirst("場所:".count)).trimmingCharacters(in: .whitespacesAndNewlines)
+            } else if trimmed.hasPrefix("日時:") {
+                dateLine = String(trimmed.dropFirst("日時:".count)).trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+        }
+        guard let place = placeValue, !place.isEmpty, let rawDate = dateLine, !rawDate.isEmpty else { return nil }
+        if let d = proposalLineDateFormatter.date(from: rawDate) {
+            return (place: place, date: d)
+        }
+        return nil
+    }
+}
+
 // MARK: - Chat Message Model（conversationId に紐づくメッセージ。replyToMessageId で返信先を参照）
 struct ChatMessage: Identifiable {
     /// メッセージの一意ID（バックエンドでは Firestore ドキュメントID）
@@ -45,6 +89,7 @@ struct ChatView: View {
     @EnvironmentObject private var joinedPracticesStore: JoinedPracticesStore
     @EnvironmentObject private var partnerMatchStore: PartnerMatchRequestsStore
     @EnvironmentObject private var matchPromisesStore: MatchPromisesStore
+    @EnvironmentObject private var practiceRecruitmentsStore: PracticeRecruitmentsStore
 
     @State private var messages: [ChatMessage] = []
     @State private var messageText: String = ""
@@ -69,6 +114,13 @@ struct ChatView: View {
     @State private var showUnblockConfirmAlert = false
     @State private var showBlockSuccessAlert = false
     @State private var showPracticeScheduleSheet = false
+    /// 相手からの「次回練習の提案」メッセージ id → 自分の回答（未回答は nil）
+    @State private var practiceProposalChoiceByMessageId: [String: PracticeProposalChoice] = [:]
+
+    private enum PracticeProposalChoice {
+        case attending
+        case declining
+    }
 
     init(
         conversationId: String = "dummy-preview",
@@ -84,10 +136,22 @@ struct ChatView: View {
         self.partnerUserId = partnerUserId
     }
     
+    private var hasUnansweredIncomingPracticeProposal: Bool {
+        messages.contains { message in
+            !message.isFromMe
+                && ChatNextPracticeMessages.isProposalBody(message.text)
+                && practiceProposalChoiceByMessageId[message.id] == nil
+        }
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             safetyHeaderView
-            
+
+            if hasUnansweredIncomingPracticeProposal {
+                practiceProposalTopNotice
+            }
+
             ScrollViewReader { proxy in
                 ScrollView {
                     VStack(spacing: 12) {
@@ -266,19 +330,39 @@ struct ChatView: View {
 
     private var linkedPracticeForChat: Practice? {
         if let pid = practiceId,
-           let recruitment = mockRecruitments.first(where: { $0.practiceId == pid }) {
+           let recruitment = practiceRecruitmentsStore.recruitment(forPracticeId: pid) {
             return recruitment.toPractice()
         }
-        if let rawTitle = partnerName.split(separator: ":").dropFirst().first {
-            let title = String(rawTitle).trimmingCharacters(in: .whitespaces)
-            if let recruitment = mockRecruitments.first(where: { $0.title == title }) {
-                return recruitment.toPractice()
-            }
-        }
-        if let recruitment = mockRecruitments.first(where: { partnerName.contains($0.title) }) {
+        if let recruitment = practiceRecruitmentsStore.recruitment(matchingPracticeChatPartnerName: partnerName) {
             return recruitment.toPractice()
+        }
+        if let pid = practiceId,
+           let joined = joinedPracticesStore.items.first(where: { $0.practiceId == pid }) {
+            return practiceFromJoinedItem(joined)
+        }
+        if let joined = joinedPracticesStore.items.first(where: { $0.chatId == conversationId }) {
+            return practiceFromJoinedItem(joined)
         }
         return nil
+    }
+
+    private func practiceFromJoinedItem(_ item: JoinedPracticeItem) -> Practice {
+        let joined = joinedPracticesStore.items.contains { $0.practiceId == item.practiceId }
+        return Practice(
+            practiceId: item.practiceId,
+            chatId: item.chatId,
+            title: item.title,
+            location: item.location,
+            date: item.date,
+            category: .other,
+            pace: "—",
+            distance: "",
+            description: "参加予定の練習会です。詳細は募集ページ（Find）とあわせてご確認ください。",
+            organizer: mockUser,
+            maxParticipants: 30,
+            participantUserIds: [],
+            isJoined: joined
+        )
     }
     
     private var reportSheetContent: some View {
@@ -474,20 +558,44 @@ struct ChatView: View {
         return ""
     }
 
-    private static let scheduleMessageDateFormatter: DateFormatter = {
-        let f = DateFormatter()
-        f.locale = Locale(identifier: "ja_JP")
-        f.dateStyle = .medium
-        f.timeStyle = .short
-        return f
-    }()
+    private var practiceProposalTopNotice: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: "bell.badge.fill")
+                .font(.system(size: 20, weight: .semibold))
+                .foregroundColor(Color.tasukiPrimary)
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 4) {
+                Text("次回練習会の案内が届いています")
+                    .font(.system(size: 15, weight: .bold))
+                    .foregroundColor(.black)
+                Text("下のメッセージ欄の案内に「参加」「不参加」で回答できます。")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundColor(Color.tasukiMutedText)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .background(
+            RoundedRectangle(cornerRadius: 12)
+                .fill(Color.tasukiBrandYellow.opacity(0.42))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 12)
+                .strokeBorder(Color.tasukiPrimary.opacity(0.25), lineWidth: 1)
+        )
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(Color.white)
+    }
 
     private func sendScheduleProposal(place: String, date: Date) {
         let trimmed = place.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
         UserDefaults.standard.set(trimmed, forKey: userDefaultsSchedulePlaceKey)
-        let when = Self.scheduleMessageDateFormatter.string(from: date)
-        let body = "【次回練習の提案】\n場所: \(trimmed)\n日時: \(when)"
+        let when = ChatNextPracticeMessages.proposalLineDateFormatter.string(from: date)
+        let body = "\(ChatNextPracticeMessages.proposalPrefix)\n場所: \(trimmed)\n日時: \(when)"
         let newMessage = ChatMessage(
             text: body,
             isFromMe: true,
@@ -567,35 +675,182 @@ struct ChatView: View {
             if message.isFromMe {
                 Spacer(minLength: 60)
             }
-            
-            VStack(alignment: message.isFromMe ? .trailing : .leading, spacing: 4) {
-                if let name = message.senderName, !name.isEmpty {
-                    Text(name)
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundColor(Color.tasukiPrimary.opacity(0.7))
+
+            Group {
+                if !message.isFromMe, ChatNextPracticeMessages.isProposalBody(message.text) {
+                    incomingNextPracticeProposalCard(message: message)
+                } else {
+                    defaultMessageBubble(message: message)
                 }
-                if let replyId = message.replyToMessageId,
-                   let repliedTo = messages.first(where: { $0.id == replyId }) {
-                    Text("返信: \(repliedTo.text)")
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundColor(message.isFromMe ? .white.opacity(0.9) : .secondary)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                }
-                Text(message.text)
-                    .font(.system(size: 16, weight: .regular))
-                    .foregroundColor(message.isFromMe ? .white : .black)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 10)
-                    .background(
-                        RoundedRectangle(cornerRadius: 18)
-                            .fill(message.isFromMe ? Color.royalBlue : Color.gray.opacity(0.2))
-                    )
             }
-            
+
             if !message.isFromMe {
                 Spacer(minLength: 60)
             }
+        }
+    }
+
+    @ViewBuilder
+    private func defaultMessageBubble(message: ChatMessage) -> some View {
+        VStack(alignment: message.isFromMe ? .trailing : .leading, spacing: 4) {
+            if let name = message.senderName, !name.isEmpty {
+                Text(name)
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundColor(Color.tasukiPrimary.opacity(0.7))
+            }
+            if let replyId = message.replyToMessageId,
+               let repliedTo = messages.first(where: { $0.id == replyId }) {
+                Text("返信: \(repliedTo.text)")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundColor(message.isFromMe ? .white.opacity(0.9) : .secondary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+            }
+            Text(message.text)
+                .font(.system(size: 16, weight: .regular))
+                .foregroundColor(message.isFromMe ? .white : .black)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 10)
+                .background(
+                    RoundedRectangle(cornerRadius: 18)
+                        .fill(message.isFromMe ? Color.royalBlue : Color.gray.opacity(0.2))
+                )
+        }
+    }
+
+    private func incomingNextPracticeProposalCard(message: ChatMessage) -> some View {
+        let choice = practiceProposalChoiceByMessageId[message.id]
+        let detailLines = message.text
+            .split(separator: "\n", omittingEmptySubsequences: false)
+            .dropFirst()
+            .joined(separator: "\n")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        return VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 8) {
+                Image(systemName: "calendar.badge.clock")
+                    .font(.system(size: 22, weight: .semibold))
+                    .foregroundColor(Color.tasukiPrimary)
+                Text("次回練習会の案内")
+                    .font(.system(size: 17, weight: .bold))
+                    .foregroundColor(.black)
+            }
+
+            if let name = message.senderName, !name.isEmpty {
+                Text("\(name)さんから届きました")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundColor(Color.tasukiMutedText)
+            }
+
+            Text(detailLines.isEmpty ? message.text : detailLines)
+                .font(.system(size: 15, weight: .medium))
+                .foregroundColor(.black.opacity(0.88))
+                .fixedSize(horizontal: false, vertical: true)
+
+            if let choice {
+                HStack(spacing: 8) {
+                    Image(systemName: choice == .attending ? "checkmark.circle.fill" : "xmark.circle.fill")
+                        .foregroundColor(choice == .attending ? Color.tasukiPrimary : Color.tasukiMutedText)
+                    Text(choice == .attending ? "参加で回答しました" : "不参加で回答しました")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundColor(.black)
+                }
+                .padding(.vertical, 6)
+            } else {
+                HStack(spacing: 10) {
+                    Button {
+                        respondToPracticeProposal(message, attending: true)
+                    } label: {
+                        Text("参加")
+                            .font(.system(size: 15, weight: .bold))
+                            .foregroundColor(Color.tasukiOnBrandYellow)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 12)
+                            .background(Color.tasukiPrimaryButtonFill)
+                            .clipShape(RoundedRectangle(cornerRadius: 12))
+                    }
+                    .buttonStyle(.plain)
+
+                    Button {
+                        respondToPracticeProposal(message, attending: false)
+                    } label: {
+                        Text("不参加")
+                            .font(.system(size: 15, weight: .semibold))
+                            .foregroundColor(.black)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 12)
+                            .background(Color.tasukiDarkCardSecondary)
+                            .clipShape(RoundedRectangle(cornerRadius: 12))
+                    }
+                    .buttonStyle(.plain)
+                }
+                .disabled(isBlockedConversation)
+                .opacity(isBlockedConversation ? 0.45 : 1)
+            }
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 16)
+                .fill(Color.tasukiBrandYellow.opacity(0.22))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 16)
+                .strokeBorder(Color.tasukiPrimary.opacity(0.35), lineWidth: 1.5)
+        )
+        .onAppear {
+            guard practiceProposalChoiceByMessageId[message.id] == nil else { return }
+            PendingNextPracticeReplyStore.shared.register(conversationId: conversationId, messageId: message.id)
+            let peer = message.senderName ?? partnerName
+            TasukiLocalNotifications.notifyNextPracticeProposalIfUnposted(peerName: peer, messageId: message.id)
+        }
+    }
+
+    private func respondToPracticeProposal(_ proposal: ChatMessage, attending: Bool) {
+        guard !isBlockedConversation else { return }
+        guard practiceProposalChoiceByMessageId[proposal.id] == nil else { return }
+        PendingNextPracticeReplyStore.shared.clear(conversationId: conversationId, messageId: proposal.id)
+        practiceProposalChoiceByMessageId[proposal.id] = attending ? .attending : .declining
+        if attending {
+            recordAcceptedPracticeProposalOnCalendar(proposal)
+        }
+        let line = attending ? ChatNextPracticeMessages.attendingReplyLine : ChatNextPracticeMessages.decliningReplyLine
+        messages.append(
+            ChatMessage(
+                text: line,
+                isFromMe: true,
+                senderName: isPractice ? myName : nil
+            )
+        )
+    }
+
+    /// 「参加」時にホームのカレンダー（参加予定 or マッチ約束）へ反映
+    private func recordAcceptedPracticeProposalOnCalendar(_ proposal: ChatMessage) {
+        guard let parsed = ChatNextPracticeMessages.parseProposalPlaceAndDate(proposal.text) else { return }
+        let syntheticPracticeId = "\(practiceId ?? "chat-\(conversationId)")-proposal-\(proposal.id)"
+        let rowId = "next-practice-\(conversationId)-\(proposal.id)"
+        if isPractice {
+            joinedPracticesStore.add(
+                JoinedPracticeItem(
+                    id: rowId,
+                    practiceId: syntheticPracticeId,
+                    title: partnerName,
+                    location: parsed.place,
+                    date: parsed.date,
+                    chatId: conversationId
+                ),
+                postJoinNotification: false
+            )
+        } else {
+            matchPromisesStore.add(
+                MatchPromiseItem(
+                    id: rowId,
+                    title: "次回練習・\(partnerName)",
+                    date: parsed.date,
+                    location: parsed.place,
+                    conversationId: conversationId
+                )
+            )
         }
     }
     
@@ -649,12 +904,11 @@ struct ChatView: View {
     }
     
     private func sendMessage() {
-        guard !messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            return
-        }
+        let trimmed = messageText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
         let replyId = replyingTo?.id
         let newMessage = ChatMessage(
-            text: messageText,
+            text: trimmed,
             isFromMe: true,
             replyToMessageId: replyId,
             senderName: isPractice ? myName : nil
@@ -663,8 +917,11 @@ struct ChatView: View {
         messageText = ""
         replyingTo = nil
         isTextFieldFocused = false
-        
+
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+            if ChatNextPracticeMessages.isPracticeAnswerLine(trimmed) {
+                return
+            }
             let replyMessage = ChatMessage(
                 text: "ありがとうございます！",
                 isFromMe: false,
@@ -701,6 +958,13 @@ struct ChatView: View {
         func hourAgo(_ h: Int) -> Date { cal.date(byAdding: .hour, value: -h, to: now) ?? now }
         func dayAgo(_ d: Int) -> Date { cal.date(byAdding: .day, value: -d, to: now) ?? now }
 
+        let demoPracticeProposalDay = cal.date(byAdding: .day, value: 10, to: now) ?? now
+        let demoPracticeProposalAt = cal.date(bySettingHour: 6, minute: 30, second: 0, of: demoPracticeProposalDay) ?? demoPracticeProposalDay
+        let demoPracticeWhenLine = ChatNextPracticeMessages.proposalLineDateFormatter.string(from: demoPracticeProposalAt)
+        let demoPartnerProposalDay = cal.date(byAdding: .day, value: 12, to: now) ?? now
+        let demoPartnerProposalAt = cal.date(bySettingHour: 7, minute: 0, second: 0, of: demoPartnerProposalDay) ?? demoPartnerProposalDay
+        let demoPartnerWhenLine = ChatNextPracticeMessages.proposalLineDateFormatter.string(from: demoPartnerProposalAt)
+
         if isPractice {
             messages = [
                 ChatMessage(id: "dummy-p1", text: "集合は噴水前です。5分前には集まってください！", isFromMe: false, timestamp: hourAgo(2), senderName: "Kenji_Run"),
@@ -708,6 +972,13 @@ struct ChatView: View {
                 ChatMessage(id: "dummy-p3", text: "よろしくお願いします！", isFromMe: false, timestamp: hourAgo(1), senderName: "さっちゃん"),
                 ChatMessage(id: "dummy-p4", text: "ペースは6:30/kmでゆっくり行きましょう。", isFromMe: false, timestamp: minAgo(45), senderName: "Kenji_Run"),
                 ChatMessage(id: "dummy-p5", text: "お願いします！", isFromMe: true, timestamp: minAgo(30), senderName: myName),
+                ChatMessage(
+                    id: "dummy-p-proposal",
+                    text: "\(ChatNextPracticeMessages.proposalPrefix)\n場所: 皇居外苑\n日時: \(demoPracticeWhenLine)",
+                    isFromMe: false,
+                    timestamp: minAgo(8),
+                    senderName: "Kenji_Run"
+                ),
             ]
         } else {
             messages = [
@@ -721,6 +992,13 @@ struct ChatView: View {
                 ChatMessage(id: "dummy-8", text: "了解です。当日は軽くストレッチしてから走りましょう。", isFromMe: true, timestamp: hourAgo(2)),
                 ChatMessage(id: "dummy-9", text: "5kmくらいのペースで行きましょうか？", isFromMe: false, timestamp: minAgo(45)),
                 ChatMessage(id: "dummy-10", text: "6分/kmくらいでゆっくりいきましょう！", isFromMe: true, timestamp: minAgo(30)),
+                ChatMessage(
+                    id: "dummy-proposal-sample",
+                    text: "\(ChatNextPracticeMessages.proposalPrefix)\n場所: 代々木公園（ケヤキ並木付近）\n日時: \(demoPartnerWhenLine)",
+                    isFromMe: false,
+                    timestamp: minAgo(6),
+                    senderName: nil
+                ),
             ]
         }
     }
@@ -733,5 +1011,6 @@ struct ChatView: View {
             .environmentObject(JoinedPracticesStore())
             .environmentObject(PartnerMatchRequestsStore.shared)
             .environmentObject(MatchPromisesStore())
+            .environmentObject(PracticeRecruitmentsStore.shared)
     }
 }

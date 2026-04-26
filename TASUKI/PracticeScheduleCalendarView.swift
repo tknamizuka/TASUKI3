@@ -499,5 +499,6 @@ struct PracticeScheduleCalendarView: View {
         .environmentObject(store)
         .environmentObject(matchStore)
         .environmentObject(PartnerMatchRequestsStore.shared)
+        .environmentObject(PracticeRecruitmentsStore.shared)
 }
 #endif

@@ -5,4 +5,6 @@ import Combine
 @MainActor
 final class MainTabRouter: ObservableObject {
     @Published var selectedTab: Int = 0
+    /// Run タブから履歴一覧へ入ったときなど、ナビの「戻る」と二重になるため MainTabView の Home ショートカットを隠す
+    @Published var suppressBackToHomeOverlay: Bool = false
 }

@@ -33,6 +33,7 @@ struct HomeView: View {
     @EnvironmentObject private var joinedPracticesStore: JoinedPracticesStore
     @EnvironmentObject private var matchPromisesStore: MatchPromisesStore
     @EnvironmentObject private var partnerMatchStore: PartnerMatchRequestsStore
+    @ObservedObject private var pendingNextPracticeReplies = PendingNextPracticeReplyStore.shared
     @AppStorage("runningDataSource") private var runningDataSourceRaw: String = RunningDataSource.all.rawValue
     @AppStorage("myRank") private var myRank: String = "Rank E"
     @AppStorage("reduceRankingPressure") private var reduceRankingPressure: Bool = false
@@ -98,9 +99,9 @@ struct HomeView: View {
         max(sameRankUsers.count, 1)
     }
 
-    /// カレンダーバッジ用（参加練習会 + マッチング約束の登録件数。サンプル表示は含めない）
+    /// カレンダーバッジ用（参加練習会 + マッチング約束 + 次回練習の未回答）
     private var calendarScheduleBadgeCount: Int {
-        joinedPracticesStore.scheduledCount + matchPromisesStore.scheduledCount
+        joinedPracticesStore.scheduledCount + matchPromisesStore.scheduledCount + pendingNextPracticeReplies.count
     }
 
     private var formattedTotalPoints: String {
@@ -198,6 +199,13 @@ struct HomeView: View {
                     }
                     .frame(height: 360)
 
+                    if !partnerMatchStore.homeIncomingItems.isEmpty {
+                        matchRequestsHomeBanner(count: partnerMatchStore.homeIncomingItems.count)
+                            .padding(.horizontal, 16)
+                            .padding(.top, 10)
+                            .padding(.bottom, 6)
+                    }
+
                     VStack(alignment: .center, spacing: 10) {
                         Text("TOTAL POINTS")
                             .font(.system(size: 11, weight: .bold))
@@ -233,42 +241,6 @@ struct HomeView: View {
                             .padding(.bottom, 12)
                     }
 
-                    VStack(spacing: 0) {
-                        NavigationLink(destination: ChallengeHubView()) {
-                            TasukiFlatHubRow(
-                                title: "CHALLENGE",
-                                subtitle: "進捗は参考",
-                                systemImage: "flag.checkered.2.crossed",
-                                iconForegroundColor: Color.tasukiPrimary
-                            )
-                        }
-                        .buttonStyle(.plain)
-                    }
-                    .padding(.horizontal, 20)
-
-                    if !partnerMatchStore.homeIncomingItems.isEmpty {
-                        VStack(alignment: .leading, spacing: 10) {
-                            Text("マッチングリクエスト")
-                                .font(.system(size: 11, weight: .bold))
-                                .tracking(1.2)
-                                .foregroundColor(Color.tasukiMutedText)
-                                .padding(.horizontal, 24)
-                                .padding(.top, 20)
-
-                            VStack(spacing: 8) {
-                                ForEach(partnerMatchStore.homeIncomingItems) { item in
-                                    NavigationLink(
-                                        destination: RequestDetailView(request: item.toMatchRequestSummary())
-                                    ) {
-                                        homeMatchRequestRow(item: item)
-                                    }
-                                    .buttonStyle(.plain)
-                                }
-                            }
-                            .padding(.horizontal, 20)
-                        }
-                    }
-
                     if !reduceRankingPressure {
                         NavigationLink(destination: RankingView()) {
                             TasukiFlatHubRow(
@@ -292,6 +264,7 @@ struct HomeView: View {
         }
         .sheet(isPresented: $showRunHistory) {
             RunHistoryListView()
+                .environmentObject(mainTabRouter)
         }
         .sheet(isPresented: $showPracticeCalendar) {
             PracticeScheduleCalendarView(
@@ -309,7 +282,7 @@ struct HomeView: View {
                     ZStack(alignment: .topTrailing) {
                         Image(systemName: "calendar")
                             .font(.system(size: 20))
-                            .foregroundColor(.black)
+                            .foregroundColor(Color.tasukiPrimary)
                         if calendarScheduleBadgeCount > 0 {
                             Text("\(min(calendarScheduleBadgeCount, 99))")
                                 .font(.system(size: 10, weight: .bold))
@@ -322,11 +295,11 @@ struct HomeView: View {
                 }
             }
             ToolbarItem(placement: .topBarTrailing) {
-                NavigationLink(destination: MessageListView()) {
+                NavigationLink(destination: MessageListView(embedNavigationStack: false)) {
                     ZStack(alignment: .topTrailing) {
                         Image(systemName: "message.fill")
                             .font(.system(size: 20))
-                            .foregroundColor(.black)
+                            .foregroundColor(Color.tasukiPrimary)
                         if unreadProvider.unreadCount > 0 {
                             Text("\(min(unreadProvider.unreadCount, 99))")
                                 .font(.system(size: 10, weight: .bold))
@@ -411,52 +384,38 @@ struct HomeView: View {
         return String(format: "%02d:%02d", m, s)
     }
 
-    private func homeMatchRequestRow(item: PartnerMatchRequestItem) -> some View {
-        let dateLine = item.proposedDates
-            .map { PartnerMatchRequestsStore.matchDateFormatter.string(from: $0) }
-            .joined(separator: " · ")
-        return HStack(alignment: .top, spacing: 14) {
-            Image(systemName: "person.crop.circle.badge.plus")
-                .font(.system(size: 22, weight: .medium))
-                .foregroundColor(Color.tasukiPrimary)
-                .frame(width: 40, height: 40)
-
-            VStack(alignment: .leading, spacing: 6) {
-                HStack {
-                    Text(item.peerDisplayName)
+    private func matchRequestsHomeBanner(count: Int) -> some View {
+        NavigationLink(destination: MessageListView(initialTab: .request, embedNavigationStack: false)) {
+            HStack(spacing: 14) {
+                Image(systemName: "person.crop.circle.badge.plus")
+                    .font(.system(size: 22, weight: .semibold))
+                    .foregroundColor(Color.tasukiPrimary)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("マッチングリクエスト")
+                        .font(.system(size: 11, weight: .bold))
+                        .tracking(1.2)
+                        .foregroundColor(Color.tasukiPrimary.opacity(0.75))
+                    Text("新しいマッチングリクエストが\(count)件来ています")
                         .font(.system(size: 16, weight: .semibold))
                         .foregroundColor(.black)
-                        .lineLimit(1)
-                    if item.status == .pending {
-                        Text("NEW")
-                            .font(.system(size: 10, weight: .bold))
-                            .foregroundColor(Color.tasukiOnBrandYellow)
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 2)
-                            .background(Capsule().fill(Color.tasukiBrandYellow))
-                    }
-                    Spacer(minLength: 0)
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundColor(Color.tasukiMutedText)
+                        .multilineTextAlignment(.leading)
                 }
-                Text("場所: \(item.proposedPlace)")
-                    .font(.system(size: 13, weight: .medium))
+                Spacer(minLength: 0)
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 14, weight: .semibold))
                     .foregroundColor(Color.tasukiMutedText)
-                    .lineLimit(2)
-                Text("候補: \(dateLine)")
-                    .font(.system(size: 12, weight: .regular))
-                    .foregroundColor(Color.tasukiMutedText.opacity(0.95))
-                    .lineLimit(3)
             }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 14)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                RoundedRectangle(cornerRadius: 14)
+                    .fill(Color.white)
+                    .shadow(color: Color.black.opacity(0.06), radius: 6, x: 0, y: 2)
+            )
         }
-        .padding(14)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: 14)
-                .fill(Color.white)
-                .shadow(color: Color.black.opacity(0.06), radius: 6, x: 0, y: 2)
-        )
+        .buttonStyle(.plain)
+        .accessibilityLabel("メッセージのリクエストを開く")
     }
 
     private func loadDistanceFromHealthKit() {
@@ -494,6 +453,7 @@ struct HomeView: View {
     .environmentObject(JoinedPracticesStore())
     .environmentObject(MatchPromisesStore())
     .environmentObject(PartnerMatchRequestsStore.shared)
+    .environmentObject(PracticeRecruitmentsStore.shared)
 }
 
 /// 円グラフ（黄→紫グラデ・進捗弧）の見え方確認用サンプル。実機では HealthKit の値を使用。
@@ -511,6 +471,7 @@ struct HomeView: View {
     .environmentObject(JoinedPracticesStore())
     .environmentObject(MatchPromisesStore())
     .environmentObject(PartnerMatchRequestsStore.shared)
+    .environmentObject(PracticeRecruitmentsStore.shared)
 }
 
 #Preview("円グラフサンプル・未達（22%）") {
@@ -527,6 +488,7 @@ struct HomeView: View {
     .environmentObject(JoinedPracticesStore())
     .environmentObject(MatchPromisesStore())
     .environmentObject(PartnerMatchRequestsStore.shared)
+    .environmentObject(PracticeRecruitmentsStore.shared)
 }
 
 #Preview("円グラフサンプル・ほぼ達成（91%）") {
@@ -543,6 +505,7 @@ struct HomeView: View {
     .environmentObject(JoinedPracticesStore())
     .environmentObject(MatchPromisesStore())
     .environmentObject(PartnerMatchRequestsStore.shared)
+    .environmentObject(PracticeRecruitmentsStore.shared)
 }
 
 #Preview("円グラフサンプル・目標超え（109%・弧は100%で頭打ち）") {
@@ -559,6 +522,7 @@ struct HomeView: View {
     .environmentObject(JoinedPracticesStore())
     .environmentObject(MatchPromisesStore())
     .environmentObject(PartnerMatchRequestsStore.shared)
+    .environmentObject(PracticeRecruitmentsStore.shared)
 }
 
 #Preview("未読・参加予定バッジあり") {
@@ -577,4 +541,5 @@ struct HomeView: View {
     .environmentObject(store)
     .environmentObject(MatchPromisesStore())
     .environmentObject(PartnerMatchRequestsStore.shared)
+    .environmentObject(PracticeRecruitmentsStore.shared)
 }

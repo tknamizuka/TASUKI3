@@ -13,6 +13,7 @@
 		9CFE82B32F3DD0860042D74D /* FirebaseStorage in Frameworks */ = {isa = PBXBuildFile; productRef = 9CFE82B22F3DD0860042D74D /* FirebaseStorage */; };
 		9CFE82B82F3DD0860042D74D /* FirebaseFunctions in Frameworks */ = {isa = PBXBuildFile; productRef = 9CFE82B72F3DD0860042D74D /* FirebaseFunctions */; };
 		A1E0000E2F3E10010042E101 /* RunTrackingLiveActivityExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = A1E000012F3E10010042E101 /* RunTrackingLiveActivityExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		B2E000012F4AA0010042E101 /* FirebaseMessaging in Frameworks */ = {isa = PBXBuildFile; productRef = B2E000022F4AA0010042E101 /* FirebaseMessaging */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -90,6 +91,7 @@
 				9CFE82B12F3DD0860042D74D /* FirebaseFirestore in Frameworks */,
 				9CFE82B32F3DD0860042D74D /* FirebaseStorage in Frameworks */,
 				9CFE82B82F3DD0860042D74D /* FirebaseFunctions in Frameworks */,
+				B2E000012F4AA0010042E101 /* FirebaseMessaging in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -148,6 +150,7 @@
 				9CFE82B02F3DD0860042D74D /* FirebaseFirestore */,
 				9CFE82B22F3DD0860042D74D /* FirebaseStorage */,
 				9CFE82B72F3DD0860042D74D /* FirebaseFunctions */,
+				B2E000022F4AA0010042E101 /* FirebaseMessaging */,
 			);
 			productName = TASUKI;
 			productReference = 9C1CF0AC2F29A9BF0065106B /* TASUKI.app */;
@@ -566,6 +569,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 9CFE82AB2F3DD0860042D74D /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
 			productName = FirebaseFunctions;
+		};
+		B2E000022F4AA0010042E101 /* FirebaseMessaging */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 9CFE82AB2F3DD0860042D74D /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseMessaging;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

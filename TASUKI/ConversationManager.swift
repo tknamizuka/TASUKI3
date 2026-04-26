@@ -237,30 +237,18 @@ final class ConversationManager: UnreadCountProviderBase {
         let now = Date()
         func daysAgo(_ d: Int) -> Date { cal.date(byAdding: .day, value: -d, to: now) ?? now }
         
+        // パートナー受信は PartnerMatchRequestsStore（seed-incoming-*）に任せ、
+        // storeRequestId のないサンプルを混ぜると RequestDetail で OK / 送り返しが出ないため含めない。
         let samples: [MatchRequestSummary] = [
-            MatchRequestSummary(
-                id: "req-partner-1",
-                fromName: "Kenji_Run",
-                type: .partner,
-                message: "一緒に皇居で朝ランしませんか？",
-                createdAt: daysAgo(0),
-                isNew: true
-            ),
             MatchRequestSummary(
                 id: "req-practice-1",
                 fromName: "皇居ラン募集",
                 type: .practice,
                 message: "皇居ラン 2周 ゆっくりペース（6:00/km）への参加リクエストです。",
                 createdAt: daysAgo(1),
-                isNew: true
-            ),
-            MatchRequestSummary(
-                id: "req-partner-2",
-                fromName: "Momo",
-                type: .partner,
-                message: "週末のジョグ仲間を探しています。",
-                createdAt: daysAgo(3),
-                isNew: false
+                isNew: true,
+                proposedPlace: "皇居外苑（千鳥ヶ淵側・集合）",
+                proposedDateLabels: ["土曜 6:30", "日曜 6:00"]
             )
         ]
         Task { @MainActor in
@@ -276,7 +264,10 @@ final class ConversationManager: UnreadCountProviderBase {
     /// 未読会話数を再取得して unreadCount を更新（HomeView のバッジ用）
     override func refreshUnreadCount(completion: (() -> Void)? = nil) {
         guard currentUserId != nil else {
-            DispatchQueue.main.async { self.unreadCount = 0; completion?() }
+            DispatchQueue.main.async {
+                self.unreadCount = PendingNextPracticeReplyStore.shared.count
+                completion?()
+            }
             return
         }
         fetchMyConversations { [weak self] result in
@@ -286,8 +277,9 @@ final class ConversationManager: UnreadCountProviderBase {
                 // マッチングリクエスト数もバッジに含める
                 self?.fetchMyMatchRequests { reqResult in
                     let pending = (try? reqResult.get().filter { $0.isNew }.count) ?? 0
+                    let proposals = PendingNextPracticeReplyStore.shared.count
                     DispatchQueue.main.async {
-                        self?.unreadCount = unreadChats + pending
+                        self?.unreadCount = unreadChats + pending + proposals
                         completion?()
                     }
                 }
@@ -295,8 +287,9 @@ final class ConversationManager: UnreadCountProviderBase {
                 // 会話取得に失敗した場合でも、リクエストだけは表示する
                 self?.fetchMyMatchRequests { reqResult in
                     let pending = (try? reqResult.get().filter { $0.isNew }.count) ?? 0
+                    let proposals = PendingNextPracticeReplyStore.shared.count
                     DispatchQueue.main.async {
-                        self?.unreadCount = pending
+                        self?.unreadCount = pending + proposals
                         completion?()
                     }
                 }

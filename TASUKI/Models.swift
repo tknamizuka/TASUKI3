@@ -124,7 +124,9 @@ struct User: Identifiable, Codable {
     var distanceFromUserMock: Double
     /// 今月の GPS 走行回数（マッチング用。未設定時は nil）
     var monthlyGpsActivityCount: Int? = nil
-    
+    /// 相手端末へマッチング Push を送るときの宛先（Firebase Auth の UID）。未設定ならサーバ通知は送らない。
+    var firebaseUid: String? = nil
+
     // 計算プロパティ: オンライン判定 (24時間以内)
     var isOnline: Bool {
         return Date().timeIntervalSince(lastLogin) < 24 * 60 * 60
@@ -267,7 +269,8 @@ struct PartnerUser: Identifiable {
             latitude: 0.0,
             longitude: 0.0,
             distanceFromUserMock: 0.0,
-            monthlyGpsActivityCount: nil
+            monthlyGpsActivityCount: nil,
+            firebaseUid: nil
         )
     }
 }

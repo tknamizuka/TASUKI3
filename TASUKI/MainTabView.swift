@@ -8,6 +8,8 @@ struct MainTabView: View {
     @EnvironmentObject private var authManager: AuthManager
     @EnvironmentObject private var coachCertification: CoachCertificationManager
     @EnvironmentObject private var tabBarVisibility: TabBarVisibility
+    @EnvironmentObject private var joinedPracticesStore: JoinedPracticesStore
+    @EnvironmentObject private var matchPromisesStore: MatchPromisesStore
 
     private let tabItems: [(icon: String, label: String)] = [
         ("house.fill", "Home"),
@@ -48,7 +50,7 @@ struct MainTabView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .environmentObject(mainTabRouter)
         .overlay(alignment: .topLeading) {
-            if mainTabRouter.selectedTab != 0 {
+            if mainTabRouter.selectedTab != 0, !mainTabRouter.suppressBackToHomeOverlay {
                 backToHomeButton
             }
         }
@@ -59,7 +61,14 @@ struct MainTabView: View {
             }
         }
         .ignoresSafeArea(.keyboard)
+        .onReceive(joinedPracticesStore.$items) { items in
+            TasukiScheduleReminderScheduler.reschedule(joined: items, promises: matchPromisesStore.items)
+        }
+        .onReceive(matchPromisesStore.$items) { items in
+            TasukiScheduleReminderScheduler.reschedule(joined: joinedPracticesStore.items, promises: items)
+        }
         .onAppear {
+            TasukiScheduleReminderScheduler.reschedule(joined: joinedPracticesStore.items, promises: matchPromisesStore.items)
             previousTabIndex = mainTabRouter.selectedTab
             tabEnterDate = Date()
             RealityMiningManager.shared.trackScreenView(name: tabItems[mainTabRouter.selectedTab].label)
@@ -216,6 +225,7 @@ struct MainTabView: View {
         .environmentObject(JoinedPracticesStore())
         .environmentObject(MatchPromisesStore())
         .environmentObject(PartnerMatchRequestsStore.shared)
+        .environmentObject(PracticeRecruitmentsStore.shared)
         .environmentObject(CoachCertificationManager.shared)
         .environmentObject(TabBarVisibility())
 }

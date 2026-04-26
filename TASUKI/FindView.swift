@@ -447,7 +447,7 @@ struct FindView: View {
         )
     ]
     
-    @State private var recruitments: [PracticeRecruitment] = mockRecruitments
+    @EnvironmentObject private var practiceRecruitmentsStore: PracticeRecruitmentsStore
     
     // User型のマッチング用データ（Models.swiftのmockUsersを使用）
     @State private var matchingUsers: [User] = []
@@ -659,7 +659,7 @@ struct FindView: View {
     
     // フィルタリングされた募集リスト
     private var filteredRecruitments: [PracticeRecruitment] {
-        var filtered = recruitments
+        var filtered = practiceRecruitmentsStore.recruitments
         
         // カテゴリーフィルター適用
         if let category = selectedPracticeCategory {
@@ -986,7 +986,7 @@ struct FindView: View {
                                 isRecurring: isRecurring,
                                 recurringWeekday: recurringWeekday
                             )
-                            recruitments.insert(newRecruitment, at: 0)
+                            practiceRecruitmentsStore.upsertAtStart(newRecruitment)
                             showRecruitmentSheet = false
                             return
                         }
@@ -1010,7 +1010,7 @@ struct FindView: View {
                                     isRecurring: isRecurring,
                                     recurringWeekday: recurringWeekday
                                 )
-                                recruitments.insert(newRecruitment, at: 0)
+                                practiceRecruitmentsStore.upsertAtStart(newRecruitment)
                                 showRecruitmentSheet = false
                             }
                         }
@@ -2049,4 +2049,5 @@ struct FilterDetailSheet: View {
     NavigationStack {
         FindView()
     }
+    .environmentObject(PracticeRecruitmentsStore.shared)
 }

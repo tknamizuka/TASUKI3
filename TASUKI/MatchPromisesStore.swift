@@ -30,10 +30,15 @@ final class MatchPromisesStore: ObservableObject {
 
     var scheduledCount: Int { items.count }
 
-    func add(_ item: MatchPromiseItem) {
+    func add(_ item: MatchPromiseItem, postNotification: Bool = true) {
         guard !items.contains(where: { $0.id == item.id }) else { return }
         items.append(item)
         items.sort { $0.date < $1.date }
+        if postNotification {
+            DispatchQueue.main.async {
+                TasukiLocalNotifications.notifyMatchPromiseCalendar(title: item.title)
+            }
+        }
     }
 
     func remove(id: String) {

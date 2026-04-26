@@ -30,9 +30,15 @@ final class JoinedPracticesStore: ObservableObject {
     var scheduledCount: Int { items.count }
     
     /// 参加時に呼ぶ
-    func add(_ item: JoinedPracticeItem) {
+    /// - Parameter postJoinNotification: 練習会参加を知らせるローカル通知（チャットからカレンダー同期時は二重になりやすいので `false` も可）
+    func add(_ item: JoinedPracticeItem, postJoinNotification: Bool = true) {
         guard !items.contains(where: { $0.practiceId == item.practiceId }) else { return }
         items.append(item)
+        if postJoinNotification {
+            DispatchQueue.main.async {
+                TasukiLocalNotifications.notifyPracticeJoinedCalendar(title: item.title)
+            }
+        }
     }
     
     /// キャンセル時に呼ぶ

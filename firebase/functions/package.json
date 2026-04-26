@@ -1,0 +1,14 @@
+{
+  "name": "tasuki-functions",
+  "description": "FCM for partner match + quiet hours (defer to morning)",
+  "engines": {
+    "node": "20"
+  },
+  "main": "index.js",
+  "dependencies": {
+    "firebase-admin": "^12.6.0",
+    "firebase-functions": "^5.1.1",
+    "luxon": "^3.5.0"
+  },
+  "private": true
+}

@@ -20,6 +20,8 @@ private enum RankingFilter {
 
 /// ランキング画面（サンプルデータベース）
 struct RankingView: View {
+    @EnvironmentObject private var tabBarVisibility: TabBarVisibility
+    @State private var didPushTabBarHide = false
     @State private var mode: RankingMode = .personal
     @State private var period: RankingPeriod = .total
     @State private var filter: RankingFilter = .overall
@@ -117,7 +119,19 @@ struct RankingView: View {
             }
         }
         .background(Color.tasukiDarkBackground)
-        .onAppear(perform: fetchRemoteRankingIfPossible)
+        .onAppear {
+            if !didPushTabBarHide {
+                didPushTabBarHide = true
+                tabBarVisibility.pushHiddenContext()
+            }
+            fetchRemoteRankingIfPossible()
+        }
+        .onDisappear {
+            if didPushTabBarHide {
+                didPushTabBarHide = false
+                tabBarVisibility.popHiddenContext()
+            }
+        }
     }
     
     // MARK: - 個人ランキング

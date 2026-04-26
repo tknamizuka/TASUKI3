@@ -142,8 +142,11 @@ private let sampleRunHistory: [RunHistoryEntry] = {
 // MARK: - Run History List View
 struct RunHistoryListView: View {
     @Environment(\.dismiss) var dismiss
+    @EnvironmentObject private var mainTabRouter: MainTabRouter
     @ObservedObject private var activityStore = RunActivityStore.shared
     var entries: [RunHistoryEntry]? = nil
+    /// Run タブの `NavigationLink` から開いたときのみ true（MainTabView の「Home」ボタンとナビの戻るが二重になるのを防ぐ）
+    var suppressMainTabBackToHomeButton: Bool = false
 
     private var resolvedEntries: [RunHistoryEntry] {
         if let entries {
@@ -235,6 +238,16 @@ struct RunHistoryListView: View {
                     }
                     .foregroundColor(Color.tasukiAccentOrange)
                 }
+            }
+        }
+        .onAppear {
+            if suppressMainTabBackToHomeButton {
+                mainTabRouter.suppressBackToHomeOverlay = true
+            }
+        }
+        .onDisappear {
+            if suppressMainTabBackToHomeButton {
+                mainTabRouter.suppressBackToHomeOverlay = false
             }
         }
     }
@@ -437,6 +450,7 @@ struct RunHistoryMapView: View {
 
 #Preview("走行履歴一覧") {
     RunHistoryListView()
+        .environmentObject(MainTabRouter())
 }
 
 #Preview("走行詳細") {

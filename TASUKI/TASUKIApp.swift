@@ -3,6 +3,7 @@ import UIKit
 import AVFoundation // 追加
 import FirebaseCore
 import FirebaseAuth
+import FirebaseMessaging
 import Combine
 
 // MARK: - App State
@@ -13,7 +14,7 @@ enum AppState {
     case main        // ログイン済みかつプロフィール登録済み
 }
 
-class AppDelegate: NSObject, UIApplicationDelegate {
+class AppDelegate: NSObject, UIApplicationDelegate, MessagingDelegate {
     func application(_ application: UIApplication,
                      didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
         // #region agent log
@@ -27,6 +28,8 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         FirebaseBootstrap.configureIfNeeded()
         configureTabBarAppearance()
         TasukiHandoffNotifier.requestAuthorizationIfNeeded()
+        TasukiFCMPushRegistration.configureMessagingDelegate(self)
+        TasukiFCMPushRegistration.registerForRemoteNotifications(application)
         PointService.shared.resetMonthlyIfNeeded()
         // #region agent log
         DebugSession658Log.log(
@@ -52,6 +55,18 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         appearance.stackedLayoutAppearance = itemAppearance
         UITabBar.appearance().standardAppearance = appearance
         UITabBar.appearance().scrollEdgeAppearance = appearance
+    }
+
+    func application(_ application: UIApplication, didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
+        TasukiFCMPushRegistration.setApnsDeviceToken(deviceToken)
+    }
+
+    func application(_ application: UIApplication, didFailToRegisterForRemoteNotificationsWithError error: Error) {
+        print("AppDelegate: APNs registration failed: \(error.localizedDescription)")
+    }
+
+    func messaging(_ messaging: Messaging, didReceiveRegistrationToken fcmToken: String?) {
+        TasukiFCMPushRegistration.handleRegistrationToken(fcmToken)
     }
 }
 
@@ -130,6 +145,7 @@ struct TASUKIApp: App {
                         .environmentObject(joinedPracticesStore)
                         .environmentObject(matchPromisesStore)
                         .environmentObject(PartnerMatchRequestsStore.shared)
+                        .environmentObject(PracticeRecruitmentsStore.shared)
                         .environmentObject(CoachCertificationManager.shared)
                         .environmentObject(tabBarVisibility)
                 }

@@ -2,6 +2,8 @@ import SwiftUI
 
 struct ChallengeHubView: View {
     @ObservedObject private var activityStore = RunActivityStore.shared
+    @EnvironmentObject private var tabBarVisibility: TabBarVisibility
+    @State private var didPushTabBarHide = false
     @State private var challenges: [MonthlyChallenge] = []
     @State private var leaderboard: [ChallengeLeaderboardEntry] = []
 
@@ -32,7 +34,19 @@ struct ChallengeHubView: View {
                     .foregroundColor(Color.tasukiPrimary)
             }
         }
-        .onAppear(perform: refresh)
+        .onAppear {
+            if !didPushTabBarHide {
+                didPushTabBarHide = true
+                tabBarVisibility.pushHiddenContext()
+            }
+            refresh()
+        }
+        .onDisappear {
+            if didPushTabBarHide {
+                didPushTabBarHide = false
+                tabBarVisibility.popHiddenContext()
+            }
+        }
         .onChange(of: activityStore.activities.count) { _, _ in
             refresh()
         }
@@ -167,4 +181,5 @@ struct ChallengeHubView: View {
     NavigationStack {
         ChallengeHubView()
     }
+    .environmentObject(TabBarVisibility())
 }

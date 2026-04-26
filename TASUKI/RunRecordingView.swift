@@ -113,6 +113,14 @@ struct RunRecordingView: View {
                             .padding(.horizontal, 20)
                             .padding(.bottom, 20)
 
+                        recentActivitiesCard
+                            .padding(.horizontal, 20)
+                            .padding(.bottom, 20)
+
+                        challengeHubEntry
+                            .padding(.horizontal, 20)
+                            .padding(.bottom, 20)
+
                         mapCard
                             .padding(.horizontal, 20)
                             .padding(.bottom, 24)
@@ -122,10 +130,6 @@ struct RunRecordingView: View {
                             .padding(.bottom, 24)
 
                         activityGraphCard
-                            .padding(.horizontal, 20)
-                            .padding(.bottom, 24)
-
-                        recentActivitiesCard
                             .padding(.horizontal, 20)
                             .padding(.bottom, 24)
                     }
@@ -569,6 +573,88 @@ struct RunRecordingView: View {
         }
     }
 
+    private var challengePreviewChallenge: MonthlyChallenge? {
+        let monthActivities = activityStore.activitiesInCurrentMonth()
+        let list = ChallengeService.shared.currentMonthChallenges(from: monthActivities)
+        return list.max { $0.progress < $1.progress }
+    }
+
+    private var challengeHubEntry: some View {
+        NavigationLink(destination: ChallengeHubView()) {
+            HStack(alignment: .top, spacing: 10) {
+                Image(systemName: "flag.checkered.2.crossed")
+                    .font(.system(size: 20, weight: .semibold))
+                    .foregroundColor(Color.tasukiPrimary)
+                    .accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("CHALLENGE")
+                        .font(.system(size: 15, weight: .bold))
+                        .foregroundColor(.black)
+                    if let c = challengePreviewChallenge {
+                        challengeTopProgressThumbnail(challenge: c)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundColor(Color.tasukiMutedText)
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
+            .background(
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(Color.tasukiBrandYellow.opacity(0.42))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 12)
+                    .strokeBorder(Color.tasukiPrimary.opacity(0.25), lineWidth: 1)
+            )
+        }
+        .buttonStyle(.plain)
+    }
+
+    @ViewBuilder
+    private func challengeTopProgressThumbnail(challenge: MonthlyChallenge) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(challenge.title)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundColor(.black)
+                .lineLimit(1)
+            ProgressView(value: challenge.progress)
+                .tint(challenge.isCompleted ? Color.green : Color.tasukiAccent)
+            HStack(spacing: 6) {
+                Text("\(formatChallengeMetric(challenge.current)) / \(formatChallengeMetric(challenge.target)) \(challenge.unit)")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundColor(Color.tasukiMutedText)
+                    .lineLimit(1)
+                Spacer(minLength: 0)
+                Text("\(Int((challenge.progress * 100).rounded()))%")
+                    .font(.system(size: 11, weight: .bold))
+                    .foregroundColor(Color.tasukiPrimary)
+                    .monospacedDigit()
+            }
+        }
+        .padding(10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 10)
+                .fill(Color.white.opacity(0.92))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 10)
+                .strokeBorder(Color.tasukiPrimary.opacity(0.14), lineWidth: 1)
+        )
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("進捗が最も進んでいるチャレンジ \(challenge.title)")
+    }
+
+    private func formatChallengeMetric(_ value: Double) -> String {
+        if value.rounded(.down) == value {
+            return "\(Int(value))"
+        }
+        return String(format: "%.1f", value)
+    }
+
     private var mapCard: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text("ルート")
@@ -676,7 +762,12 @@ struct RunRecordingView: View {
                     .tracking(1.2)
                     .foregroundColor(Color.tasukiMutedText)
                 Spacer()
-                NavigationLink(destination: RunHistoryListView(entries: historyEntriesFromActivities)) {
+                NavigationLink(
+                    destination: RunHistoryListView(
+                        entries: historyEntriesFromActivities,
+                        suppressMainTabBackToHomeButton: true
+                    )
+                ) {
                     Text("すべて見る")
                         .font(.caption)
                         .foregroundColor(Color.tasukiAccent)
@@ -862,5 +953,6 @@ private struct RunRecordingNavigationBarHiddenModifier: ViewModifier {
     NavigationStack {
         RunRecordingView()
             .environmentObject(MainTabRouter())
+            .environmentObject(TabBarVisibility())
     }
 }
