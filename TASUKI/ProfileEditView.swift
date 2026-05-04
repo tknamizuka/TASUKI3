@@ -4,8 +4,9 @@ struct ProfileEditView: View {
     @Environment(\.dismiss) var dismiss
     @Environment(\.openURL) private var openURL
     @EnvironmentObject var authManager: AuthManager
-    
-    // 永続化用ストレージ
+    @EnvironmentObject var userManager: UserManager
+
+    // 永続化用ストレージ（Firestore と同期後もローカルキャッシュとして更新）
     @AppStorage("myName") private var storedName: String = "Hiro"
     @AppStorage("myAge") private var storedAge: String = "29"
     @AppStorage("myArea") private var storedArea: String = "Tokyo, Setagaya"
@@ -55,6 +56,11 @@ struct ProfileEditView: View {
     @State private var initialSnapshot: ProfileSnapshot?
     @State private var showDiscardAlert = false
     @State private var integrationNotice: String?
+    @State private var lastLoadedUser: User?
+    @State private var isLoadingProfile = true
+    @State private var isDeviceLinking = false
+    @State private var saveErrorMessage: String?
+    @State private var showSaveError = false
 
     #if DEBUG
     @State private var debugCoachCertified: Bool = false
@@ -92,7 +98,8 @@ struct ProfileEditView: View {
     
     var body: some View {
         NavigationStack {
-            Form {
+            ZStack {
+                Form {
                 // Section 1: Basic Info
                 Section(header: Text("Basic Info")) {
                     VStack(alignment: .leading, spacing: 4) {
@@ -175,13 +182,17 @@ struct ProfileEditView: View {
                             Text(source.displayName).tag(source)
                         }
                     }
-                    Text("選択したサービスの記録がAppleヘルスへ同期されている場合、TASUKIで読み取りできます。")
+                    Text("「すべて／Apple Health」はヘルスケアの記録を利用します。Garmin 等を選ぶとヘルスケアは使わず、TASUKI内の該当デバイス由来の記録のみ使います。")
                         .font(.caption)
                         .foregroundColor(Color.tasukiPrimary.opacity(0.6))
 
                     ForEach(companionSources) { source in
                         Button {
                             runningDataSourceRaw = source.rawValue
+                            RealityMiningManager.shared.trackEvent(
+                                name: "running_data_source_connect_attempt",
+                                properties: ["source": source.rawValue]
+                            )
                             openCompanionApp(for: source)
                         } label: {
                             HStack {
@@ -194,6 +205,7 @@ struct ProfileEditView: View {
                                 }
                             }
                         }
+                        .disabled(isDeviceLinking)
                     }
 
                     if let integrationNotice {
@@ -235,6 +247,17 @@ struct ProfileEditView: View {
                 }
                 #endif
             }
+            .disabled(isLoadingProfile || isDeviceLinking)
+            if isLoadingProfile {
+                Color.black.opacity(0.12)
+                    .ignoresSafeArea()
+                ProgressView()
+            } else if isDeviceLinking {
+                Color.black.opacity(0.12)
+                    .ignoresSafeArea()
+                ProgressView("連携を確認しています…")
+            }
+        }
             .navigationTitle("")
             .navigationBarTitleDisplayMode(.inline)
             .navigationBarBackButtonHidden(true)
@@ -259,55 +282,25 @@ struct ProfileEditView: View {
                     Button("保存") {
                         saveProfile()
                     }
-                    .disabled(!hasChanges)
+                    .disabled(!hasChanges || isLoadingProfile || isDeviceLinking)
                 }
             }
+            .onChange(of: realityMiningConsentEnabled) { newValue in
+                RealityMiningManager.shared.updateConsent(enabled: newValue)
+            }
+            .task {
+                await loadProfileFromFirestore()
+            }
             .onAppear {
-                // AppStorage から編集用 State に読み込み（初回のみ）
-                if initialSnapshot == nil {
-                    name = storedName
-                    age = storedAge
-                    area = storedArea
-                    rank = storedRank
-                    gender = storedGender
-                    
-                    purpose = storedPurpose
-                    runningSpots = storedRunningSpots
-                    schedule = storedSchedule
-                    
-                    personalBest = storedPersonalBest
-                    targetTime = storedTargetTime
-                    nextRace = storedNextRace
-                    
-                    avgPace = storedAvgPace
-                    monthlyDist = storedMonthlyDist
-                    
-                    bio = storedBio
-                    
-                    initialSnapshot = ProfileSnapshot(
-                        name: name,
-                        age: age,
-                        area: area,
-                        rank: rank,
-                        gender: gender,
-                        purpose: purpose,
-                        runningSpots: runningSpots,
-                        schedule: schedule,
-                        personalBest: personalBest,
-                        targetTime: targetTime,
-                        nextRace: nextRace,
-                        avgPace: avgPace,
-                        monthlyDist: monthlyDist,
-                        bio: bio
-                    )
-                }
                 #if DEBUG
                 debugCoachCertified = UserDefaults.standard.bool(forKey: CoachCertificationManager.debugCoachCertifiedKey)
                 debugCoachProfileName = UserDefaults.standard.string(forKey: CoachCertificationManager.debugCoachProfileNameKey) ?? "廣 佳樹"
                 #endif
             }
-            .onChange(of: realityMiningConsentEnabled) { newValue in
-                RealityMiningManager.shared.updateConsent(enabled: newValue)
+            .alert("保存に失敗しました", isPresented: $showSaveError) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text(saveErrorMessage ?? "")
             }
             .alert("変更を保存せずに戻りますか？", isPresented: $showDiscardAlert) {
                 Button("キャンセル", role: .cancel) {}
@@ -340,27 +333,59 @@ private struct ProfileSnapshot: Equatable {
 }
 
 private extension ProfileEditView {
-    func saveProfile() {
-        storedName = name
-        storedAge = age
-        storedArea = area
-        // ランクは登録時のタイムで決まるため編集では変更しない
-        storedGender = gender
-        
-        storedPurpose = purpose
-        storedRunningSpots = runningSpots
-        storedSchedule = schedule
-        
-        storedPersonalBest = personalBest
-        storedTargetTime = targetTime
-        storedNextRace = nextRace
-        
-        storedAvgPace = avgPace
-        storedMonthlyDist = monthlyDist
-        
-        storedBio = bio
-        
-        initialSnapshot = ProfileSnapshot(
+    @MainActor
+    func loadProfileFromFirestore() async {
+        isLoadingProfile = true
+        defer { isLoadingProfile = false }
+        do {
+            let user = try await userManager.fetchCurrentUserProfile()
+            applyFormFrom(user)
+            user.syncLocalProfileStorage()
+            lastLoadedUser = user
+            initialSnapshot = snapshotFromForm()
+        } catch {
+            loadFormFromAppStorage()
+            lastLoadedUser = nil
+            initialSnapshot = snapshotFromForm()
+        }
+    }
+
+    func applyFormFrom(_ user: User) {
+        name = user.name
+        age = user.age > 0 ? String(user.age) : ""
+        area = user.prefecture
+        runningSpots = user.area.replacingOccurrences(of: "、", with: ", ")
+        rank = user.rank
+        gender = genderPickerRaw(fromFirestoreGender: user.gender)
+        purpose = user.purpose
+        schedule = user.schedule
+        personalBest = user.personalBest
+        targetTime = user.targetTime
+        nextRace = user.nextRace
+        avgPace = user.avgPace
+        monthlyDist = user.editingMonthlyDistLabel
+        bio = user.bio
+    }
+
+    func loadFormFromAppStorage() {
+        name = storedName
+        age = storedAge
+        area = storedArea
+        rank = storedRank
+        gender = storedGender
+        purpose = storedPurpose
+        runningSpots = storedRunningSpots
+        schedule = storedSchedule
+        personalBest = storedPersonalBest
+        targetTime = storedTargetTime
+        nextRace = storedNextRace
+        avgPace = storedAvgPace
+        monthlyDist = storedMonthlyDist
+        bio = storedBio
+    }
+
+    func snapshotFromForm() -> ProfileSnapshot {
+        ProfileSnapshot(
             name: name,
             age: age,
             area: area,
@@ -376,51 +401,134 @@ private extension ProfileEditView {
             monthlyDist: monthlyDist,
             bio: bio
         )
-        
-        dismiss()
+    }
+
+    func genderPickerRaw(fromFirestoreGender: String) -> String {
+        switch fromFirestoreGender {
+        case "男性": return Gender.male.rawValue
+        case "女性": return Gender.female.rawValue
+        default: return Gender.other.rawValue
+        }
+    }
+
+    func genderFirestoreLabel(fromPicker raw: String) -> String {
+        guard let g = Gender(rawValue: raw) else { return "無回答" }
+        switch g {
+        case .male: return "男性"
+        case .female: return "女性"
+        case .other: return "無回答"
+        }
+    }
+
+    func parseMonthlyKm(_ raw: String) -> Double? {
+        let s = raw.trimmingCharacters(in: .whitespaces)
+        if s.isEmpty { return nil }
+        let numeral = s.filter { $0.isNumber || $0 == "." }
+        return Double(numeral)
+    }
+
+    func buildUserFromForm(base: User) -> User {
+        let ageValue = Int(age.trimmingCharacters(in: .whitespaces)) ?? base.age
+        let monthlyFromForm = parseMonthlyKm(monthlyDist)
+        let newTarget = monthlyFromForm ?? base.monthlyTarget
+        return User(
+            id: base.id,
+            name: name,
+            profileImage: base.profileImage,
+            profileImageUrl: base.profileImageUrl,
+            bio: bio,
+            rank: base.rank,
+            age: max(0, ageValue),
+            gender: genderFirestoreLabel(fromPicker: gender),
+            purpose: purpose,
+            prefecture: area,
+            area: runningSpots,
+            pace: base.pace,
+            runningFrequency: base.runningFrequency,
+            personalBest: personalBest,
+            schedule: schedule,
+            nextRace: nextRace,
+            targetTime: targetTime,
+            monthlyDistance: base.monthlyDistance,
+            monthlyTarget: newTarget,
+            avgPace: avgPace,
+            totalPoints: base.totalPoints,
+            monthlyPoints: base.monthlyPoints,
+            matchRate: base.matchRate,
+            lastLogin: base.lastLogin,
+            spotName: runningSpots,
+            latitude: base.latitude,
+            longitude: base.longitude,
+            distanceFromUserMock: base.distanceFromUserMock,
+            monthlyGpsActivityCount: base.monthlyGpsActivityCount
+        )
+    }
+
+    /// フォーム内容を @AppStorage に反映（保存成功時・ローカルのみ退避時）
+    func syncStoredFromForm() {
+        storedName = name
+        storedAge = age
+        storedArea = area
+        storedRank = rank
+        storedGender = gender
+        storedPurpose = purpose
+        storedRunningSpots = runningSpots
+        storedSchedule = schedule
+        storedPersonalBest = personalBest
+        storedTargetTime = targetTime
+        storedNextRace = nextRace
+        storedAvgPace = avgPace
+        storedMonthlyDist = monthlyDist
+        storedBio = bio
+    }
+
+    func saveProfile() {
+        Task { @MainActor in
+            let base: User
+            do {
+                if let loaded = lastLoadedUser {
+                    base = loaded
+                } else {
+                    base = try await userManager.fetchCurrentUserProfile()
+                }
+            } catch {
+                syncStoredFromForm()
+                initialSnapshot = snapshotFromForm()
+                dismiss()
+                return
+            }
+
+            let merged = buildUserFromForm(base: base)
+            userManager.saveUserProfile(user: merged) { result in
+                DispatchQueue.main.async {
+                    switch result {
+                    case .success:
+                        merged.syncLocalProfileStorage()
+                        self.syncStoredFromForm()
+                        self.lastLoadedUser = merged
+                        self.initialSnapshot = self.snapshotFromForm()
+                        self.dismiss()
+                    case .failure(let err):
+                        self.saveErrorMessage = err.localizedDescription
+                        self.showSaveError = true
+                    }
+                }
+            }
+        }
     }
 
     func openCompanionApp(for source: RunningDataSource) {
-        if source == .appleHealth {
-            DispatchQueue.main.async {
-                integrationNotice = "Apple Health を取得元に設定しました"
-            }
-            return
+        integrationNotice = nil
+        isDeviceLinking = true
+        RunningDeviceIntegration.connect(source: source, openURL: openURL) { message in
+            isDeviceLinking = false
+            integrationNotice = message
         }
-        let links = source.deepLinks
-        guard !links.isEmpty else {
-            DispatchQueue.main.async {
-                integrationNotice = "\(source.displayName) の起動リンクが未設定です"
-            }
-            return
-        }
-        func tryOpen(_ index: Int) {
-            if index >= links.count {
-                DispatchQueue.main.async {
-                    if let appStore = source.appStoreURL {
-                        openURL(appStore)
-                        integrationNotice = "\(source.displayName) アプリが未インストールのためApp Storeを開きました"
-                    } else {
-                        integrationNotice = "\(source.displayName) を開けませんでした"
-                    }
-                }
-                return
-            }
-            openURL(links[index]) { accepted in
-                DispatchQueue.main.async {
-                    if accepted {
-                        integrationNotice = "\(source.displayName) を開きました"
-                    } else {
-                        tryOpen(index + 1)
-                    }
-                }
-            }
-        }
-        tryOpen(0)
     }
 }
 
 #Preview {
     ProfileEditView()
         .environmentObject(AuthManager())
+        .environmentObject(UserManager())
 }

@@ -15,7 +15,7 @@ struct PartnerDetailView: View {
     @State private var connectionStatus: ConnectionStatus
     @State private var showAlert = false
     @State private var alertMessage = ""
-    @State private var showRequestAlert = false
+    @State private var showInviteComposer = false
 
     init(user: User? = nil, initialStatus: ConnectionStatus = .none) {
         self.user = user ?? mockUser
@@ -84,15 +84,16 @@ struct PartnerDetailView: View {
         } message: {
             Text(alertMessage)
         }
-        .alert("パートナー申請を送信しますか？", isPresented: $showRequestAlert) {
-            Button("キャンセル", role: .cancel) { }
-            Button("送信", role: .none) {
-                connectionStatus = .requested
-                alertMessage = "リクエストを送信しました"
-                showAlert = true
-            }
-        } message: {
-            Text("相手にパートナー申請を送ります。よろしいですか？")
+        .sheet(isPresented: $showInviteComposer) {
+            MatchInviteComposerSheet(
+                navigationTitle: "マッチング招待",
+                submitLabel: "送る",
+                onSubmit: { _ in
+                    connectionStatus = .requested
+                    alertMessage = "リクエストを送信しました（日時・場所・メッセージ）"
+                    showAlert = true
+                }
+            )
         }
     }
 
@@ -273,7 +274,7 @@ struct PartnerDetailView: View {
                         .foregroundColor(.black.opacity(0.55))
 
                     Button(action: {
-                        showRequestAlert = true
+                        showInviteComposer = true
                     }) {
                         HStack {
                             Spacer()

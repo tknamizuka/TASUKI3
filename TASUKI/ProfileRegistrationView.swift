@@ -36,6 +36,7 @@ struct ProfileRegistrationView: View {
     /// 連携するデータソースは1つのみ。`nil` は「連携しない」。
     @State private var selectedDevice: RunningDataSource? = nil
     @State private var integrationNotice: String?
+    @State private var isDeviceLinking = false
     
     @StateObject private var areaSearchCompleter = ActivityAreaSearchCompleter()
     @State private var areaSearchDebounceTask: Task<Void, Never>?
@@ -126,7 +127,14 @@ struct ProfileRegistrationView: View {
                     }
                     .padding(.horizontal, 20)
                     .padding(.bottom, 24)
-                    .disabled(!isCurrentStepValid || isSaving)
+                    .disabled(!isCurrentStepValid || isSaving || isDeviceLinking)
+                }
+                
+                if isDeviceLinking {
+                    Color.black.opacity(0.25)
+                        .ignoresSafeArea()
+                    ProgressView("連携を確認しています…")
+                        .tint(Color.tasukiPrimary)
                 }
             }
             .navigationTitle("プロフィール登録")
@@ -469,7 +477,7 @@ struct ProfileRegistrationView: View {
     private var wearableDeviceStep: some View {
         VStack(alignment: .leading, spacing: 16) {
             questionTitle("ウェアラブルデバイスを接続しますか？")
-            Text("後から設定可能です。連携するサービスを選んでアプリを開き、Appleヘルス同期を有効にしてください。")
+            Text("後から設定可能です。各サービスを選ぶと公式アプリが開きます。取得元に応じた走行は TASUKI に取り込まれた記録から集計され、Appleヘルスを経由しません。")
                 .font(.subheadline)
                 .foregroundColor(.gray)
             
@@ -493,6 +501,7 @@ struct ProfileRegistrationView: View {
                 )
             }
             .buttonStyle(.plain)
+            .disabled(isDeviceLinking)
             
             let columns = [GridItem(.adaptive(minimum: 120), spacing: 10)]
             LazyVGrid(columns: columns, spacing: 10) {
@@ -500,7 +509,15 @@ struct ProfileRegistrationView: View {
                     Button {
                         integrationNotice = nil
                         selectRunningDevice(source)
-                        openCompanionAppForRegistration(source)
+                        guard selectedDevice == source else {
+                            integrationNotice = "連携を解除しました"
+                            return
+                        }
+                        isDeviceLinking = true
+                        RunningDeviceIntegration.connect(source: source, openURL: openURL) { message in
+                            isDeviceLinking = false
+                            integrationNotice = message
+                        }
                     } label: {
                         Text(source.displayName)
                             .font(.system(size: 15, weight: .semibold))
@@ -513,6 +530,7 @@ struct ProfileRegistrationView: View {
                             )
                     }
                     .buttonStyle(.plain)
+                    .disabled(isDeviceLinking)
                 }
             }
             if let integrationNotice {
@@ -761,46 +779,6 @@ struct ProfileRegistrationView: View {
         }
     }
 
-    private func openCompanionAppForRegistration(_ source: RunningDataSource) {
-        if source == .appleHealth {
-            DispatchQueue.main.async {
-                integrationNotice = "Apple Health を接続対象に追加しました"
-            }
-            return
-        }
-        let links = source.deepLinks
-        guard !links.isEmpty else {
-            DispatchQueue.main.async {
-                integrationNotice = "\(source.displayName) の起動リンクが未設定です"
-            }
-            return
-        }
-
-        func tryOpen(_ index: Int) {
-            if index >= links.count {
-                DispatchQueue.main.async {
-                    if let appStore = source.appStoreURL {
-                        openURL(appStore)
-                        integrationNotice = "\(source.displayName) アプリが未インストールのためApp Storeを開きました"
-                    } else {
-                        integrationNotice = "\(source.displayName) を開けませんでした"
-                    }
-                }
-                return
-            }
-            openURL(links[index]) { accepted in
-                DispatchQueue.main.async {
-                    if accepted {
-                        integrationNotice = "\(source.displayName) を開きました"
-                    } else {
-                        tryOpen(index + 1)
-                    }
-                }
-            }
-        }
-        tryOpen(0)
-    }
-    
     /// 生年月日の選択可能範囲（18〜80歳）
     private var allowedBirthDateRange: ClosedRange<Date> {
         let now = Date()
@@ -919,7 +897,7 @@ struct ProfileRegistrationView: View {
                         self.isSaving = false
                         switch result {
                         case .success:
-                            UserDefaults.standard.set(purposeForSave, forKey: "myPurpose")
+                            user.syncLocalProfileStorage()
                             EngagementSignals.touchSignificantInteraction()
                             self.onComplete?()
                         case .failure(let error):

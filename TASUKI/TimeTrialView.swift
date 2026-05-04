@@ -407,14 +407,19 @@ struct TimeTrialRoomView: View {
             }
             .padding(.horizontal, 24)
             Button(action: {
-                HealthKitManager.shared.requestAuthorization { success, _ in
-                    if success {
-                        recordSource = .healthKit
-                        loadHealthKitWorkouts(room: room)
-                    } else {
-                        healthKitError = "HealthKit の利用を許可してください"
-                        recordSource = .healthKit
+                if selectedRunningDataSource.usesHealthKitForQueries {
+                    HealthKitManager.shared.requestAuthorization { success, _ in
+                        if success {
+                            recordSource = .healthKit
+                            loadHealthKitWorkouts(room: room)
+                        } else {
+                            healthKitError = "HealthKit の利用を許可してください"
+                            recordSource = .healthKit
+                        }
                     }
+                } else {
+                    recordSource = .healthKit
+                    loadHealthKitWorkouts(room: room)
                 }
             }) {
                 HStack {

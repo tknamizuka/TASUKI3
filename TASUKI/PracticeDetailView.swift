@@ -115,11 +115,20 @@ struct PracticeDetailView: View {
                                 .fontWeight(.bold)
                         }
                         
-                        Image("runner") // アセット名に合わせて変更してください
-                            .resizable()
-                            .scaledToFill()
-                            .frame(width: 45, height: 45)
-                            .clipShape(Circle())
+                        Group {
+                            if UIImage(named: practice.organizer.profileImage) != nil {
+                                Image(practice.organizer.profileImage)
+                                    .resizable()
+                                    .scaledToFill()
+                                    .frame(width: 45, height: 45)
+                                    .clipShape(Circle())
+                            } else {
+                                Image(systemName: "person.crop.circle.fill")
+                                    .font(.system(size: 45))
+                                    .foregroundColor(Color.tasukiMutedText)
+                                    .frame(width: 45, height: 45)
+                            }
+                        }
                             .overlay(Circle().stroke(Color.tasukiPrimary, lineWidth: 1))
                     }
                 }

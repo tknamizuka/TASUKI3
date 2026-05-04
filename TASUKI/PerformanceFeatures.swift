@@ -77,9 +77,20 @@ struct RunActivity: Identifiable, Codable {
         let seconds = Int(sec) % 60
         return String(format: "%d:%02d/km", minutes, seconds)
     }
+
+    /// 取得元フィルタ（HealthKit を使わない「直接」経路で `RunActivity.source` と照合）
+    func matchesRunningDataSource(_ dataSource: RunningDataSource) -> Bool {
+        if dataSource == .all { return true }
+        let s = source.lowercased()
+        if s == dataSource.rawValue { return true }
+        for kw in dataSource.sourceKeywords where !kw.isEmpty {
+            if s.contains(kw.lowercased()) { return true }
+        }
+        return false
+    }
 }
 
-/// 週次距離チャート用（`RunActivityStore.weeklyActivityChartPoints` · Me の Activity と Run 記録で同一データ・同一描画に使う）。
+/// 週次距離チャート用（`RunActivityStore.weeklyActivityChartPoints` · Me の Activity と Run 記録で同一描画に使う）。
 struct WeeklyActivityChartPoint: Identifiable, Equatable {
     let id: String
     let weekAnchor: Date
@@ -205,8 +216,87 @@ final class RunActivityStore: ObservableObject {
         activitiesInCurrentMonth(now: now).reduce(0) { $0 + $1.distanceKm }
     }
 
+    /// 外部デバイス取得元に紐づく今月距離（`source` がキーワードに一致する記録のみ）
+    func monthlyDistanceKm(matching dataSource: RunningDataSource, now: Date = Date()) -> Double {
+        activitiesInCurrentMonth(now: now)
+            .filter { $0.matchesRunningDataSource(dataSource) }
+            .reduce(0) { $0 + $1.distanceKm }
+    }
+
+    /// タイムトライアル等用。HealthKit 経由せず TASUKI 保存済みの `RunActivity` から `RunningWorkoutInfo` を組み立てる。
+    func runningWorkoutInfos(
+        from start: Date,
+        to end: Date,
+        minDistanceKm: Double,
+        targetDistanceKm: Double,
+        dataSource: RunningDataSource
+    ) -> [RunningWorkoutInfo] {
+        let minMeters = minDistanceKm * 1000
+        let filtered = activities.filter { act in
+            act.startedAt >= start && act.startedAt <= end
+                && act.matchesRunningDataSource(dataSource)
+                && act.distanceKm * 1000 >= minMeters - 0.5
+        }
+        .sorted { $0.startedAt > $1.startedAt }
+
+        return filtered.map { act in
+            let timeAtTarget: Double?
+            if targetDistanceKm > 0, act.distanceKm + 1e-6 >= targetDistanceKm {
+                let ratio = targetDistanceKm / max(act.distanceKm, 1e-6)
+                timeAtTarget = act.durationSeconds * min(1.0, ratio)
+            } else {
+                timeAtTarget = nil
+            }
+            return RunningWorkoutInfo(
+                id: act.id,
+                startDate: act.startedAt,
+                durationSeconds: act.durationSeconds,
+                totalDistanceKm: act.distanceKm,
+                timeAtTargetSeconds: timeAtTarget
+            )
+        }
+    }
+
     func monthlyRunCount(now: Date = Date()) -> Int {
         activitiesInCurrentMonth(now: now).count
+    }
+
+    func activitiesInCurrentMonth(matching dataSource: RunningDataSource, now: Date = Date()) -> [RunActivity] {
+        activitiesInCurrentMonth(now: now).filter { $0.matchesRunningDataSource(dataSource) }
+    }
+
+    func monthlyRunCount(matching dataSource: RunningDataSource, now: Date = Date()) -> Int {
+        activitiesInCurrentMonth(matching: dataSource, now: now).count
+    }
+
+    /// 今月の記録から加重平均ペース（秒/km）。取得元で絞り込み。
+    func monthlyAveragePaceSecondsPerKm(matching dataSource: RunningDataSource, now: Date = Date()) -> Double? {
+        let acts = activitiesInCurrentMonth(matching: dataSource, now: now)
+        var totalDist = 0.0
+        var totalDur = 0.0
+        for a in acts {
+            totalDist += max(0, a.distanceKm)
+            totalDur += max(0, a.durationSeconds)
+        }
+        guard totalDist > 0.01 else { return nil }
+        return totalDur / totalDist
+    }
+
+    /// 今月のルート座標の重心（マッチング用）。取得元で絞り込み。
+    func monthlyRouteCentroid(matching dataSource: RunningDataSource, now: Date = Date()) -> (latitude: Double, longitude: Double)? {
+        let acts = activitiesInCurrentMonth(matching: dataSource, now: now)
+        var sumLat = 0.0
+        var sumLon = 0.0
+        var n = 0
+        for a in acts {
+            for c in a.route {
+                sumLat += c.latitude
+                sumLon += c.longitude
+                n += 1
+            }
+        }
+        guard n > 0 else { return nil }
+        return (sumLat / Double(n), sumLon / Double(n))
     }
 
     /// 今月の記録から加重平均ペース（秒/km）。有効な記録がない場合は nil（暦月で区切られ、毎月リセットされる）。

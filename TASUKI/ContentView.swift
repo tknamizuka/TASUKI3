@@ -52,9 +52,7 @@ struct ContentView: View {
         HStack {
             // ロゴ（TASUKIリレー背景画像 + TASUKIテキスト）
             ZStack {
-                // TASUKIリレー背景画像（透過）
-                Image("runner")
-                    .renderingMode(.template)
+                Image(systemName: "figure.run")
                     .resizable()
                     .scaledToFit()
                     .foregroundColor(.tasukiPrimary)
@@ -168,8 +166,17 @@ struct ContentView: View {
         return cleaned.isEmpty ? "0" : cleaned
     }
 
-    /// HealthKit から今月の走行距離を取得して `monthlyDistance` に反映
+    /// HealthKit または TASUKI 保存記録から今月距離を反映（取得元設定に応じる）
     private func updateMonthlyDistanceFromHealthKit() {
+        let ds = selectedRunningDataSource
+        if !ds.usesHealthKitForQueries {
+            Task { @MainActor in
+                let km = RunActivityStore.shared.monthlyDistanceKm(matching: ds)
+                monthlyDistance = String(format: "%.1fkm", km)
+            }
+            return
+        }
+
         HealthKitManager.shared.requestAuthorization { success, error in
             guard success else {
                 if let error = error {

@@ -98,6 +98,16 @@ enum RunningDataSource: String, CaseIterable, Identifiable {
             return URL(string: "https://apps.apple.com/jp/app/asics-runkeeper-run-tracker/id300235330")
         }
     }
+
+    /// 「すべて」「Apple Health」はヘルスケアから集計。それ以外はヘルスケアを使わず、TASUKI に保存された走行記録のみ参照する。
+    var usesHealthKitForQueries: Bool {
+        switch self {
+        case .all, .appleHealth:
+            return true
+        default:
+            return false
+        }
+    }
 }
 
 /// 期間内のランニングワークアウト1件（目標距離通過タイムはルートがあれば算出）
@@ -188,6 +198,20 @@ final class HealthKitManager {
     
     /// 当月のウォーキング＋ランニング距離 (km) を取得する
     func fetchRunningDistanceThisMonth(dataSource: RunningDataSource = .all, completion: @escaping (Result<Double, Error>) -> Void) {
+        if !dataSource.usesHealthKitForQueries {
+            Task { @MainActor in
+                let km = RunActivityStore.shared.monthlyDistanceKm(matching: dataSource)
+                RealityMiningManager.shared.trackEvent(
+                    name: "monthly_distance_from_app_store",
+                    properties: [
+                        "data_source": dataSource.rawValue,
+                        "distance_km": km
+                    ]
+                )
+                completion(.success(km))
+            }
+            return
+        }
         guard HKHealthStore.isHealthDataAvailable() else {
             let error = NSError(domain: "HealthKit", code: 0, userInfo: [
                 NSLocalizedDescriptionKey: "HealthKit is not available on this device."
@@ -375,6 +399,19 @@ final class HealthKitManager {
     
     /// 期間内のランニングワークアウトを取得。minDistanceKm 以上で、targetDistanceKm 時点のタイムをルートから算出（可能な場合）
     func fetchRunningWorkouts(from start: Date, to end: Date, minDistanceKm: Double, targetDistanceKm: Double, dataSource: RunningDataSource = .all, completion: @escaping (Result<[RunningWorkoutInfo], Error>) -> Void) {
+        if !dataSource.usesHealthKitForQueries {
+            Task { @MainActor in
+                let infos = RunActivityStore.shared.runningWorkoutInfos(
+                    from: start,
+                    to: end,
+                    minDistanceKm: minDistanceKm,
+                    targetDistanceKm: targetDistanceKm,
+                    dataSource: dataSource
+                )
+                completion(.success(infos))
+            }
+            return
+        }
         guard HKHealthStore.isHealthDataAvailable() else {
             completion(.failure(NSError(domain: "HealthKit", code: 0, userInfo: [NSLocalizedDescriptionKey: "HealthKit is not available."])))
             return

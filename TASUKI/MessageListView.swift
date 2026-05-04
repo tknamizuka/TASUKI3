@@ -7,19 +7,75 @@
 
 import SwiftUI
 
-// MARK: - Match Request Model（マッチングリクエストの一覧表示用）
-enum MatchRequestType: String {
-    case partner      = "パートナー申請"
-    case practice     = "練習会参加リクエスト"
+// MARK: - Match Request Model（マッチングリクエストの一覧表示用・ユーザー同士の申請のみ。練習会招待は含めない）
+enum MatchRequestType: String, Codable {
+    case partner = "パートナー申請"
 }
 
-struct MatchRequestSummary: Identifiable {
+struct MatchRequestSummary: Identifiable, Codable {
     let id: String
     let fromName: String
     let type: MatchRequestType
     let message: String
     let createdAt: Date
     let isNew: Bool
+    /// 提案された集合日時（単発または「次回」の基準日時）
+    var proposedStart: Date?
+    var location: String?
+    var isWeeklyRecurring: Bool
+    var recurrenceWeekday: Int?
+    
+    init(
+        id: String,
+        fromName: String,
+        type: MatchRequestType,
+        message: String,
+        createdAt: Date,
+        isNew: Bool,
+        proposedStart: Date? = nil,
+        location: String? = nil,
+        isWeeklyRecurring: Bool = false,
+        recurrenceWeekday: Int? = nil
+    ) {
+        self.id = id
+        self.fromName = fromName
+        self.type = type
+        self.message = message
+        self.createdAt = createdAt
+        self.isNew = isNew
+        self.proposedStart = proposedStart
+        self.location = location
+        self.isWeeklyRecurring = isWeeklyRecurring
+        self.recurrenceWeekday = recurrenceWeekday
+    }
+}
+
+extension MatchRequestSummary {
+    /// 一覧・詳細用の一行（日時・毎週・場所）
+    var scheduleSubtitle: String? {
+        guard let start = proposedStart else { return nil }
+        let cal = Calendar.current
+        let df = DateFormatter()
+        df.locale = Locale(identifier: "ja_JP")
+        if isWeeklyRecurring, recurrenceWeekday != nil {
+            let wd = recurrenceWeekday ?? cal.component(.weekday, from: start)
+            let idx = (wd + 6) % 7
+            let symbols = cal.shortWeekdaySymbols
+            let dayName = idx < symbols.count ? symbols[idx] : ""
+            df.dateFormat = "HH:mm"
+            let time = df.string(from: start)
+            let loc = location?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            let locPart = loc.isEmpty ? "" : " · \(loc)"
+            return "毎週\(dayName) \(time)\(locPart)"
+        }
+        df.dateStyle = .medium
+        df.timeStyle = .short
+        var line = df.string(from: start)
+        if let loc = location?.trimmingCharacters(in: .whitespacesAndNewlines), !loc.isEmpty {
+            line += " · \(loc)"
+        }
+        return line
+    }
 }
 
 // MARK: - Message Conversation Model（バックエンドで一意の conversationId を持つ。既読・未読フラグ付き）
@@ -71,10 +127,10 @@ enum MessageListTab: String, CaseIterable {
 struct MessageListView: View {
     @State private var selectedTab: MessageListTab = .chat
     @State private var conversations: [MessageConversation] = []
-    @State private var requests: [MatchRequestSummary] = []
     @State private var isLoading = true
     /// シングルトンを `@StateObject` で保持すると未定義動作・起動時クラッシュの原因になるため `ObservedObject` を使う
     @ObservedObject private var conversationManager = ConversationManager.shared
+    @ObservedObject private var matchInvitationStore = MatchInvitationStore.shared
     
     var body: some View {
         NavigationStack {
@@ -98,8 +154,14 @@ struct MessageListView: View {
                     if isLoading {
                         ProgressView()
                     } else {
-                        let practiceChats = conversations.filter { $0.isPractice }
-                        let userChats = conversations.filter { !$0.isPractice }
+                        let practiceChats = conversations
+                            .filter { $0.isPractice }
+                            .sorted { $0.timestamp < $1.timestamp }
+                        let userChats = conversations
+                            .filter { !$0.isPractice }
+                            .sorted { $0.timestamp < $1.timestamp }
+                        let sortedRequests = matchInvitationStore.inbox
+                            .sorted { $0.createdAt > $1.createdAt }
                         
                         switch selectedTab {
                         case .chat:
@@ -110,23 +172,40 @@ struct MessageListView: View {
                                         .foregroundColor(.black)
                                 }
                             } else {
-                                List {
-                                    ForEach(practiceChats) { conversation in
-                                        NavigationLink(
-                                            destination: ChatView(
-                                                conversationId: conversation.conversationId,
-                                                partnerName: conversation.partnerName,
-                                                isPractice: true
-                                            )
-                                        ) {
-                                            conversationRowView(conversation: conversation)
+                                ScrollViewReader { proxy in
+                                    List {
+                                        ForEach(practiceChats) { conversation in
+                                            NavigationLink(
+                                                destination: ChatView(
+                                                    conversationId: conversation.conversationId,
+                                                    partnerName: conversation.partnerName,
+                                                    isPractice: true
+                                                )
+                                            ) {
+                                                conversationRowView(conversation: conversation)
+                                            }
+                                            .listRowBackground(Color.clear)
+                                            .listRowSeparator(.hidden)
                                         }
-                                        .listRowBackground(Color.clear)
-                                        .listRowSeparator(.hidden)
+                                        Color.clear
+                                            .frame(height: 1)
+                                            .listRowBackground(Color.clear)
+                                            .listRowSeparator(.hidden)
+                                            .id("practice-bottom-anchor")
+                                    }
+                                    .listStyle(.plain)
+                                    .scrollContentBackground(.hidden)
+                                    .onAppear {
+                                        DispatchQueue.main.async {
+                                            proxy.scrollTo("practice-bottom-anchor", anchor: .bottom)
+                                        }
+                                    }
+                                    .onChange(of: practiceChats.map(\.id)) { _ in
+                                        DispatchQueue.main.async {
+                                            proxy.scrollTo("practice-bottom-anchor", anchor: .bottom)
+                                        }
                                     }
                                 }
-                                .listStyle(.plain)
-                                .scrollContentBackground(.hidden)
                             }
                         case .message:
                             if userChats.isEmpty {
@@ -136,44 +215,78 @@ struct MessageListView: View {
                                         .foregroundColor(.black)
                                 }
                             } else {
-                                List {
-                                    ForEach(userChats) { conversation in
-                                        NavigationLink(
-                                            destination: ChatView(
-                                                conversationId: conversation.conversationId,
-                                                partnerName: conversation.partnerName
-                                            )
-                                        ) {
-                                            conversationRowView(conversation: conversation)
+                                ScrollViewReader { proxy in
+                                    List {
+                                        ForEach(userChats) { conversation in
+                                            NavigationLink(
+                                                destination: ChatView(
+                                                    conversationId: conversation.conversationId,
+                                                    partnerName: conversation.partnerName
+                                                )
+                                            ) {
+                                                conversationRowView(conversation: conversation)
+                                            }
+                                            .listRowBackground(Color.clear)
+                                            .listRowSeparator(.hidden)
                                         }
-                                        .listRowBackground(Color.clear)
-                                        .listRowSeparator(.hidden)
+                                        Color.clear
+                                            .frame(height: 1)
+                                            .listRowBackground(Color.clear)
+                                            .listRowSeparator(.hidden)
+                                            .id("message-bottom-anchor")
+                                    }
+                                    .listStyle(.plain)
+                                    .scrollContentBackground(.hidden)
+                                    .onAppear {
+                                        DispatchQueue.main.async {
+                                            proxy.scrollTo("message-bottom-anchor", anchor: .bottom)
+                                        }
+                                    }
+                                    .onChange(of: userChats.map(\.id)) { _ in
+                                        DispatchQueue.main.async {
+                                            proxy.scrollTo("message-bottom-anchor", anchor: .bottom)
+                                        }
                                     }
                                 }
-                                .listStyle(.plain)
-                                .scrollContentBackground(.hidden)
                             }
                         case .request:
-                            if requests.isEmpty {
+                            if sortedRequests.isEmpty {
                                 VStack {
                                     Text("リクエストがありません")
                                         .font(.system(size: 16, weight: .regular))
                                         .foregroundColor(.black)
                                 }
                             } else {
-                                List {
-                                    ForEach(requests) { req in
-                                        NavigationLink(
-                                            destination: RequestDetailView(request: req)
-                                        ) {
-                                            requestRowView(request: req)
+                                ScrollViewReader { proxy in
+                                    List {
+                                        ForEach(sortedRequests) { req in
+                                            NavigationLink(
+                                                destination: RequestDetailView(request: req)
+                                            ) {
+                                                requestRowView(request: req)
+                                            }
+                                            .listRowBackground(Color.clear)
+                                            .listRowSeparator(.hidden)
                                         }
-                                        .listRowBackground(Color.clear)
-                                        .listRowSeparator(.hidden)
+                                        Color.clear
+                                            .frame(height: 1)
+                                            .listRowBackground(Color.clear)
+                                            .listRowSeparator(.hidden)
+                                            .id("request-bottom-anchor")
+                                    }
+                                    .listStyle(.plain)
+                                    .scrollContentBackground(.hidden)
+                                    .onAppear {
+                                        DispatchQueue.main.async {
+                                            proxy.scrollTo("request-bottom-anchor", anchor: .bottom)
+                                        }
+                                    }
+                                    .onChange(of: sortedRequests.map(\.id)) { _ in
+                                        DispatchQueue.main.async {
+                                            proxy.scrollTo("request-bottom-anchor", anchor: .bottom)
+                                        }
                                     }
                                 }
-                                .listStyle(.plain)
-                                .scrollContentBackground(.hidden)
                             }
                         }
                     }
@@ -193,7 +306,6 @@ struct MessageListView: View {
             }
             .onAppear {
                 loadConversations()
-                loadRequests()
             }
         }
     }
@@ -300,6 +412,13 @@ struct MessageListView: View {
                     .foregroundColor(.black)
                     .lineLimit(2)
                 
+                if let sched = request.scheduleSubtitle {
+                    Text(sched)
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(Color.tasukiPrimary.opacity(0.85))
+                        .lineLimit(2)
+                }
+                
                 Text(formatTime(request.createdAt))
                     .font(.system(size: 11))
                     .foregroundColor(.black)
@@ -325,11 +444,10 @@ struct MessageListView: View {
             switch result {
             case .success(let list):
                 conversations = list
-                loadRequests()
+                isLoading = false
             case .failure:
                 // 未ログインや取得失敗時はサンプル表示（ローカル用の仮ID）
                 loadDummyConversations()
-                loadRequests()
             }
         }
     }
@@ -399,29 +517,23 @@ struct MessageListView: View {
         ]
         isLoading = false
     }
-    
-    private func loadRequests() {
-        conversationManager.fetchMyMatchRequests { result in
-            isLoading = false
-            switch result {
-            case .success(let list):
-                requests = list.sorted { $0.createdAt > $1.createdAt }
-            case .failure:
-                requests = []
-            }
-        }
-    }
 }
 
-// MARK: - Request Detail View（簡易版）
+// MARK: - Request Detail View
 struct RequestDetailView: View {
     let request: MatchRequestSummary
     @Environment(\.dismiss) var dismiss
     @EnvironmentObject private var tabBarVisibility: TabBarVisibility
-    
+    @EnvironmentObject private var joinedPracticesStore: JoinedPracticesStore
+    @EnvironmentObject private var matchInvitationStore: MatchInvitationStore
+
+    @State private var showCounterSheet = false
+    @State private var navigateToChat = false
+
+    private var chatConversationId: String { "match-\(request.id)" }
+
     var body: some View {
         VStack(spacing: 24) {
-            // 送信者情報
             VStack(spacing: 12) {
                 Image(systemName: "person.circle.fill")
                     .font(.system(size: 64))
@@ -441,8 +553,7 @@ struct RequestDetailView: View {
                     )
             }
             .padding(.top, 32)
-            
-            // リクエスト内容
+
             VStack(alignment: .leading, spacing: 12) {
                 Text("リクエスト内容")
                     .font(.headline)
@@ -451,19 +562,25 @@ struct RequestDetailView: View {
                     .font(.body)
                     .foregroundColor(.black)
                     .fixedSize(horizontal: false, vertical: true)
+                if let sched = request.scheduleSubtitle {
+                    Text(sched)
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundColor(Color.tasukiPrimary.opacity(0.9))
+                        .padding(.top, 4)
+                }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding()
             .padding(.horizontal, 20)
-            
+
             Spacer()
-            
-            // アクションボタン
+
             VStack(spacing: 12) {
-                NavigationLink(
-                    destination: ChatView(conversationId: "request-\(request.id)", partnerName: request.fromName)
-                ) {
-                    Text("承認してチャットを開始")
+                Button(action: {
+                    acceptMatch()
+                    navigateToChat = true
+                }) {
+                    Text("承諾")
                         .font(.system(size: 16, weight: .semibold))
                         .foregroundColor(Color.tasukiOnBrandYellow)
                         .frame(maxWidth: .infinity)
@@ -471,8 +588,21 @@ struct RequestDetailView: View {
                         .background(Color.tasukiPrimaryButtonFill)
                         .cornerRadius(30)
                 }
-                
+
+                Button(action: { showCounterSheet = true }) {
+                    Text("日程候補を提案する")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundColor(.black)
+                        .frame(maxWidth: .infinity)
+                        .padding()
+                        .background(
+                            RoundedRectangle(cornerRadius: 30)
+                                .stroke(Color.black.opacity(0.2), lineWidth: 1)
+                        )
+                }
+
                 Button(action: {
+                    matchInvitationStore.remove(id: request.id)
                     dismiss()
                 }) {
                     Text("今回は見送る")
@@ -495,6 +625,29 @@ struct RequestDetailView: View {
                     .foregroundColor(.black)
             }
         }
+        .navigationDestination(isPresented: $navigateToChat) {
+            ChatView(conversationId: chatConversationId, partnerName: request.fromName)
+        }
+        .sheet(isPresented: $showCounterSheet) {
+            MatchInviteComposerSheet(
+                navigationTitle: "日程候補を提案",
+                submitLabel: "送信",
+                initialMessage: request.message,
+                initialLocation: request.location ?? "",
+                initialRunDate: request.proposedStart ?? Date(),
+                initialWeeklyRepeat: request.isWeeklyRecurring,
+                onSubmit: { payload in
+                    matchInvitationStore.updateCounterProposal(
+                        id: request.id,
+                        proposedStart: payload.runDate,
+                        location: payload.location,
+                        isWeeklyRecurring: payload.weeklyRepeat,
+                        recurrenceWeekday: payload.recurrenceWeekday,
+                        message: payload.message
+                    )
+                }
+            )
+        }
         .onAppear {
             tabBarVisibility.pushHiddenContext()
         }
@@ -502,9 +655,30 @@ struct RequestDetailView: View {
             tabBarVisibility.popHiddenContext()
         }
     }
+
+    private func acceptMatch() {
+        let start = request.proposedStart ?? Date()
+        var title = "\(request.fromName)さんとラン"
+        if request.isWeeklyRecurring {
+            title += "（毎週）"
+        }
+        joinedPracticesStore.add(
+            JoinedPracticeItem(
+                id: UUID().uuidString,
+                practiceId: "match-\(request.id)",
+                title: title,
+                location: (request.location ?? "").trimmingCharacters(in: .whitespacesAndNewlines),
+                date: start,
+                chatId: chatConversationId
+            )
+        )
+        matchInvitationStore.remove(id: request.id)
+    }
 }
 
 #Preview {
     MessageListView()
         .environmentObject(TabBarVisibility())
+        .environmentObject(JoinedPracticesStore())
+        .environmentObject(MatchInvitationStore.shared)
 }

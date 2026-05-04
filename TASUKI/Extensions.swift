@@ -71,6 +71,64 @@ extension UIColor {
     static let tasukiTabSelectedPurple = UIColor(red: 93 / 255, green: 45 / 255, blue: 145 / 255, alpha: 1)
 }
 
+extension UIImage {
+    /// 白〜オフ白の背景を透過（JPG 等でアルファがないロゴ用）。黄・紺など彩度のある色は残す。
+    func tasukiKnockingOutNearWhiteBackground(
+        brightnessMin: CGFloat = 0.93,
+        maxSaturationForKnockout: CGFloat = 0.14
+    ) -> UIImage {
+        guard let cgImage = self.cgImage else { return self }
+        let w = cgImage.width
+        let h = cgImage.height
+        guard w > 0, h > 0 else { return self }
+        let bytesPerRow = w * 4
+        var rawData = [UInt8](repeating: 0, count: h * bytesPerRow)
+        let colorSpace = CGColorSpaceCreateDeviceRGB()
+        let bitmapInfo = CGImageAlphaInfo.premultipliedLast.rawValue
+        guard let ctx = CGContext(
+            data: &rawData,
+            width: w,
+            height: h,
+            bitsPerComponent: 8,
+            bytesPerRow: bytesPerRow,
+            space: colorSpace,
+            bitmapInfo: bitmapInfo
+        ) else { return self }
+        ctx.draw(cgImage, in: CGRect(x: 0, y: 0, width: w, height: h))
+
+        for y in 0..<h {
+            for x in 0..<w {
+                let i = (y * w + x) * 4
+                let rf = CGFloat(rawData[i]) / 255
+                let gf = CGFloat(rawData[i + 1]) / 255
+                let bf = CGFloat(rawData[i + 2]) / 255
+                let maxC = max(rf, gf, bf)
+                let minC = min(rf, gf, bf)
+                let sat = maxC > 0.001 ? (maxC - minC) / maxC : 0
+                let lum = 0.299 * rf + 0.587 * gf + 0.114 * bf
+                if lum >= brightnessMin && sat <= maxSaturationForKnockout {
+                    rawData[i] = 0
+                    rawData[i + 1] = 0
+                    rawData[i + 2] = 0
+                    rawData[i + 3] = 0
+                }
+            }
+        }
+
+        guard let outCtx = CGContext(
+            data: &rawData,
+            width: w,
+            height: h,
+            bitsPerComponent: 8,
+            bytesPerRow: bytesPerRow,
+            space: colorSpace,
+            bitmapInfo: bitmapInfo
+        ),
+        let outCG = outCtx.makeImage() else { return self }
+        return UIImage(cgImage: outCG, scale: scale, orientation: imageOrientation)
+    }
+}
+
 enum TasukiUI {
     static let cardCorner: CGFloat = 16
     static let cardPadding: CGFloat = 16

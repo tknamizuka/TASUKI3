@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import UIKit
 
 /// HealthKit 取得待ちの間に円グラフへ出すサンプル値（黄→紫の弧の見た目用。取得後は実距離に切り替わる）。
 private enum MonthlyGoalRingSample {
@@ -47,11 +48,17 @@ struct HomeView: View {
     
     /// 円グラフ表示用の距離（読み込み中はサンプル、それ以外は実データ）
     private var ringShowsSampleWhileLoading: Bool {
-        isHealthKitLoading && !usePreviewData
+        isHealthKitLoading && !usePreviewData && activityStore.activities.isEmpty
     }
 
     private var ringCurrentKm: Double {
-        ringShowsSampleWhileLoading ? MonthlyGoalRingSample.currentKm : currentDistance
+        if ringShowsSampleWhileLoading {
+            return MonthlyGoalRingSample.currentKm
+        }
+        if selectedRunningDataSource.usesHealthKitForQueries {
+            return activityStore.monthlyDistanceKm()
+        }
+        return activityStore.monthlyDistanceKm(matching: selectedRunningDataSource)
     }
 
     private var ringGoalKm: Double {
@@ -107,20 +114,20 @@ struct HomeView: View {
                 VStack(spacing: 0) {
                     GeometryReader { geo in
                         ZStack {
-                            Image("runner") // runner asset now points to Runners2.png
-                                .resizable()
-                                .scaledToFit()
-                                .frame(width: geo.size.width * 0.9)
-                                .opacity(0.15)
-                            Text("TASUKI")
-                                .font(.system(size: 50, weight: .heavy))
-                                .tracking(10)
-                                .foregroundColor(Color(hex: "0F1A2E"))
-                                .shadow(color: .white.opacity(0.8), radius: 2, x: 0, y: 0)
+                            HStack(alignment: .center, spacing: 12) {
+                                tasukiHomeLogo()
+                                Text("TASUKI")
+                                    .font(.system(size: 50, weight: .heavy))
+                                    .tracking(10)
+                                    .foregroundColor(Color(hex: "0F1A2E"))
+                                    .shadow(color: .white.opacity(0.8), radius: 2, x: 0, y: 0)
+                            }
+                            .accessibilityElement(children: .combine)
+                            .accessibilityLabel("TASUKI")
                         }
                         .frame(width: geo.size.width, height: geo.size.height)
                     }
-                    .frame(height: 100)
+                    .frame(height: 136)
                     .padding(.top, 20)
 
                     GeometryReader { geo in
@@ -158,7 +165,7 @@ struct HomeView: View {
                                             .font(.system(size: subFont, weight: .medium))
                                             .foregroundColor(Color.tasukiMutedText)
                                         if ringShowsSampleWhileLoading {
-                                            Text("HealthKit から取得中…")
+                                            Text(selectedRunningDataSource.usesHealthKitForQueries ? "HealthKit から取得中…" : "記録を読み込み中…")
                                                 .font(.system(size: max(11, subFont * 0.75), weight: .medium))
                                                 .foregroundColor(Color.tasukiMutedText)
                                         }
@@ -316,9 +323,65 @@ struct HomeView: View {
             unreadProvider.refreshUnreadCount()
             activityStore.refreshFromRemote()
         }
+        .onChange(of: runningDataSourceRaw) { _, _ in
+            let isPreview = ProcessInfo.processInfo.environment["XCODE_RUNNING_FOR_PREVIEWS"] == "1"
+            if !usePreviewData, !isPreview {
+                loadDistanceFromHealthKit()
+            }
+        }
+        .onChange(of: activityStore.activities.count) { _ in
+            // Home の進捗リングは Activity 記録に直接連動させる。
+            if !activityStore.activities.isEmpty {
+                isHealthKitLoading = false
+            }
+        }
+    }
+
+    /// バンドル内の `logo.jpg` またはアセットカタログの `logo`（透過 PNG 可）
+    @ViewBuilder
+    private func tasukiHomeLogo() -> some View {
+        if let ui = Self.loadBundledLogoImage() {
+            Image(uiImage: ui)
+                .resizable()
+                .interpolation(.high)
+                .scaledToFit()
+                .frame(width: 84, height: 84)
+                .accessibilityHidden(true)
+        }
+    }
+
+    private static func loadBundledLogoImage() -> UIImage? {
+        let base: UIImage?
+        if let img = UIImage(named: "logo") {
+            base = img
+        } else if let path = Bundle.main.path(forResource: "logo", ofType: "png"),
+                  let img = UIImage(contentsOfFile: path) {
+            base = img
+        } else if let path = Bundle.main.path(forResource: "logo", ofType: "jpg"),
+                  let img = UIImage(contentsOfFile: path) {
+            base = img
+        } else {
+            base = nil
+        }
+        guard let base else { return nil }
+        return base.tasukiKnockingOutNearWhiteBackground()
     }
 
     private func loadDistanceFromHealthKit() {
+        if !selectedRunningDataSource.usesHealthKitForQueries {
+            isHealthKitLoading = false
+            let ds = selectedRunningDataSource
+            let km = activityStore.monthlyDistanceKm(matching: ds)
+            currentDistance = km
+            if km == 0 {
+                healthKitError = "\(ds.displayName) 由来の TASUKI 内記録が今月はまだありません"
+            } else {
+                healthKitError = nil
+            }
+            RankPromotionManager.shared.evaluateMonthlyDistancePromotion(monthlyKm: km)
+            return
+        }
+
         HealthKitManager.shared.requestAuthorization { success, error in
             if !success {
                 isHealthKitLoading = false

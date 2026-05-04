@@ -136,6 +136,41 @@ struct User: Identifiable, Codable {
         let currentLocation = CLLocation(latitude: latitude, longitude: longitude)
         return spotLocation.distance(from: currentLocation) / 1000.0
     }
+
+    /// プロフィール編集・AppStorage `myMonthlyDist` 用（目標があれば優先、なければ実績距離）
+    var editingMonthlyDistLabel: String {
+        let v = monthlyTarget > 0 ? monthlyTarget : monthlyDistance
+        if v <= 0 { return "" }
+        if v == floor(v) { return "\(Int(v))km" }
+        return String(format: "%.1fkm", v)
+    }
+
+    /// Me / 編集画面の UserDefaults（AppStorage）キーに Firestore と同じ内容を反映する
+    func syncLocalProfileStorage() {
+        let defs = UserDefaults.standard
+        defs.set(name, forKey: "myName")
+        defs.set(String(age), forKey: "myAge")
+        defs.set(prefecture, forKey: "myArea")
+        defs.set(rank, forKey: "myRank")
+        defs.set(Self.genderRawForAppStorage(fromFirestoreLabel: gender), forKey: "myGender")
+        defs.set(purpose, forKey: "myPurpose")
+        defs.set(area.replacingOccurrences(of: "、", with: ", "), forKey: "myRunningSpots")
+        defs.set(schedule, forKey: "mySchedule")
+        defs.set(personalBest, forKey: "myPersonalBest")
+        defs.set(targetTime, forKey: "myTargetTime")
+        defs.set(nextRace, forKey: "myNextRace")
+        defs.set(editingMonthlyDistLabel, forKey: "myMonthlyDist")
+        defs.set(avgPace, forKey: "myAvgPace")
+        defs.set(bio, forKey: "myBio")
+    }
+
+    private static func genderRawForAppStorage(fromFirestoreLabel: String) -> String {
+        switch fromFirestoreLabel {
+        case "男性": return Gender.male.rawValue
+        case "女性": return Gender.female.rawValue
+        default: return Gender.other.rawValue
+        }
+    }
 }
 
 // MARK: - Practice Category
@@ -203,7 +238,7 @@ struct Practice: Identifiable {
 
 // MARK: - Legacy Models (エラー回避用)
 struct PartnerUser: Identifiable {
-    let id = UUID()
+    let id: UUID
     let name: String
     let rank: String
     let avatarImage: String?
@@ -228,6 +263,58 @@ struct PartnerUser: Identifiable {
     let connectionStyle: ConnectionStyle
     /// TASUKI累計ポイント（バッジ表示用、未指定時0）
     var totalPoints: Int = 0
+
+    init(
+        id: UUID = UUID(),
+        name: String,
+        rank: String,
+        avatarImage: String?,
+        isOnline: Bool,
+        bestCategory: RaceCategory,
+        bestTime: String,
+        age: Int,
+        runningSchedule: RunningSchedule,
+        purpose: String,
+        nextRace: String?,
+        targetTime: String?,
+        runningSpots: [String],
+        prefecture: String,
+        gender: Gender,
+        condition: Condition,
+        statusMessage: String,
+        ageGroup: String,
+        runningGoal: String,
+        personalBest: String?,
+        activeTime: String,
+        easyPace: String,
+        connectionStyle: ConnectionStyle,
+        totalPoints: Int = 0
+    ) {
+        self.id = id
+        self.name = name
+        self.rank = rank
+        self.avatarImage = avatarImage
+        self.isOnline = isOnline
+        self.bestCategory = bestCategory
+        self.bestTime = bestTime
+        self.age = age
+        self.runningSchedule = runningSchedule
+        self.purpose = purpose
+        self.nextRace = nextRace
+        self.targetTime = targetTime
+        self.runningSpots = runningSpots
+        self.prefecture = prefecture
+        self.gender = gender
+        self.condition = condition
+        self.statusMessage = statusMessage
+        self.ageGroup = ageGroup
+        self.runningGoal = runningGoal
+        self.personalBest = personalBest
+        self.activeTime = activeTime
+        self.easyPace = easyPace
+        self.connectionStyle = connectionStyle
+        self.totalPoints = totalPoints
+    }
     
     // 互換性のためのプロパティ
     var location: String { prefecture }
@@ -235,6 +322,22 @@ struct PartnerUser: Identifiable {
     var image: String { avatarImage ?? "" }
     var tags: [String] { runningSpots }
     var bio: String { statusMessage }
+    
+    /// Partner の単一文字ランク（例 "B"）や User 形式（"Rank B"）を User モデル用に正規化
+    static func normalizedRankForUser(_ rank: String) -> String {
+        let t = rank.trimmingCharacters(in: .whitespacesAndNewlines)
+        if t.lowercased().hasPrefix("rank ") { return t }
+        let letter = String(t.prefix(1)).uppercased()
+        return "Rank \(letter)"
+    }
+
+    private static func genderLabelForUser(_ gender: Gender) -> String {
+        switch gender {
+        case .male: return "男性"
+        case .female: return "女性"
+        case .other: return "無回答"
+        }
+    }
     
     // User型への変換
     func toUser() -> User {
@@ -244,12 +347,12 @@ struct PartnerUser: Identifiable {
             profileImage: self.avatarImage ?? "runner",
             profileImageUrl: nil,
             bio: self.statusMessage,
-            rank: self.rank,
+            rank: Self.normalizedRankForUser(self.rank),
             age: self.age,
-            gender: self.gender.displayName,
+            gender: Self.genderLabelForUser(self.gender),
             purpose: self.purpose,
             prefecture: self.prefecture,
-            area: self.prefecture,
+            area: self.runningSpots.joined(separator: "、"),
             pace: self.easyPace,
             runningFrequency: "",
             personalBest: self.personalBest ?? "",
@@ -263,12 +366,117 @@ struct PartnerUser: Identifiable {
             monthlyPoints: 0,
             matchRate: 0,
             lastLogin: Date(),
-            spotName: self.prefecture,
+            spotName: self.runningSpots.first ?? self.prefecture,
             latitude: 0.0,
             longitude: 0.0,
             distanceFromUserMock: 0.0,
             monthlyGpsActivityCount: nil
         )
+    }
+}
+
+extension User {
+    /// Find の Partner カード用（Firestore / モックの `User` と同一プロフィールを共有）
+    func toPartnerUser() -> PartnerUser {
+        let rankLetter = Self.partnerRankLetter(from: rank)
+        let spots = Self.runningSpotArray(area: area, spotName: spotName)
+        let genderEnum = Self.partnerGenderEnum(from: gender)
+        let pbDisplay = personalBest.trimmingCharacters(in: .whitespacesAndNewlines)
+        let bestCat = Self.inferRaceCategory(personalBest: pbDisplay, schedule: schedule)
+        let sched = Self.inferRunningSchedule(schedule)
+        let active = Self.inferActiveTime(schedule)
+        let goalTag = purpose.isEmpty ? "ラン" : purpose
+        let decade = max(0, (age / 10) * 10)
+        let ageGrp = "\(decade)s"
+        let cond: Condition = isOnline ? .good : .tired
+        let conn: ConnectionStyle = .real
+
+        return PartnerUser(
+            id: id,
+            name: name,
+            rank: rankLetter,
+            avatarImage: profileImage,
+            isOnline: isOnline,
+            bestCategory: bestCat,
+            bestTime: pbDisplay.isEmpty ? (targetTime.isEmpty ? "—" : targetTime) : pbDisplay,
+            age: age,
+            runningSchedule: sched,
+            purpose: purpose.isEmpty ? "—" : purpose,
+            nextRace: nextRace.isEmpty ? nil : nextRace,
+            targetTime: targetTime.isEmpty ? nil : targetTime,
+            runningSpots: spots,
+            prefecture: prefecture.isEmpty ? spotName : prefecture,
+            gender: genderEnum,
+            condition: cond,
+            statusMessage: bio.isEmpty ? "\(name)（\(prefecture)）" : bio,
+            ageGroup: ageGrp,
+            runningGoal: goalTag,
+            personalBest: pbDisplay.isEmpty ? nil : pbDisplay,
+            activeTime: active,
+            easyPace: avgPace.isEmpty ? pace : avgPace,
+            connectionStyle: conn,
+            totalPoints: totalPoints
+        )
+    }
+
+    private static func partnerRankLetter(from userRank: String) -> String {
+        let t = userRank.replacingOccurrences(of: "Rank", with: "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return String(t.prefix(1)).uppercased()
+    }
+
+    private static func runningSpotArray(area: String, spotName: String) -> [String] {
+        let raw = area.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? spotName : area
+        if raw.isEmpty { return ["未定"] }
+        let parts = raw.split { $0 == "、" || $0 == "," || $0 == "・" }
+        let mapped = parts.map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
+        return mapped.isEmpty ? [spotName.isEmpty ? "未定" : spotName] : mapped
+    }
+
+    private static func partnerGenderEnum(from label: String) -> Gender {
+        switch label.trimmingCharacters(in: .whitespacesAndNewlines) {
+        case "男性": return .male
+        case "女性": return .female
+        default: return .other
+        }
+    }
+
+    private static func inferRaceCategory(personalBest: String, schedule: String) -> RaceCategory {
+        let pb = personalBest.lowercased()
+        let s = schedule.lowercased()
+        if pb.contains("full") || pb.contains("フル") || (pb.contains("マラソン") && !pb.contains("half") && !pb.contains("ハーフ")) {
+            return .full
+        }
+        if pb.contains("half") || pb.contains("ハーフ") || pb.contains("1:") {
+            return .half
+        }
+        if pb.contains("10km") || pb.contains("10k") || s.contains("10km") {
+            return .tenKm
+        }
+        if pb.contains("5km") || pb.contains("5k") {
+            return .fiveKm
+        }
+        if pb.contains("3km") || pb.contains("3k") {
+            return .threeKm
+        }
+        return .half
+    }
+
+    private static func inferRunningSchedule(_ schedule: String) -> RunningSchedule {
+        let s = schedule
+        if s.contains("平日朝") || (s.contains("平日") && s.contains("朝")) { return .weekdayMorning }
+        if s.contains("平日夜") || (s.contains("平日") && s.contains("夜")) { return .weekdayEvening }
+        if s.contains("午後") || s.contains("下午") { return .weekendAfternoon }
+        if s.contains("土日") || s.contains("週末") || s.contains("土曜") || s.contains("日曜") || s.contains("祝") {
+            return .weekendMorning
+        }
+        return .flexible
+    }
+
+    private static func inferActiveTime(_ schedule: String) -> String {
+        if schedule.contains("朝") || schedule.contains("早朝") || schedule.contains("午前") { return "Morning" }
+        if schedule.contains("夜") { return "Night" }
+        return "Holiday"
     }
 }
 
@@ -759,6 +967,9 @@ let mockUsers: [User] = [
         monthlyGpsActivityCount: 8
     )
 ]
+
+/// Find タブ: Firestore に他ユーザーがいないときのフォールバック（`mockUsers` と同一プロフィールを Partner カードにも反映）
+let findDiscoverFallbackPartners: [PartnerUser] = mockUsers.map { $0.toPartnerUser() }
 
 let mockPractices = [
     Practice(

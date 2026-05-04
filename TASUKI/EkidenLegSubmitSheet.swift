@@ -43,6 +43,7 @@ struct EkidenLegSubmitSheet: View {
 
     @ObservedObject private var tracker = RunTracker.shared
     @ObservedObject private var activityStore = RunActivityStore.shared
+    @AppStorage("runningDataSource") private var runningDataSourceRaw: String = RunningDataSource.all.rawValue
 
     private let elapsedTimer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
     @State private var recorderNow = Date()
@@ -55,6 +56,10 @@ struct EkidenLegSubmitSheet: View {
     }
 
     private var targetKm: Double { leg.targetKm }
+
+    private var selectedRunningDataSource: RunningDataSource {
+        RunningDataSource(rawValue: runningDataSourceRaw) ?? .all
+    }
     
     private var selectedSourceLabel: String {
         if selectedRecordedActivityId != nil {
@@ -247,7 +252,7 @@ struct EkidenLegSubmitSheet: View {
     private var healthKitListView: some View {
         VStack(spacing: 0) {
             if healthKitLoading {
-                ProgressView("ランの記録を取得中...")
+                ProgressView("記録を取得中…")
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if let err = healthKitError, healthKitWorkouts.isEmpty {
                 VStack(spacing: 12) {
@@ -546,13 +551,33 @@ struct EkidenLegSubmitSheet: View {
     }
 
     private func loadHealthKitWorkouts() {
+        let ds = selectedRunningDataSource
+        healthKitLoading = true
+        healthKitError = nil
+
+        if !ds.usesHealthKitForQueries {
+            Task { @MainActor in
+                let list = activityStore.runningWorkoutInfos(
+                    from: state.event.startAt,
+                    to: state.event.endAt,
+                    minDistanceKm: 0,
+                    targetDistanceKm: targetKm,
+                    dataSource: ds
+                )
+                healthKitWorkouts = list
+                healthKitLoading = false
+                if list.isEmpty {
+                    healthKitError = "イベント期間内に TASUKI に保存された \(ds.displayName) 記録がありません（ヘルスケアは使用しません）"
+                }
+            }
+            return
+        }
+
         guard HKHealthStore.isHealthDataAvailable() else {
             healthKitError = "HealthKit の利用を許可してください"
             healthKitLoading = false
             return
         }
-        healthKitLoading = true
-        healthKitError = nil
         HealthKitManager.shared.requestAuthorization { success, error in
             guard success else {
                 healthKitLoading = false
@@ -565,7 +590,7 @@ struct EkidenLegSubmitSheet: View {
                 to: state.event.endAt,
                 minDistanceKm: 0,
                 targetDistanceKm: targetKm,
-                dataSource: .all
+                dataSource: ds
             ) { result in
                 healthKitLoading = false
                 switch result {
@@ -646,7 +671,7 @@ struct EkidenLegSubmitSheet: View {
             source = "run_recorder"
             runActivityId = activityId
         } else if let workoutId = selectedRunActivityId {
-            source = "health_kit"
+            source = selectedRunningDataSource.usesHealthKitForQueries ? "health_kit" : "tasuki_run_activity"
             runActivityId = workoutId
         } else {
             source = "app_record"

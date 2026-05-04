@@ -3,7 +3,7 @@ import UIKit
 
 struct UserProfileDetailView: View {
     let user: User
-    @State private var showRequestAlert = false
+    @State private var showInviteComposer = false
     @State private var showRequestSent = false
     @Environment(\.dismiss) var dismiss
     
@@ -254,7 +254,7 @@ struct UserProfileDetailView: View {
         .overlay(alignment: .bottom) {
             // マッチングリクエストボタン
             Button(action: {
-                showRequestAlert = true
+                showInviteComposer = true
             }) {
                 Text("マッチングのリクエストを送る")
                     .font(.headline)
@@ -271,20 +271,19 @@ struct UserProfileDetailView: View {
                     .frame(height: 100)
             )
         }
-        .alert("リクエスト送信", isPresented: $showRequestAlert) {
-            Button("キャンセル", role: .cancel) { }
-            Button("送る") {
-                // マッチングリクエスト送信処理
-                print("\(user.name)さんにマッチングリクエストを送信しました")
-                showRequestSent = true
-            }
-        } message: {
-            Text("\(user.name)さんにマッチングリクエストを送りますか？")
+        .sheet(isPresented: $showInviteComposer) {
+            MatchInviteComposerSheet(
+                navigationTitle: "マッチング招待",
+                submitLabel: "送る",
+                onSubmit: { _ in
+                    showRequestSent = true
+                }
+            )
         }
         .alert("送信完了", isPresented: $showRequestSent) {
             Button("OK") { }
         } message: {
-            Text("\(user.name)さんにマッチングリクエストを送信しました")
+            Text("\(user.name)さんにマッチングの招待（日時・場所付き）を送りました。")
         }
     }
     

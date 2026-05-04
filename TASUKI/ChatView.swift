@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import FirebaseAuth
 
 // MARK: - Chat Message Model（conversationId に紐づくメッセージ。replyToMessageId で返信先を参照）
 struct ChatMessage: Identifiable {
@@ -16,15 +17,26 @@ struct ChatMessage: Identifiable {
     let timestamp: Date
     /// 返信先メッセージのID（同一会話内）。nil の場合は通常メッセージ
     let replyToMessageId: String?
+    /// 送信時点の返信元テキスト（Firestore にも保存。一覧に無くても引用表示・ジャンプ先特定に利用）
+    let replyPreviewText: String?
     /// 送信者名（練習会など複数参加者チャットで「誰が送ったか」を表示する用。nil の場合は表示しない）
     let senderName: String?
     
-    init(id: String? = nil, text: String, isFromMe: Bool, timestamp: Date = Date(), replyToMessageId: String? = nil, senderName: String? = nil) {
+    init(
+        id: String? = nil,
+        text: String,
+        isFromMe: Bool,
+        timestamp: Date = Date(),
+        replyToMessageId: String? = nil,
+        replyPreviewText: String? = nil,
+        senderName: String? = nil
+    ) {
         self.id = id ?? UUID().uuidString
         self.text = text
         self.isFromMe = isFromMe
         self.timestamp = timestamp
         self.replyToMessageId = replyToMessageId
+        self.replyPreviewText = replyPreviewText
         self.senderName = senderName
     }
 }
@@ -38,14 +50,18 @@ struct ChatView: View {
     var isPractice: Bool = false
     @Environment(\.dismiss) var dismiss
     @EnvironmentObject private var tabBarVisibility: TabBarVisibility
+    @EnvironmentObject private var runProposalStore: RunProposalStore
+    @EnvironmentObject private var joinedPracticesStore: JoinedPracticesStore
     
     @State private var messages: [ChatMessage] = []
     @State private var messageText: String = ""
     @State private var replyingTo: ChatMessage?
+    @State private var swipeOffsets: [String: CGFloat] = [:]
     @FocusState private var isTextFieldFocused: Bool
     @AppStorage("myName") private var myName: String = "Hiro"
     
     @State private var showReportSheet = false
+    @State private var showRunProposalSheet = false
     @State private var reportCategory: String = ""
     @State private var reportDetailText: String = ""
     @FocusState private var isReportDetailFocused: Bool
@@ -53,6 +69,7 @@ struct ChatView: View {
     @State private var showReportErrorAlert = false
     @State private var reportErrorMessage: String = ""
     @State private var isSubmittingReport = false
+    @State private var scrollToMessageId: String?
 
     init(conversationId: String = "dummy-preview", partnerName: String = "Tanaka-san", isPractice: Bool = false) {
         self.conversationId = conversationId
@@ -62,6 +79,9 @@ struct ChatView: View {
     
     var body: some View {
         VStack(spacing: 0) {
+            if !isPractice, let incoming = runProposalStore.incomingAttentionProposal(conversationId: conversationId, myDisplayName: myName) {
+                nextRunAttentionBanner(proposal: incoming)
+            }
             safetyHeaderView
             
             ScrollViewReader { proxy in
@@ -75,7 +95,14 @@ struct ChatView: View {
                     .padding(.horizontal, 16)
                     .padding(.vertical, 16)
                 }
-                .onChange(of: messages.count) { _ in
+                .onChange(of: scrollToMessageId) { _, newId in
+                    guard let id = newId else { return }
+                    withAnimation(.easeInOut(duration: 0.35)) {
+                        proxy.scrollTo(id, anchor: .center)
+                    }
+                    scrollToMessageId = nil
+                }
+                .onChange(of: messages.count) { _, _ in
                     if let lastMessage = messages.last {
                         withAnimation {
                             proxy.scrollTo(lastMessage.id, anchor: .bottom)
@@ -119,6 +146,15 @@ struct ChatView: View {
         }) {
             reportSheetContent
         }
+        .sheet(isPresented: $showRunProposalSheet) {
+            MatchInviteComposerSheet(
+                navigationTitle: "次回の日程を提案",
+                submitLabel: "送信",
+                onSubmit: { payload in
+                    submitRunProposal(payload)
+                }
+            )
+        }
         .alert("受け付けました", isPresented: $showReportSuccess) {
             Button("OK", role: .cancel) {}
         } message: {
@@ -131,7 +167,11 @@ struct ChatView: View {
         }
         .onAppear {
             tabBarVisibility.pushHiddenContext()
-            loadDummyMessages()
+            if useRemoteMessages {
+                loadMessagesFromFirestore()
+            } else {
+                loadDummyMessages()
+            }
             ConversationManager.shared.markConversationAsRead(conversationId: conversationId)
         }
         .onDisappear {
@@ -204,6 +244,27 @@ struct ChatView: View {
     }
     
     /// 返信先は入力欄の直上に1行だけ表示
+    /// ログイン済みかつデモ用 conversationId 以外は Firestore からメッセージを読む
+    private var useRemoteMessages: Bool {
+        if conversationId.hasPrefix("dummy-") { return false }
+        if conversationId.hasPrefix("request-") { return false }
+        if conversationId.hasPrefix("match-") { return false }
+        if conversationId == "dummy-preview" { return false }
+        if conversationId == "preview-1" { return false }
+        return Auth.auth().currentUser != nil
+    }
+
+    private func loadMessagesFromFirestore() {
+        ConversationManager.shared.fetchMessages(conversationId: conversationId) { result in
+            switch result {
+            case .success(let list):
+                messages = list
+            case .failure:
+                messages = []
+            }
+        }
+    }
+
     private func compactReplyPreview(target: ChatMessage) -> some View {
         HStack(spacing: 6) {
             Rectangle()
@@ -244,19 +305,155 @@ struct ChatView: View {
         .background(Color.gray.opacity(0.1))
     }
     
+    private func nextRunAttentionBanner(proposal: RunProposal) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .top, spacing: 8) {
+                Image(systemName: "calendar.badge.clock")
+                    .font(.system(size: 20))
+                    .foregroundColor(Color.tasukiPrimary)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("\(proposal.fromSenderName)から次回の日程の提案")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundColor(.black)
+                    Text(runProposalStore.scheduleLine(for: proposal))
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundColor(Color.tasukiPrimary.opacity(0.95))
+                    if !proposal.note.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        Text(proposal.note)
+                            .font(.system(size: 12))
+                            .foregroundColor(.secondary)
+                    }
+                }
+            }
+            if proposal.attendance == nil {
+                HStack(spacing: 10) {
+                    Button("参加") {
+                        attendRunProposal(proposal, .attending)
+                    }
+                    .font(.system(size: 14, weight: .semibold))
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 8)
+                    .background(Color.tasukiPrimaryButtonFill)
+                    .foregroundColor(Color.tasukiOnBrandYellow)
+                    .cornerRadius(10)
+                    Button("不参加") {
+                        attendRunProposal(proposal, .notAttending)
+                    }
+                    .font(.system(size: 14, weight: .semibold))
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 8)
+                    .background(Color.white)
+                    .foregroundColor(.black)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 10)
+                            .stroke(Color.black.opacity(0.12), lineWidth: 1)
+                    )
+                }
+            } else {
+                Text(proposal.attendance == .attending ? "参加で回答済み" : "不参加で回答済み")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundColor(.secondary)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(12)
+        .background(Color.tasukiBrandYellow.opacity(0.3))
+    }
+    
+    private func attendRunProposal(_ proposal: RunProposal, _ status: RunProposalAttendance) {
+        runProposalStore.setAttendance(proposalId: proposal.id, status)
+        if status == .attending {
+            var title = "\(partnerName)さんとラン"
+            if proposal.isWeeklyRecurring { title += "（毎週）" }
+            joinedPracticesStore.add(
+                JoinedPracticeItem(
+                    id: UUID().uuidString,
+                    practiceId: "chat-proposal-\(proposal.id)",
+                    title: title,
+                    location: proposal.location,
+                    date: proposal.proposedStart,
+                    chatId: conversationId
+                )
+            )
+        }
+    }
+    
+    private func submitRunProposal(_ payload: MatchInvitePayload) {
+        runProposalStore.addProposal(
+            conversationId: conversationId,
+            fromSenderName: myName,
+            proposedStart: payload.runDate,
+            location: payload.location,
+            isWeeklyRecurring: payload.weeklyRepeat,
+            recurrenceWeekday: payload.recurrenceWeekday,
+            note: payload.message
+        )
+        let all = runProposalStore.proposals.filter { $0.conversationId == conversationId }
+        if let last = all.max(by: { $0.createdAt < $1.createdAt }) {
+            var line = "📅 次回の日程を提案しました\n\(runProposalStore.scheduleLine(for: last))"
+            if !payload.message.isEmpty {
+                line += "\n\n\(payload.message)"
+            }
+            let newMessage = ChatMessage(text: line, isFromMe: true)
+            messages.append(newMessage)
+        }
+    }
+    
+    /// 返信引用に表示するテキスト（メモリ上のメッセージがあれば優先、なければ保存済みプレビュー）
+    private func replyQuoteText(for message: ChatMessage) -> String? {
+        guard message.replyToMessageId != nil else { return nil }
+        if let rid = message.replyToMessageId,
+           let repliedTo = messages.first(where: { $0.id == rid }) {
+            return repliedTo.text
+        }
+        if let p = message.replyPreviewText?.trimmingCharacters(in: .whitespacesAndNewlines), !p.isEmpty {
+            return p
+        }
+        return nil
+    }
+
     // MARK: - Message Bubble + swipe to reply
     private func messageBubbleWithSwipe(message: ChatMessage) -> some View {
-        messageBubbleView(message: message)
-            .contentShape(Rectangle())
-            .simultaneousGesture(
-                DragGesture(minimumDistance: 28)
-                    .onEnded { value in
-                        let dx = value.translation.width
-                        let dy = value.translation.height
-                        guard abs(dx) > abs(dy) * 1.15, dx < -48 else { return }
-                        replyingTo = message
+        ZStack(alignment: .trailing) {
+            if !message.isFromMe {
+                Image(systemName: "arrowshape.turn.up.left.fill")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundColor(Color.tasukiPrimary.opacity(0.82))
+                    .padding(.trailing, 8)
+                    .opacity(replyIndicatorOpacity(for: message.id))
+            }
+            messageBubbleView(message: message)
+                .offset(x: message.isFromMe ? 0 : (swipeOffsets[message.id] ?? 0))
+        }
+        .contentShape(Rectangle())
+        .gesture(
+            DragGesture(minimumDistance: 8)
+                .onChanged { value in
+                    guard !message.isFromMe else { return }
+                    let dx = value.translation.width
+                    let dy = value.translation.height
+                    guard abs(dx) > abs(dy) * 1.1 else { return }
+                    swipeOffsets[message.id] = max(-78, min(0, dx))
+                }
+                .onEnded { value in
+                    defer {
+                        withAnimation(.spring(response: 0.25, dampingFraction: 0.82)) {
+                            swipeOffsets[message.id] = 0
+                        }
                     }
-            )
+                    guard !message.isFromMe else { return }
+                    let dx = value.translation.width
+                    let dy = value.translation.height
+                    guard abs(dx) > abs(dy) * 1.15, dx < -52 else { return }
+                    replyingTo = message
+                }
+        )
+    }
+
+    private func replyIndicatorOpacity(for messageId: String) -> Double {
+        let offset = abs(swipeOffsets[messageId] ?? 0)
+        guard offset > 8 else { return 0 }
+        return min(1.0, Double((offset - 8) / 44))
     }
     
     @ViewBuilder
@@ -266,19 +463,25 @@ struct ChatView: View {
                 Spacer(minLength: 60)
             }
             
-            VStack(alignment: message.isFromMe ? .trailing : .leading, spacing: 4) {
+            VStack(alignment: message.isFromMe ? .trailing : .leading, spacing: 6) {
                 if let name = message.senderName, !name.isEmpty {
                     Text(name)
                         .font(.system(size: 12, weight: .semibold))
                         .foregroundColor(Color.tasukiPrimary.opacity(0.7))
                 }
-                if let replyId = message.replyToMessageId,
-                   let repliedTo = messages.first(where: { $0.id == replyId }) {
-                    Text("返信: \(repliedTo.text)")
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundColor(message.isFromMe ? .white.opacity(0.9) : .secondary)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
+                if let quote = replyQuoteText(for: message), let replyId = message.replyToMessageId {
+                    Group {
+                        if message.isFromMe {
+                            Button {
+                                scrollToMessageId = replyId
+                            } label: {
+                                replyQuoteChrome(text: quote, isFromMe: true)
+                            }
+                            .buttonStyle(.plain)
+                        } else {
+                            replyQuoteChrome(text: quote, isFromMe: false)
+                        }
+                    }
                 }
                 Text(message.text)
                     .font(.system(size: 16, weight: .regular))
@@ -296,9 +499,45 @@ struct ChatView: View {
             }
         }
     }
+
+    private func replyQuoteChrome(text: String, isFromMe: Bool) -> some View {
+        HStack(alignment: .top, spacing: 8) {
+            Rectangle()
+                .fill(isFromMe ? Color.white.opacity(0.85) : Color.tasukiPrimary.opacity(0.55))
+                .frame(width: 3)
+                .frame(minHeight: 28)
+            Text(text)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundColor(isFromMe ? Color.white.opacity(0.92) : Color.secondary)
+                .multilineTextAlignment(.leading)
+                .lineLimit(3)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .frame(maxWidth: 260, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 12)
+                .fill(isFromMe ? Color.white.opacity(0.14) : Color.black.opacity(0.05))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 12)
+                .stroke(isFromMe ? Color.white.opacity(0.22) : Color.black.opacity(0.06), lineWidth: 1)
+        )
+    }
     
     private var inputAreaView: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: 8) {
+            if !isPractice {
+                Button(action: { showRunProposalSheet = true }) {
+                    Image(systemName: "calendar")
+                        .font(.system(size: 20, weight: .semibold))
+                        .foregroundColor(Color.tasukiPrimary)
+                        .frame(width: 40, height: 40)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("次回の日程を提案")
+            }
             TextField("メッセージを入力", text: $messageText)
                 .textFieldStyle(.plain)
                 .padding(.horizontal, 16)
@@ -329,26 +568,59 @@ struct ChatView: View {
     }
     
     private func sendMessage() {
-        guard !messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            return
-        }
+        let trimmed = messageText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+
         let replyId = replyingTo?.id
-        let newMessage = ChatMessage(
-            text: messageText,
-            isFromMe: true,
-            replyToMessageId: replyId,
-            senderName: isPractice ? myName : nil
-        )
-        messages.append(newMessage)
+        let previewFromReply: String? = replyingTo.map { msg in
+            let t = msg.text
+            if t.count <= 500 { return t }
+            return String(t.prefix(500))
+        }
         messageText = ""
         replyingTo = nil
         isTextFieldFocused = false
-        
+
+        if useRemoteMessages {
+            ConversationManager.shared.sendMessage(
+                conversationId: conversationId,
+                text: trimmed,
+                replyToMessageId: replyId,
+                replyPreviewText: previewFromReply
+            ) { result in
+                switch result {
+                case .success(let docId):
+                    let newMessage = ChatMessage(
+                        id: docId,
+                        text: trimmed,
+                        isFromMe: true,
+                        replyToMessageId: replyId,
+                        replyPreviewText: previewFromReply,
+                        senderName: isPractice ? myName : nil
+                    )
+                    messages.append(newMessage)
+                case .failure:
+                    break
+                }
+            }
+            return
+        }
+
+        let newMessage = ChatMessage(
+            text: trimmed,
+            isFromMe: true,
+            replyToMessageId: replyId,
+            replyPreviewText: previewFromReply,
+            senderName: isPractice ? myName : nil
+        )
+        messages.append(newMessage)
+
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
             let replyMessage = ChatMessage(
                 text: "ありがとうございます！",
                 isFromMe: false,
                 replyToMessageId: nil,
+                replyPreviewText: nil,
                 senderName: isPractice ? "Kenji_Run" : nil
             )
             messages.append(replyMessage)
@@ -394,7 +666,14 @@ struct ChatView: View {
                 ChatMessage(id: "dummy-1", text: "こんにちは！ランニングパートナーを探しています。", isFromMe: false, timestamp: dayAgo(2)),
                 ChatMessage(id: "dummy-2", text: "こんにちは！私も探していました。一緒に走りましょう！", isFromMe: true, timestamp: dayAgo(2)),
                 ChatMessage(id: "dummy-3", text: "ありがとうございます！いつ頃が都合よろしいですか？", isFromMe: false, timestamp: dayAgo(1)),
-                ChatMessage(id: "dummy-4", text: "週末の朝が良いです。6時頃からいかがでしょうか？", isFromMe: true, timestamp: dayAgo(1), replyToMessageId: "dummy-3"),
+                ChatMessage(
+                    id: "dummy-4",
+                    text: "週末の朝が良いです。6時頃からいかがでしょうか？",
+                    isFromMe: true,
+                    timestamp: dayAgo(1),
+                    replyToMessageId: "dummy-3",
+                    replyPreviewText: "ありがとうございます！いつ頃が都合よろしいですか？"
+                ),
                 ChatMessage(id: "dummy-5", text: "6時、大丈夫です！どこで待ち合わせましょうか？", isFromMe: false, timestamp: hourAgo(5)),
                 ChatMessage(id: "dummy-6", text: "代々木公園の入口、ベンチの前でどうですか？", isFromMe: true, timestamp: hourAgo(4)),
                 ChatMessage(id: "dummy-7", text: "いいですね！では土曜の朝6時代々木公園で。", isFromMe: false, timestamp: hourAgo(3)),
@@ -410,5 +689,7 @@ struct ChatView: View {
     NavigationStack {
         ChatView(conversationId: "preview-1", partnerName: "Tanaka-san")
             .environmentObject(TabBarVisibility())
+            .environmentObject(RunProposalStore.shared)
+            .environmentObject(JoinedPracticesStore())
     }
 }

@@ -226,40 +226,12 @@ final class ConversationManager: UnreadCountProviderBase {
         }
     }
     
-    /// 自分宛のマッチングリクエスト一覧を取得（現状はダミーデータ）
+    /// 自分宛のマッチングリクエスト一覧（ユーザーからの申請のみ。練習会・主催者からの招待はここに出さない）
     func fetchMyMatchRequests(completion: @escaping (Result<[MatchRequestSummary], Error>) -> Void) {
-        // TODO: Firestore の match_requests コレクションから取得する実装に差し替え
-        let cal = Calendar.current
-        let now = Date()
-        func daysAgo(_ d: Int) -> Date { cal.date(byAdding: .day, value: -d, to: now) ?? now }
-        
-        let samples: [MatchRequestSummary] = [
-            MatchRequestSummary(
-                id: "req-partner-1",
-                fromName: "Kenji_Run",
-                type: .partner,
-                message: "一緒に皇居で朝ランしませんか？",
-                createdAt: daysAgo(0),
-                isNew: true
-            ),
-            MatchRequestSummary(
-                id: "req-practice-1",
-                fromName: "皇居ラン募集",
-                type: .practice,
-                message: "皇居ラン 2周 ゆっくりペース（6:00/km）への参加リクエストです。",
-                createdAt: daysAgo(1),
-                isNew: true
-            ),
-            MatchRequestSummary(
-                id: "req-partner-2",
-                fromName: "Momo",
-                type: .partner,
-                message: "週末のジョグ仲間を探しています。",
-                createdAt: daysAgo(3),
-                isNew: false
-            )
-        ]
-        completion(.success(samples))
+        // TODO: Firestore の match_requests 等と MatchInvitationStore を同期する
+        DispatchQueue.main.async {
+            completion(.success(MatchInvitationStore.shared.inbox))
+        }
     }
     
     /// 未読会話数を再取得して unreadCount を更新（HomeView のバッジ用）
@@ -296,7 +268,15 @@ final class ConversationManager: UnreadCountProviderBase {
     // MARK: - Messages（conversationId に紐づく。各メッセージは replyToMessageId で返信先を参照可能）
     
     /// メッセージを送信し、バックエンドで発行された messageId を返す
-    func sendMessage(conversationId: String, text: String, replyToMessageId: String?, completion: @escaping (Result<String, Error>) -> Void) {
+    /// - Parameters:
+    ///   - replyPreviewText: 返信時に返信元の内容を同梱（最大500文字程度を想定。表示・参照用）
+    func sendMessage(
+        conversationId: String,
+        text: String,
+        replyToMessageId: String?,
+        replyPreviewText: String? = nil,
+        completion: @escaping (Result<String, Error>) -> Void
+    ) {
         guard let myUid = currentUserId else {
             completion(.failure(NSError(domain: "ConversationManager", code: -1, userInfo: [NSLocalizedDescriptionKey: "未ログイン"])))
             return
@@ -310,6 +290,9 @@ final class ConversationManager: UnreadCountProviderBase {
         ]
         if let replyId = replyToMessageId, !replyId.isEmpty {
             data["replyToMessageId"] = replyId
+        }
+        if let preview = replyPreviewText?.trimmingCharacters(in: .whitespacesAndNewlines), !preview.isEmpty {
+            data["replyPreviewText"] = String(preview.prefix(500))
         }
         ref.setData(data) { error in
             if let error = error {
@@ -347,12 +330,14 @@ final class ConversationManager: UnreadCountProviderBase {
                     let senderId = data["senderId"] as? String ?? ""
                     let timestamp = (data["timestamp"] as? Timestamp)?.dateValue() ?? Date()
                     let replyToMessageId = data["replyToMessageId"] as? String
+                    let replyPreviewText = data["replyPreviewText"] as? String
                     return ChatMessage(
                         id: doc.documentID,
                         text: text,
                         isFromMe: senderId == myUid,
                         timestamp: timestamp,
-                        replyToMessageId: replyToMessageId
+                        replyToMessageId: replyToMessageId,
+                        replyPreviewText: replyPreviewText
                     )
                 }
                 completion(.success(list))

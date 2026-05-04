@@ -61,6 +61,7 @@ struct FindView: View {
     @AppStorage("myBestHalf") private var myBestHalf: String = ""
     @AppStorage("myAvgPace") private var myAvgPace: String = "5:30/km"
     @AppStorage("myRunningSpots") private var myRunningSpots: String = "皇居"
+    @AppStorage("runningDataSource") private var runningDataSourceRaw: String = RunningDataSource.all.rawValue
     @ObservedObject private var activityStore = RunActivityStore.shared
     
     // Practices用 詳細フィルター
@@ -68,394 +69,33 @@ struct FindView: View {
     @State private var practiceFilterSpot: String = ""
     @State private var practiceFilterCapacity: String = "指定なし"
     
-    // ダミーデータ（PartnerViewと同じ）
-    @State private var partnerMockUsers: [PartnerUser] = [
-        PartnerUser(
-            name: "Kenji_Run",
-            rank: "S",
-            avatarImage: "person.circle.fill",
-            isOnline: true,
-            bestCategory: .half,
-            bestTime: "1:25:00",
-            age: 28,
-            runningSchedule: .weekendMorning,
-            purpose: "サブ3目標",
-            nextRace: "東京マラソン2025",
-            targetTime: "フル 2:55:00",
-            runningSpots: ["皇居", "代々木公園", "多摩川"],
-            prefecture: "Tokyo",
-            gender: .male,
-            condition: .excellent,
-            statusMessage: "調子が良い！今月は200km走る目標です🔥",
-            ageGroup: "20s",
-            runningGoal: "Sub3",
-            personalBest: "2:58:00",
-            activeTime: "Morning",
-            easyPace: "4:30/km",
-            connectionStyle: .real,
-            totalPoints: 28000
-        ),
-        PartnerUser(
-            name: "さっちゃん",
-            rank: "A",
-            avatarImage: "person.circle.fill",
-            isOnline: true,
-            bestCategory: .full,
-            bestTime: "3:15:00",
-            age: 32,
-            runningSchedule: .weekdayEvening,
-            purpose: "サブ3目標",
-            nextRace: "横浜マラソン2025",
-            targetTime: "フル 2:58:00",
-            runningSpots: ["お台場", "多摩川", "駒沢公園"],
-            prefecture: "Kanagawa",
-            gender: .female,
-            condition: .good,
-            statusMessage: "今月も頑張ります！週3回のペースで走ってます",
-            ageGroup: "30s",
-            runningGoal: "Sub3",
-            personalBest: "3:15:00",
-            activeTime: "Night",
-            easyPace: "5:00/km",
-            connectionStyle: .real,
-            totalPoints: 12000
-        ),
-        PartnerUser(
-            name: "Taka@Sub3",
-            rank: "B",
-            avatarImage: "person.circle.fill",
-            isOnline: false,
-            bestCategory: .tenKm,
-            bestTime: "35:00",
-            age: 25,
-            runningSchedule: .weekendMorning,
-            purpose: "健康維持",
-            nextRace: "東京10kmロードレース",
-            targetTime: "10km 33:00",
-            runningSpots: ["皇居", "代々木公園"],
-            prefecture: "Tokyo",
-            gender: .male,
-            condition: .good,
-            statusMessage: "週末の朝ランが楽しみです！",
-            ageGroup: "20s",
-            runningGoal: "健康維持",
-            personalBest: nil,
-            activeTime: "Morning",
-            easyPace: "5:30/km",
-            connectionStyle: .both,
-            totalPoints: 6500
-        ),
-        PartnerUser(
-            name: "Momo",
-            rank: "C",
-            avatarImage: "person.circle.fill",
-            isOnline: true,
-            bestCategory: .half,
-            bestTime: "1:35:00",
-            age: 29,
-            runningSchedule: .flexible,
-            purpose: "ダイエット",
-            nextRace: nil,
-            targetTime: nil,
-            runningSpots: ["大阪城公園", "中之島公園"],
-            prefecture: "Osaka",
-            gender: .female,
-            condition: .tired,
-            statusMessage: "最近忙しくて疲れ気味...でも走りたい！",
-            ageGroup: "20s",
-            runningGoal: "ダイエット",
-            personalBest: nil,
-            activeTime: "Holiday",
-            easyPace: "6:00/km",
-            connectionStyle: .virtual,
-            totalPoints: 2200
-        ),
-        PartnerUser(
-            name: "Runner123",
-            rank: "D",
-            avatarImage: "person.circle.fill",
-            isOnline: false,
-            bestCategory: .tenKm,
-            bestTime: "42:00",
-            age: 24,
-            runningSchedule: .weekdayEvening,
-            purpose: "ダイエット",
-            nextRace: nil,
-            targetTime: nil,
-            runningSpots: ["代々木公園"],
-            prefecture: "Tokyo",
-            gender: .female,
-            condition: .sos,
-            statusMessage: "足を痛めてしまいました...しばらく休みます💦",
-            ageGroup: "20s",
-            runningGoal: "ダイエット",
-            personalBest: nil,
-            activeTime: "Night",
-            easyPace: "6:30/km",
-            connectionStyle: .both,
-            totalPoints: 800
-        ),
-        PartnerUser(
-            name: "マラソン太郎",
-            rank: "S",
-            avatarImage: "person.circle.fill",
-            isOnline: true,
-            bestCategory: .full,
-            bestTime: "2:45:00",
-            age: 35,
-            runningSchedule: .weekdayMorning,
-            purpose: "自己ベスト更新",
-            nextRace: "大阪マラソン2025",
-            targetTime: "フル 2:40:00",
-            runningSpots: ["大阪城公園", "中之島公園"],
-            prefecture: "Osaka",
-            gender: .male,
-            condition: .excellent,
-            statusMessage: "朝ランで気持ちいい！PB更新に向けて頑張ります",
-            ageGroup: "30s",
-            runningGoal: "Sub3",
-            personalBest: "2:45:00",
-            activeTime: "Morning",
-            easyPace: "4:00/km",
-            connectionStyle: .real,
-            totalPoints: 52000
-        ),
-        PartnerUser(
-            name: "みか",
-            rank: "A",
-            avatarImage: "person.circle.fill",
-            isOnline: false,
-            bestCategory: .half,
-            bestTime: "1:30:00",
-            age: 27,
-            runningSchedule: .weekendMorning,
-            purpose: "ファンラン",
-            nextRace: "名古屋ウィメンズマラソン2025",
-            targetTime: "ハーフ 1:25:00",
-            runningSpots: ["名古屋城", "名城公園"],
-            prefecture: "Aichi",
-            gender: .female,
-            condition: .good,
-            statusMessage: "週末のランニングが楽しみ！一緒に走りましょう",
-            ageGroup: "20s",
-            runningGoal: "完走",
-            personalBest: "3:45:00",
-            activeTime: "Morning",
-            easyPace: "5:15/km",
-            connectionStyle: .both,
-            totalPoints: 15000
-        ),
-        PartnerUser(
-            name: "Hiro_Runner",
-            rank: "B",
-            avatarImage: "person.circle.fill",
-            isOnline: true,
-            bestCategory: .tenKm,
-            bestTime: "38:00",
-            age: 42,
-            runningSchedule: .weekdayEvening,
-            purpose: "健康維持",
-            nextRace: "福岡マラソン2025",
-            targetTime: "10km 36:00",
-            runningSpots: ["大濠公園", "福岡タワー"],
-            prefecture: "Fukuoka",
-            gender: .male,
-            condition: .good,
-            statusMessage: "仕事終わりのランでリフレッシュ！",
-            ageGroup: "40s",
-            runningGoal: "健康維持",
-            personalBest: "3:30:00",
-            activeTime: "Night",
-            easyPace: "5:45/km",
-            connectionStyle: .virtual,
-            totalPoints: 3500
-        ),
-        PartnerUser(
-            name: "あきこ",
-            rank: "C",
-            avatarImage: "person.circle.fill",
-            isOnline: true,
-            bestCategory: .half,
-            bestTime: "1:40:00",
-            age: 38,
-            runningSchedule: .weekendAfternoon,
-            purpose: "ダイエット",
-            nextRace: nil,
-            targetTime: nil,
-            runningSpots: ["大通公園", "円山公園"],
-            prefecture: "Hokkaido",
-            gender: .female,
-            condition: .tired,
-            statusMessage: "最近体重が落ちてきて嬉しい！でも少し疲れ気味...",
-            ageGroup: "30s",
-            runningGoal: "ダイエット",
-            personalBest: nil,
-            activeTime: "Holiday",
-            easyPace: "6:15/km",
-            connectionStyle: .virtual,
-            totalPoints: 1100
-        ),
-        PartnerUser(
-            name: "RunTaka",
-            rank: "D",
-            avatarImage: "person.circle.fill",
-            isOnline: false,
-            bestCategory: .fiveKm,
-            bestTime: "22:00",
-            age: 22,
-            runningSchedule: .flexible,
-            purpose: "ファンラン",
-            nextRace: nil,
-            targetTime: nil,
-            runningSpots: ["皇居", "新宿御苑"],
-            prefecture: "Tokyo",
-            gender: .male,
-            condition: .good,
-            statusMessage: "ランニング始めたばかり！一緒に楽しみましょう",
-            ageGroup: "20s",
-            runningGoal: "完走",
-            personalBest: nil,
-            activeTime: "Holiday",
-            easyPace: "6:45/km",
-            connectionStyle: .both,
-            totalPoints: 500
-        ),
-        PartnerUser(
-            name: "Shinpei_皇居",
-            rank: "A",
-            avatarImage: "person.circle.fill",
-            isOnline: true,
-            bestCategory: .half,
-            bestTime: "1:32:00",
-            age: 34,
-            runningSchedule: .weekdayEvening,
-            purpose: "サブ3.5",
-            nextRace: "湘南国際マラソン",
-            targetTime: "フル 3:25:00",
-            runningSpots: ["皇居", "神宮外苑"],
-            prefecture: "Tokyo",
-            gender: .male,
-            condition: .good,
-            statusMessage: "仕事帰りの皇居ランが日課です",
-            ageGroup: "30s",
-            runningGoal: "Sub3.5",
-            personalBest: "3:28:00",
-            activeTime: "Night",
-            easyPace: "5:10/km",
-            connectionStyle: .real,
-            totalPoints: 9800
-        ),
-        PartnerUser(
-            name: "natsu_run",
-            rank: "B",
-            avatarImage: "person.circle.fill",
-            isOnline: false,
-            bestCategory: .tenKm,
-            bestTime: "48:00",
-            age: 26,
-            runningSchedule: .weekendMorning,
-            purpose: "健康維持",
-            nextRace: nil,
-            targetTime: "10km 45分",
-            runningSpots: ["多摩川", "二子玉川"],
-            prefecture: "Tokyo",
-            gender: .female,
-            condition: .good,
-            statusMessage: "週末は多摩川沿いをゆっくり",
-            ageGroup: "20s",
-            runningGoal: "健康維持",
-            personalBest: nil,
-            activeTime: "Morning",
-            easyPace: "5:50/km",
-            connectionStyle: .both,
-            totalPoints: 4100
-        ),
-        PartnerUser(
-            name: "Kazu_駒沢",
-            rank: "A",
-            avatarImage: "person.circle.fill",
-            isOnline: true,
-            bestCategory: .full,
-            bestTime: "3:05:00",
-            age: 31,
-            runningSchedule: .weekdayMorning,
-            purpose: "サブ3",
-            nextRace: "東京マラソン",
-            targetTime: "2:58:00",
-            runningSpots: ["駒沢公園"],
-            prefecture: "Tokyo",
-            gender: .male,
-            condition: .excellent,
-            statusMessage: "駒沢のグラウンド周りを主に練習中",
-            ageGroup: "30s",
-            runningGoal: "Sub3",
-            personalBest: "3:05:00",
-            activeTime: "Morning",
-            easyPace: "4:50/km",
-            connectionStyle: .real,
-            totalPoints: 19200
-        ),
-        PartnerUser(
-            name: "リン",
-            rank: "C",
-            avatarImage: "person.circle.fill",
-            isOnline: true,
-            bestCategory: .half,
-            bestTime: "1:55:00",
-            age: 33,
-            runningSchedule: .flexible,
-            purpose: "ダイエット",
-            nextRace: nil,
-            targetTime: nil,
-            runningSpots: ["井の頭公園"],
-            prefecture: "Tokyo",
-            gender: .female,
-            condition: .good,
-            statusMessage: "井の頭でゆるラン派です",
-            ageGroup: "30s",
-            runningGoal: "ダイエット",
-            personalBest: nil,
-            activeTime: "Holiday",
-            easyPace: "6:20/km",
-            connectionStyle: .virtual,
-            totalPoints: 1800
-        ),
-        PartnerUser(
-            name: "Go_多摩川",
-            rank: "B",
-            avatarImage: "person.circle.fill",
-            isOnline: false,
-            bestCategory: .half,
-            bestTime: "1:42:00",
-            age: 40,
-            runningSchedule: .weekdayEvening,
-            purpose: "健康維持",
-            nextRace: "横浜マラソン",
-            targetTime: "フル 3:40:00",
-            runningSpots: ["多摩川", "羽田空港周辺"],
-            prefecture: "Kanagawa",
-            gender: .male,
-            condition: .good,
-            statusMessage: "多摩川の河川敷が落ち着きます",
-            ageGroup: "40s",
-            runningGoal: "完走",
-            personalBest: "3:35:00",
-            activeTime: "Night",
-            easyPace: "5:40/km",
-            connectionStyle: .both,
-            totalPoints: 5200
-        )
-    ]
+    @EnvironmentObject private var userManager: UserManager
+    /// Firestore `users` の他ユーザー（空なら `mockUsers` / `findDiscoverFallbackPartners` にフォールバック）
+    @State private var discoveredUsers: [User] = []
     
     @State private var recruitments: [PracticeRecruitment] = mockRecruitments
     
-    // User型のマッチング用データ（Models.swiftのmockUsersを使用）
+    // User型のマッチング用データ（`discoverUserPool` を `refreshMatchingUsers` で加工）
     @State private var matchingUsers: [User] = []
+    
+    /// Firestore に候補がいれば優先。無ければ `Models.mockUsers`（リッチプロフィール済み）
+    private var discoverUserPool: [User] {
+        discoveredUsers.isEmpty ? mockUsers : discoveredUsers
+    }
+
+    /// Partner カードも User と同一データソース
+    private var partnerDiscoverPool: [PartnerUser] {
+        discoveredUsers.isEmpty ? findDiscoverFallbackPartners : discoveredUsers.map { $0.toPartnerUser() }
+    }
     
     private var mySpotLabelForMatch: String {
         let first = myRunningSpots.split(separator: ",").first.map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
         if let f = first, !f.isEmpty { return f }
         return "よく走るエリア"
+    }
+
+    private var selectedRunningDataSource: RunningDataSource {
+        RunningDataSource(rawValue: runningDataSourceRaw) ?? .all
     }
 
     /// Runners / Practices 共通のフィルタ・ソート済みユーザー（件数制限なし）
@@ -484,7 +124,8 @@ struct FindView: View {
                     user.targetTime.localizedCaseInsensitiveContains(q) ||
                     user.avgPace.localizedCaseInsensitiveContains(q) ||
                     String(FindMatchScore.effectiveMonthlyRunCount(for: user)).contains(q) ||
-                    user.bio.localizedCaseInsensitiveContains(q)
+                    user.bio.localizedCaseInsensitiveContains(q) ||
+                    user.gender.localizedCaseInsensitiveContains(q)
             }
         }
         
@@ -521,13 +162,35 @@ struct FindView: View {
         return filteredPartnerUsers
     }
 
-    /// `mockUsers` に対し、自分の月間 GPS 記録（ペース・重心・回数）に基づくマッチ度を再計算する。
+    /// Firestore から他ユーザーを読み込み、マッチング一覧を更新する。
+    @MainActor
+    private func loadDiscoverUsersFromFirestore() async {
+        do {
+            let list = try await userManager.fetchDiscoverUsers(limit: 80)
+            discoveredUsers = list
+        } catch {
+            discoveredUsers = []
+        }
+        refreshMatchingUsers()
+    }
+
+    /// `discoverUserPool` に対し、自分の月間 GPS と候補プロフィールでマッチ度を計算する。
     private func refreshMatchingUsers() {
-        let myPace = activityStore.monthlyAveragePaceSecondsPerKm()
-        let myRuns = activityStore.monthlyRunCount()
-        let centroid = activityStore.monthlyRouteCentroid()
+        let ds = selectedRunningDataSource
+        let myPace: Double?
+        let myRuns: Int
+        let centroid: (latitude: Double, longitude: Double)?
+        if ds.usesHealthKitForQueries {
+            myPace = activityStore.monthlyAveragePaceSecondsPerKm()
+            myRuns = activityStore.monthlyRunCount()
+            centroid = activityStore.monthlyRouteCentroid()
+        } else {
+            myPace = activityStore.monthlyAveragePaceSecondsPerKm(matching: ds)
+            myRuns = activityStore.monthlyRunCount(matching: ds)
+            centroid = activityStore.monthlyRouteCentroid(matching: ds)
+        }
         let fallback = myAvgPace.isEmpty ? "5:30/km" : myAvgPace
-        matchingUsers = mockUsers.map { user in
+        matchingUsers = discoverUserPool.map { user in
             var u = user
             u.matchRate = FindMatchScore.compute(
                 myPaceSecPerKm: myPace,
@@ -541,9 +204,9 @@ struct FindView: View {
         }
     }
     
-    // 既存のPartnerUser用のフィルタリング（Practicesモード用に保持）
+    // PartnerUser 用フィルタ（データソースは `partnerDiscoverPool`＝Firestore or `findDiscoverFallbackPartners`）
     private var filteredPartnerUsers: [PartnerUser] {
-        var filtered = partnerMockUsers
+        var filtered = partnerDiscoverPool
         
         if !selectedRunnerRanks.isEmpty {
             filtered = filtered.filter { selectedRunnerRanks.contains("Rank \($0.rank)") }
@@ -904,7 +567,13 @@ struct FindView: View {
                 activityStore.refreshFromRemote()
                 refreshMatchingUsers()
             }
+            .task {
+                await loadDiscoverUsersFromFirestore()
+            }
             .onChange(of: activityStore.activities.count) { _, _ in
+                refreshMatchingUsers()
+            }
+            .onChange(of: runningDataSourceRaw) { _, _ in
                 refreshMatchingUsers()
             }
             .overlay(alignment: .bottomTrailing) {
@@ -2061,5 +1730,6 @@ struct FilterDetailSheet: View {
 #Preview {
     NavigationStack {
         FindView()
+            .environmentObject(UserManager())
     }
 }

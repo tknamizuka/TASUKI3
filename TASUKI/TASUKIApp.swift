@@ -128,6 +128,8 @@ struct TASUKIApp: App {
                         .environmentObject(joinedPracticesStore)
                         .environmentObject(CoachCertificationManager.shared)
                         .environmentObject(tabBarVisibility)
+                        .environmentObject(MatchInvitationStore.shared)
+                        .environmentObject(RunProposalStore.shared)
                 }
             }
             .onAppear {
