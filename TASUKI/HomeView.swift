@@ -7,6 +7,7 @@
 
 import SwiftUI
 import UIKit
+import Combine
 
 /// HealthKit 取得待ちの間に円グラフへ出すサンプル値（黄→紫の弧の見た目用。取得後は実距離に切り替わる）。
 private enum MonthlyGoalRingSample {
@@ -26,12 +27,21 @@ struct HomeView: View {
     
     @State private var showRunHistory = false
     @State private var showPracticeCalendar = false
+    @State private var showMessageHubSheet = false
+    @State private var messageHubSheetInitialTab: MessageListTab = .chat
     @ObservedObject private var activityStore = RunActivityStore.shared
+    @ObservedObject private var runTracker = RunTracker.shared
+    @EnvironmentObject private var mainTabRouter: MainTabRouter
+    /// 子画面（シート内 `MessageListView` など）が `pushHiddenContext` でタブを隠すための共有状態。
+    /// ルートの下部メニュー表示は `MainTabView.shouldShowMenuBar`（Home タブかつ非ネスト時のみ）と組み合わさる（`TASUKI_demo` と同じ）。
+    @EnvironmentObject private var tabBarVisibility: TabBarVisibility
     @EnvironmentObject private var unreadProvider: UnreadCountProviderBase
     @EnvironmentObject private var joinedPracticesStore: JoinedPracticesStore
     @AppStorage("runningDataSource") private var runningDataSourceRaw: String = RunningDataSource.all.rawValue
     @AppStorage("myRank") private var myRank: String = "Rank E"
     @AppStorage("reduceRankingPressure") private var reduceRankingPressure: Bool = false
+    @State private var runBannerTick = Date()
+    private let runBannerTimer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
     init(
         currentDistance: Double = 0.0,
         goalDistance: Double = 100.0,
@@ -46,19 +56,28 @@ struct HomeView: View {
         self.usePreviewData = usePreviewData
     }
     
+    /// アクティビティから即時計算する今月距離（Home の進捗率連動用）
+    private var activityMonthlyDistanceKm: Double {
+        activityStore.monthlyDistanceKm()
+    }
+
     /// 円グラフ表示用の距離（読み込み中はサンプル、それ以外は実データ）
     private var ringShowsSampleWhileLoading: Bool {
-        isHealthKitLoading && !usePreviewData && activityStore.activities.isEmpty
+        isHealthKitLoading && !usePreviewData && activityMonthlyDistanceKm <= 0
     }
 
     private var ringCurrentKm: Double {
         if ringShowsSampleWhileLoading {
             return MonthlyGoalRingSample.currentKm
         }
+        let fromActivities: Double
         if selectedRunningDataSource.usesHealthKitForQueries {
-            return activityStore.monthlyDistanceKm()
+            fromActivities = activityMonthlyDistanceKm
+        } else {
+            fromActivities = activityStore.monthlyDistanceKm(matching: selectedRunningDataSource)
         }
-        return activityStore.monthlyDistanceKm(matching: selectedRunningDataSource)
+        // 活動記録がある場合は HealthKit / 集計より先に Home 進捗へ即反映する
+        return max(currentDistance, fromActivities)
     }
 
     private var ringGoalKm: Double {
@@ -119,7 +138,7 @@ struct HomeView: View {
                                 Text("TASUKI")
                                     .font(.system(size: 50, weight: .heavy))
                                     .tracking(10)
-                                    .foregroundColor(Color(hex: "0F1A2E"))
+                                    .foregroundColor(Color.tasukiPrimary)
                                     .shadow(color: .white.opacity(0.8), radius: 2, x: 0, y: 0)
                             }
                             .accessibilityElement(children: .combine)
@@ -129,6 +148,12 @@ struct HomeView: View {
                     }
                     .frame(height: 136)
                     .padding(.top, 20)
+
+                    if runTracker.isTracking {
+                        activeRunHomeBanner
+                            .padding(.horizontal, 16)
+                            .padding(.bottom, 8)
+                    }
 
                     GeometryReader { geo in
                         let ringSize = min(geo.size.width * 0.58, 260)
@@ -224,16 +249,6 @@ struct HomeView: View {
                     }
 
                     VStack(spacing: 0) {
-                        NavigationLink(destination: RunRecordingView()) {
-                            TasukiFlatHubRow(
-                                title: "RUN",
-                                subtitle: "記録を開始",
-                                systemImage: "figure.run",
-                                iconForegroundColor: Color(hex: "2E7D32")
-                            )
-                        }
-                        .buttonStyle(.plain)
-
                         NavigationLink(destination: ChallengeHubView()) {
                             TasukiFlatHubRow(
                                 title: "CHALLENGE",
@@ -269,9 +284,16 @@ struct HomeView: View {
         }
         .sheet(isPresented: $showRunHistory) {
             RunHistoryListView()
+                .environmentObject(mainTabRouter)
         }
         .sheet(isPresented: $showPracticeCalendar) {
             PracticeScheduleCalendarView(store: joinedPracticesStore)
+        }
+        .sheet(isPresented: $showMessageHubSheet) {
+            NavigationStack {
+                MessageListView(initialTab: messageHubSheetInitialTab, embedNavigationStack: false)
+            }
+            .environmentObject(tabBarVisibility)
         }
         .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
@@ -283,7 +305,7 @@ struct HomeView: View {
                     ZStack(alignment: .topTrailing) {
                         Image(systemName: "calendar")
                             .font(.system(size: 20))
-                            .foregroundColor(.black)
+                            .foregroundColor(Color.tasukiPrimary)
                         if joinedPracticesStore.scheduledCount > 0 {
                             Text("\(min(joinedPracticesStore.scheduledCount, 99))")
                                 .font(.system(size: 10, weight: .bold))
@@ -294,13 +316,14 @@ struct HomeView: View {
                         }
                     }
                 }
+                .buttonStyle(.plain)
             }
             ToolbarItem(placement: .topBarTrailing) {
-                NavigationLink(destination: MessageListView()) {
+                NavigationLink(destination: MessageListView(embedNavigationStack: false)) {
                     ZStack(alignment: .topTrailing) {
                         Image(systemName: "message.fill")
                             .font(.system(size: 20))
-                            .foregroundColor(.black)
+                            .foregroundColor(Color.tasukiPrimary)
                         if unreadProvider.unreadCount > 0 {
                             Text("\(min(unreadProvider.unreadCount, 99))")
                                 .font(.system(size: 10, weight: .bold))
@@ -311,7 +334,14 @@ struct HomeView: View {
                         }
                     }
                 }
+                .buttonStyle(.plain)
             }
+        }
+        .onChange(of: mainTabRouter.pendingMessageHubTab) { _, newValue in
+            guard let tab = newValue else { return }
+            messageHubSheetInitialTab = tab
+            showMessageHubSheet = true
+            mainTabRouter.pendingMessageHubTab = nil
         }
         .onAppear {
             let isPreview = ProcessInfo.processInfo.environment["XCODE_RUNNING_FOR_PREVIEWS"] == "1"
@@ -322,6 +352,11 @@ struct HomeView: View {
             }
             unreadProvider.refreshUnreadCount()
             activityStore.refreshFromRemote()
+        }
+        .onReceive(runBannerTimer) { date in
+            if runTracker.isTracking {
+                runBannerTick = date
+            }
         }
         .onChange(of: runningDataSourceRaw) { _, _ in
             let isPreview = ProcessInfo.processInfo.environment["XCODE_RUNNING_FOR_PREVIEWS"] == "1"
@@ -335,6 +370,61 @@ struct HomeView: View {
                 isHealthKitLoading = false
             }
         }
+    }
+
+    private var activeRunHomeBanner: some View {
+        Button {
+            mainTabRouter.selectedTab = 1
+        } label: {
+            HStack(spacing: 14) {
+                Image(systemName: "figure.run")
+                    .font(.system(size: 22, weight: .semibold))
+                    .foregroundColor(Color.tasukiPrimary)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(runTracker.isPaused ? "走行記録 · 一時停止中" : "走行記録中")
+                        .font(.system(size: 11, weight: .bold))
+                        .tracking(1.2)
+                        .foregroundColor(Color.tasukiPrimary.opacity(0.75))
+                    HStack(spacing: 16) {
+                        Text(formatRunElapsed(runTracker.elapsedSeconds(now: runBannerTick)))
+                            .font(.system(size: 32, weight: .bold))
+                            .foregroundColor(Color.tasukiPrimary)
+                            .monospacedDigit()
+                            .minimumScaleFactor(0.6)
+                            .lineLimit(1)
+                        Text(String(format: "%.2f km", runTracker.distanceKm))
+                            .font(.system(size: 32, weight: .bold))
+                            .foregroundColor(Color.tasukiPrimary)
+                            .monospacedDigit()
+                            .minimumScaleFactor(0.6)
+                            .lineLimit(1)
+                    }
+                }
+                Spacer(minLength: 0)
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundColor(Color.tasukiPrimary.opacity(0.5))
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+            .background(
+                RoundedRectangle(cornerRadius: 14)
+                    .fill(Color.tasukiBrandYellow)
+            )
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Runタブで記録画面を開く")
+    }
+
+    private func formatRunElapsed(_ sec: TimeInterval) -> String {
+        let total = Int(sec)
+        let h = total / 3600
+        let m = (total % 3600) / 60
+        let s = total % 60
+        if h > 0 {
+            return String(format: "%d:%02d:%02d", h, m, s)
+        }
+        return String(format: "%02d:%02d", m, s)
     }
 
     /// バンドル内の `logo.jpg` またはアセットカタログの `logo`（透過 PNG 可）
@@ -411,6 +501,8 @@ struct HomeView: View {
     NavigationStack {
         HomeView()
     }
+    .environmentObject(MainTabRouter())
+    .environmentObject(TabBarVisibility())
     .environmentObject(PreviewUnreadProvider() as UnreadCountProviderBase)
     .environmentObject(JoinedPracticesStore())
 }
@@ -425,6 +517,8 @@ struct HomeView: View {
             usePreviewData: true
         )
     }
+    .environmentObject(MainTabRouter())
+    .environmentObject(TabBarVisibility())
     .environmentObject(PreviewUnreadProvider() as UnreadCountProviderBase)
     .environmentObject(JoinedPracticesStore())
 }
@@ -438,6 +532,8 @@ struct HomeView: View {
             usePreviewData: true
         )
     }
+    .environmentObject(MainTabRouter())
+    .environmentObject(TabBarVisibility())
     .environmentObject(PreviewUnreadProvider() as UnreadCountProviderBase)
     .environmentObject(JoinedPracticesStore())
 }
@@ -451,6 +547,8 @@ struct HomeView: View {
             usePreviewData: true
         )
     }
+    .environmentObject(MainTabRouter())
+    .environmentObject(TabBarVisibility())
     .environmentObject(PreviewUnreadProvider() as UnreadCountProviderBase)
     .environmentObject(JoinedPracticesStore())
 }
@@ -464,6 +562,8 @@ struct HomeView: View {
             usePreviewData: true
         )
     }
+    .environmentObject(MainTabRouter())
+    .environmentObject(TabBarVisibility())
     .environmentObject(PreviewUnreadProvider() as UnreadCountProviderBase)
     .environmentObject(JoinedPracticesStore())
 }
@@ -479,6 +579,8 @@ struct HomeView: View {
             usePreviewData: true
         )
     }
+    .environmentObject(MainTabRouter())
+    .environmentObject(TabBarVisibility())
     .environmentObject(PreviewUnreadProvider(unreadCount: 3) as UnreadCountProviderBase)
     .environmentObject(store)
 }

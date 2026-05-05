@@ -32,10 +32,15 @@ final class RunTracker: NSObject, ObservableObject {
     // Accuracy tuning values calibrated for phone-based running.
     private let maxHorizontalAccuracy: CLLocationAccuracy = 25
     private let maxStaleSeconds: TimeInterval = 5
+    /// 記録開始直後は GPS が安定しにくいため、一定時間だけ許容を緩める
+    private let warmupMaxHorizontalAccuracy: CLLocationAccuracy = 65
+    private let warmupMaxStaleSeconds: TimeInterval = 10
     private let minSegmentDistanceMeters: CLLocationDistance = 2
     private let maxRunningSpeedMps: CLLocationSpeed = 8.5
     private let warmupDurationSeconds: TimeInterval = 40
     private let warmupMaxRunningSpeedMps: CLLocationSpeed = 7.0
+    /// 走行開始前の地図プレビュー用に位置更新のみ行う（距離・ルートには加えない）
+    private var isPreviewingMapLocation = false
     /// バックグラウンド記録のため「常に」を一度案内したか
     private var didPromptAlwaysAuthorizationWhileTracking = false
     
@@ -56,6 +61,35 @@ final class RunTracker: NSObject, ObservableObject {
         default:
             break
         }
+    }
+
+    /// 走行開始前: 地図に現在地を出すためだけに GPS を更新する（記録はしない）
+    func startMapPreviewLocationUpdates() {
+        guard !isTracking else { return }
+        isPreviewingMapLocation = true
+        requestPermissionIfNeeded()
+        locationManager.startUpdatingLocation()
+    }
+
+    /// 走行開始前プレビューをやめる（バッテリー負荷軽減）。記録中は何もしない。
+    func stopMapPreviewLocationUpdates() {
+        guard !isTracking else { return }
+        isPreviewingMapLocation = false
+        locationManager.stopUpdatingLocation()
+    }
+
+    /// UI 用: 位置情報が使えるか
+    var isLocationAuthorizedForUse: Bool {
+        switch locationManager.authorizationStatus {
+        case .authorizedAlways, .authorizedWhenInUse:
+            return true
+        default:
+            return false
+        }
+    }
+
+    var authorizationStatus: CLAuthorizationStatus {
+        locationManager.authorizationStatus
     }
     
     /// スリープ中も記録するため「常に許可」を案内（走行セッション中・1回まで）
@@ -79,15 +113,22 @@ final class RunTracker: NSObject, ObservableObject {
     }
     
     func start() {
+        isPreviewingMapLocation = false
         requestPermissionIfNeeded()
+        let previewCoordinate = lastKnownCoordinate
         lastLocation = nil
         lastAltitude = nil
         distanceKm = 0
         lastDistanceBucket = 0
         elevationGainMeters = 0
         currentAltitudeMeters = 0
-        routeCoordinates = []
-        lastKnownCoordinate = nil
+        if let previewCoordinate {
+            routeCoordinates = [previewCoordinate]
+            lastKnownCoordinate = previewCoordinate
+        } else {
+            routeCoordinates = []
+            lastKnownCoordinate = nil
+        }
         trackingStartedAt = Date()
         pausedAt = nil
         accumulatedPausedSeconds = 0
@@ -166,6 +207,19 @@ final class RunTracker: NSObject, ObservableObject {
 extension RunTracker: CLLocationManagerDelegate {
     func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
         guard let newLocation = locations.last, newLocation.horizontalAccuracy >= 0 else { return }
+
+        // 走行前: 地図の現在地ピンのみ更新（ルート・距離は触らない）
+        if isPreviewingMapLocation && !isTracking {
+            let maxPreviewAccuracy = maxHorizontalAccuracy * 3
+            guard newLocation.horizontalAccuracy <= maxPreviewAccuracy else { return }
+            let ageSeconds = abs(newLocation.timestamp.timeIntervalSinceNow)
+            guard ageSeconds <= maxStaleSeconds * 3 else { return }
+            DispatchQueue.main.async {
+                self.lastKnownCoordinate = newLocation.coordinate
+            }
+            return
+        }
+
         guard isTracking, !isPaused else { return }
         guard shouldUseLocation(newLocation) else { return }
 
@@ -213,11 +267,16 @@ extension RunTracker: CLLocationManagerDelegate {
     }
 
     private func shouldUseLocation(_ location: CLLocation) -> Bool {
-        if location.horizontalAccuracy < 0 || location.horizontalAccuracy > maxHorizontalAccuracy {
+        let elapsedSinceStart = trackingStartedAt.map { Date().timeIntervalSince($0) } ?? 0
+        let isWarmup = elapsedSinceStart <= warmupDurationSeconds
+        let allowedAccuracy = isWarmup ? warmupMaxHorizontalAccuracy : maxHorizontalAccuracy
+        let allowedStaleSeconds = isWarmup ? warmupMaxStaleSeconds : maxStaleSeconds
+
+        if location.horizontalAccuracy < 0 || location.horizontalAccuracy > allowedAccuracy {
             return false
         }
         let ageSeconds = abs(location.timestamp.timeIntervalSinceNow)
-        if ageSeconds > maxStaleSeconds {
+        if ageSeconds > allowedStaleSeconds {
             return false
         }
         return true
@@ -244,31 +303,32 @@ extension RunTracker: CLLocationManagerDelegate {
     }
     
     func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
-        switch manager.authorizationStatus {
-        case .denied, .restricted:
-            DispatchQueue.main.async {
+        DispatchQueue.main.async {
+            self.objectWillChange.send()
+            switch manager.authorizationStatus {
+            case .denied, .restricted:
                 self.locationError = "位置情報が許可されていません"
                 RealityMiningManager.shared.trackEvent(
                     name: "location_permission_state",
                     properties: ["state": "denied_or_restricted"]
                 )
+            case .authorizedAlways, .authorizedWhenInUse:
+                if self.isTracking {
+                    self.applyBackgroundLocationPolicyForTracking()
+                    self.promptAlwaysAuthorizationIfNeeded()
+                }
+                RealityMiningManager.shared.trackEvent(
+                    name: "location_permission_state",
+                    properties: ["state": "authorized"]
+                )
+            case .notDetermined:
+                RealityMiningManager.shared.trackEvent(
+                    name: "location_permission_state",
+                    properties: ["state": "not_determined"]
+                )
+            default:
+                break
             }
-        case .authorizedAlways, .authorizedWhenInUse:
-            if isTracking {
-                applyBackgroundLocationPolicyForTracking()
-                promptAlwaysAuthorizationIfNeeded()
-            }
-            RealityMiningManager.shared.trackEvent(
-                name: "location_permission_state",
-                properties: ["state": "authorized"]
-            )
-        case .notDetermined:
-            RealityMiningManager.shared.trackEvent(
-                name: "location_permission_state",
-                properties: ["state": "not_determined"]
-            )
-        default:
-            break
         }
     }
 }

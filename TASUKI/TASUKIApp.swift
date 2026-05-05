@@ -26,6 +26,7 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         // #endregion
         FirebaseBootstrap.configureIfNeeded()
         configureTabBarAppearance()
+        TasukiHandoffNotifier.requestAuthorizationIfNeeded()
         PointService.shared.resetMonthlyIfNeeded()
         // #region agent log
         DebugSession658Log.log(

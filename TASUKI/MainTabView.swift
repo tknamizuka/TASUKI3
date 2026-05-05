@@ -6,7 +6,6 @@ struct MainTabView: View {
     @State private var tabEnterDate: Date = Date()
     @State private var showReengagementSheet = false
     @State private var reengagementGapDays = 0
-    @ObservedObject private var runTracker = RunTracker.shared
     @EnvironmentObject private var unreadProvider: UnreadCountProviderBase
     @EnvironmentObject private var authManager: AuthManager
     @EnvironmentObject private var coachCertification: CoachCertificationManager
@@ -19,7 +18,12 @@ struct MainTabView: View {
         ("magnifyingglass", "Find"),
         ("person.fill", "Me")
     ]
-    
+
+    /// `TASUKI_demo` と同じ: Home タブ以外はモード画面として扱い、下部メニューを隠す。`TabBarVisibility` でネスト画面がさらに隠す。
+    private var shouldShowMenuBar: Bool {
+        mainTabRouter.selectedTab == 0 && !tabBarVisibility.isHidden
+    }
+
     var body: some View {
         Group {
             switch mainTabRouter.selectedTab {
@@ -27,6 +31,8 @@ struct MainTabView: View {
                 NavigationStack {
                     HomeView()
                         .environmentObject(unreadProvider)
+                        .environmentObject(mainTabRouter)
+                        .environmentObject(tabBarVisibility)
                 }
             case 1:
                 NavigationStack {
@@ -41,17 +47,19 @@ struct MainTabView: View {
             case 4:
                 meTabContent()
             default:
-                NavigationStack { HomeView().environmentObject(unreadProvider) }
+                NavigationStack { HomeView().environmentObject(unreadProvider).environmentObject(mainTabRouter).environmentObject(tabBarVisibility) }
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .environmentObject(mainTabRouter)
+        .overlay(alignment: .topLeading) {
+            if mainTabRouter.selectedTab != 0, !mainTabRouter.suppressBackToHomeOverlay {
+                backToHomeButton
+            }
+        }
+        .simultaneousGesture(returnToHomeGesture)
         .safeAreaInset(edge: .bottom, spacing: 0) {
-            if tabBarVisibility.isHidden {
-                EmptyView()
-            } else if mainTabRouter.selectedTab == 1 && runTracker.isTracking {
-                EmptyView()
-            } else {
+            if shouldShowMenuBar {
                 customTabBar
             }
         }
@@ -76,6 +84,9 @@ struct MainTabView: View {
             }
         }
         .onChange(of: mainTabRouter.selectedTab) { newValue in
+            if newValue == 2 {
+                mainTabRouter.suppressBackToHomeOverlay = false
+            }
             // #region agent log
             AgentDebugLog.log(
                 location: "MainTabView.onChange(selectedTab)",
@@ -101,6 +112,49 @@ struct MainTabView: View {
             let nextTabName = tabItems.indices.contains(newValue) ? tabItems[newValue].label : "unknown"
             RealityMiningManager.shared.trackScreenView(name: nextTabName)
             previousTabIndex = newValue
+        }
+    }
+
+    private var backToHomeButton: some View {
+        Button {
+            returnToHome()
+        } label: {
+            HStack(spacing: 4) {
+                Image(systemName: "chevron.left")
+                    .font(.system(size: 15, weight: .bold))
+                Text("Home")
+                    .font(.system(size: 13, weight: .semibold))
+            }
+            .foregroundColor(.black)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 7)
+            .background(
+                Capsule()
+                    .fill(Color.white.opacity(0.95))
+                    .shadow(color: Color.black.opacity(0.12), radius: 6, x: 0, y: 2)
+            )
+        }
+        .buttonStyle(.plain)
+        .padding(.top, 6)
+        .padding(.leading, 12)
+    }
+
+    /// 右フリック（強め）で Home に戻す（閾値は短すぎる誤爆を避けるためやや長め）。
+    private var returnToHomeGesture: some Gesture {
+        DragGesture(minimumDistance: 32, coordinateSpace: .local)
+            .onEnded { value in
+                guard mainTabRouter.selectedTab != 0 else { return }
+                let movedRightFarEnough = value.translation.width >= 240
+                let hasStrongRightVelocity = value.predictedEndTranslation.width >= 380
+                if movedRightFarEnough || hasStrongRightVelocity {
+                    returnToHome()
+                }
+            }
+    }
+
+    private func returnToHome() {
+        withAnimation(.easeInOut(duration: 0.22)) {
+            mainTabRouter.selectedTab = 0
         }
     }
     

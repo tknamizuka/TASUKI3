@@ -51,6 +51,7 @@ final class MatchInvitationStore: ObservableObject {
         save()
     }
 
+    /// 相手の初回提案はそのまま残し、送り返した日程・場所だけを `counter*` に保存（一覧・詳細の予定表示と整合）
     func updateCounterProposal(id: String, proposedStart: Date, location: String, isWeeklyRecurring: Bool, recurrenceWeekday: Int?, message: String) {
         guard let idx = inbox.firstIndex(where: { $0.id == id }) else { return }
         let old = inbox[idx]
@@ -62,10 +63,14 @@ final class MatchInvitationStore: ObservableObject {
             message: message,
             createdAt: Date(),
             isNew: true,
-            proposedStart: proposedStart,
-            location: location,
-            isWeeklyRecurring: isWeeklyRecurring,
-            recurrenceWeekday: recurrenceWeekday
+            proposedStart: old.proposedStart,
+            location: old.location,
+            isWeeklyRecurring: old.isWeeklyRecurring,
+            recurrenceWeekday: old.recurrenceWeekday,
+            counterLocation: location,
+            counterProposedStart: proposedStart,
+            counterIsWeeklyRecurring: isWeeklyRecurring,
+            counterRecurrenceWeekday: recurrenceWeekday
         )
         inbox = next
         save()

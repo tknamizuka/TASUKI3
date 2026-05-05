@@ -4,6 +4,7 @@ import Combine
 import CoreLocation
 
 struct RunRecordingView: View {
+    let onEkidenActivitySaved: ((RunActivity) -> Void)?
     @ObservedObject private var tracker = RunTracker.shared
     @ObservedObject private var activityStore = RunActivityStore.shared
     @ObservedObject private var qaStore = CoachQAStore.shared
@@ -20,10 +21,20 @@ struct RunRecordingView: View {
             span: MKCoordinateSpan(latitudeDelta: 0.01, longitudeDelta: 0.01)
         )
     )
+    /// 走行開始前のルートカード用（現在地に追従）
+    @State private var idleMapCamera: MapCameraPosition = .region(
+        MKCoordinateRegion(
+            center: CLLocationCoordinate2D(latitude: 35.68, longitude: 139.76),
+            span: MKCoordinateSpan(latitudeDelta: 0.02, longitudeDelta: 0.02)
+        )
+    )
     @State private var postRunDraft: RunFinishDraft?
     @State private var navigateToCoach = false
     /// 走行開始直後は false。黄帯を下にスワイプすると true になり地図表示＋ヘッダー折りたたみ
     @State private var isTrackingMapExpanded = false
+    /// 「走行を開始」後の 3→2→1。nil のときは表示しない。
+    @State private var runStartCountdownPhase: Int? = nil
+    @State private var runStartCountdownTask: Task<Void, Never>? = nil
 
     private let elapsedTimer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
@@ -42,27 +53,27 @@ struct RunRecordingView: View {
     private var routeCoordinates: [CLLocationCoordinate2D] {
         tracker.routeCoordinates
     }
-    
+
     /// 体重×距離のおおよその消費 kcal（走行中の目安）
     private var estimatedCaloriesKcal: Int {
         let kg = runnerWeightKg > 0 ? runnerWeightKg : 65.0
         return max(0, Int((tracker.distanceKm * kg * 1.036).rounded()))
     }
-    
-    /// 記録中画面の地図用リージョン（ルート＋現在地を含む）
+
+    /// 記録中画面の地図用リージョン（現在地を中心に追従）
     private var trackingLiveMapRegion: MKCoordinateRegion {
-        var coords = routeCoordinates
-        if let last = tracker.lastKnownCoordinate {
-            if coords.isEmpty || coords.last?.latitude != last.latitude || coords.last?.longitude != last.longitude {
-                coords.append(last)
-            }
+        if let current = tracker.lastKnownCoordinate {
+            return MKCoordinateRegion(
+                center: current,
+                span: MKCoordinateSpan(latitudeDelta: 0.0065, longitudeDelta: 0.0065)
+            )
         }
-        guard let first = coords.first else {
+        guard let first = routeCoordinates.first else {
             let c = tracker.lastKnownCoordinate ?? CLLocationCoordinate2D(latitude: 35.68, longitude: 139.76)
             return MKCoordinateRegion(center: c, span: MKCoordinateSpan(latitudeDelta: 0.008, longitudeDelta: 0.008))
         }
-        let lats = coords.map(\.latitude)
-        let lons = coords.map(\.longitude)
+        let lats = routeCoordinates.map(\.latitude)
+        let lons = routeCoordinates.map(\.longitude)
         let center = CLLocationCoordinate2D(
             latitude: (lats.min()! + lats.max()!) / 2,
             longitude: (lons.min()! + lons.max()!) / 2
@@ -91,86 +102,86 @@ struct RunRecordingView: View {
         return String(text.prefix(maxChars)) + "…"
     }
 
-    private var mapRegion: MKCoordinateRegion {
-        guard let first = routeCoordinates.first else {
-            return MKCoordinateRegion(
-                center: CLLocationCoordinate2D(latitude: 35.68, longitude: 139.76),
-                span: MKCoordinateSpan(latitudeDelta: 0.02, longitudeDelta: 0.02)
-            )
-        }
-        let lats = routeCoordinates.map(\.latitude)
-        let lons = routeCoordinates.map(\.longitude)
-        let center = CLLocationCoordinate2D(
-            latitude: (lats.min()! + lats.max()!) / 2,
-            longitude: (lons.min()! + lons.max()!) / 2
-        )
-        let span = MKCoordinateSpan(
-            latitudeDelta: max((lats.max()! - lats.min()!) * 1.5, 0.008),
-            longitudeDelta: max((lons.max()! - lons.min()!) * 1.5, 0.008)
-        )
-        return MKCoordinateRegion(center: center, span: span)
+    private func syncIdleMapCameraFromTracker() {
+        guard !tracker.isTracking else { return }
+        let fallback = CLLocationCoordinate2D(latitude: 35.68, longitude: 139.76)
+        let center = tracker.lastKnownCoordinate ?? fallback
+        let span = MKCoordinateSpan(latitudeDelta: 0.012, longitudeDelta: 0.012)
+        idleMapCamera = .region(MKCoordinateRegion(center: center, span: span))
+    }
+
+    private func requestCurrentLocationOnIdleMap() {
+        tracker.startMapPreviewLocationUpdates()
+        syncIdleMapCameraFromTracker()
     }
 
     var body: some View {
-        Group {
-            if tracker.isTracking {
-                trackingFocusedView
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else {
-                ScrollView(showsIndicators: false) {
-                    VStack(spacing: 0) {
-                        titleCard
+        ZStack {
+            Group {
+                if tracker.isTracking {
+                    trackingFocusedView
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else {
+                    ScrollView(showsIndicators: false) {
+                        VStack(spacing: 0) {
+                            titleCard
+                                .padding(.horizontal, 20)
+                                .padding(.top, 12)
+                                .padding(.bottom, 20)
+
+                            Button {
+                                AgentDebugLog.log(
+                                    location: "RunRecordingView.coachLink.tap",
+                                    message: "coach_link_tapped",
+                                    hypothesisId: "C1",
+                                    data: [
+                                        "hasReplySnippet": "\(coachHubReplySnippet != nil)",
+                                        "isCertifiedCoach": "\(coachCertification.isCertifiedCoach)"
+                                    ]
+                                )
+                                navigateToCoach = true
+                            } label: {
+                                TasukiFlatHubRow(
+                                    title: "COACH",
+                                    subtitle: "パーソナルコーチ",
+                                    systemImage: "graduationcap.fill",
+                                    iconForegroundColor: Color.tasukiAccent,
+                                    replySnippet: coachHubReplySnippet
+                                )
+                            }
+                            .buttonStyle(.plain)
                             .padding(.horizontal, 20)
-                            .padding(.top, 12)
                             .padding(.bottom, 20)
 
-                        Button {
-                            // #region agent log
-                            AgentDebugLog.log(
-                                location: "RunRecordingView.coachLink.tap",
-                                message: "coach_link_tapped",
-                                hypothesisId: "C1",
-                                data: [
-                                    "hasReplySnippet": "\(coachHubReplySnippet != nil)",
-                                    "isCertifiedCoach": "\(coachCertification.isCertifiedCoach)"
-                                ]
-                            )
-                            // #endregion
-                            navigateToCoach = true
-                        } label: {
-                            TasukiFlatHubRow(
-                                title: "COACH",
-                                subtitle: "パーソナルコーチ",
-                                systemImage: "graduationcap.fill",
-                                iconForegroundColor: Color.tasukiAccent,
-                                replySnippet: coachHubReplySnippet
-                            )
+                            metricCard
+                                .padding(.horizontal, 20)
+                                .padding(.bottom, 20)
+
+                            recentActivitiesCard
+                                .padding(.horizontal, 20)
+                                .padding(.bottom, 20)
+
+                            challengeHubEntry
+                                .padding(.horizontal, 20)
+                                .padding(.bottom, 20)
+
+                            mapCard
+                                .padding(.horizontal, 20)
+                                .padding(.bottom, 24)
+
+                            actionButtons
+                                .padding(.horizontal, 20)
+                                .padding(.bottom, 24)
+
+                            activityGraphCard
+                                .padding(.horizontal, 20)
+                                .padding(.bottom, 24)
                         }
-                        .buttonStyle(.plain)
-                        .padding(.horizontal, 20)
-                        .padding(.bottom, 20)
-
-                        metricCard
-                            .padding(.horizontal, 20)
-                            .padding(.bottom, 20)
-
-                        mapCard
-                            .padding(.horizontal, 20)
-                            .padding(.bottom, 24)
-
-                        actionButtons
-                            .padding(.horizontal, 20)
-                            .padding(.bottom, 24)
-
-                        activityGraphCard
-                            .padding(.horizontal, 20)
-                            .padding(.bottom, 24)
-
-                        recentActivitiesCard
-                            .padding(.horizontal, 20)
-                            .padding(.bottom, 24)
                     }
                 }
+            }
+            if let phase = runStartCountdownPhase {
+                runStartCountdownOverlay(phase: phase)
             }
         }
         .background(Color.tasukiDarkBackground.ignoresSafeArea())
@@ -180,24 +191,29 @@ struct RunRecordingView: View {
         .onChange(of: tracker.isTracking) { _, isOn in
             if isOn {
                 isTrackingMapExpanded = false
+            } else {
+                tracker.startMapPreviewLocationUpdates()
+                syncIdleMapCameraFromTracker()
+            }
+        }
+        .onChange(of: tracker.lastKnownCoordinate?.latitude) { _, _ in
+            if !tracker.isTracking {
+                syncIdleMapCameraFromTracker()
             }
         }
         .navigationDestination(isPresented: $navigateToCoach) {
             CoachView(embedNavigationStack: false)
                 .onAppear {
-                    // #region agent log
                     AgentDebugLog.log(
                         location: "RunRecordingView.coachNavigationDestination",
                         message: "coach_destination_onAppear",
                         hypothesisId: "C5",
                         data: ["runId": "post-fix"]
                     )
-                    // #endregion
                 }
         }
         .onReceive(elapsedTimer) { now = $0 }
         .onAppear {
-            // #region agent log
             AgentDebugLog.log(
                 location: "RunRecordingView.onAppear",
                 message: "run_screen_appeared",
@@ -207,11 +223,20 @@ struct RunRecordingView: View {
                     "hasReplySnippet": "\(coachHubReplySnippet != nil)"
                 ]
             )
-            // #endregion
             activityStore.refreshFromRemote()
+            if !tracker.isTracking {
+                tracker.startMapPreviewLocationUpdates()
+                syncIdleMapCameraFromTracker()
+            }
+        }
+        .onDisappear {
+            runStartCountdownTask?.cancel()
+            runStartCountdownTask = nil
+            runStartCountdownPhase = nil
+            tracker.stopMapPreviewLocationUpdates()
         }
         .fullScreenCover(item: $postRunDraft) { draft in
-            PostRunFlowView(draft: draft)
+            PostRunFlowView(draft: draft, onActivitySavedAndDismiss: onEkidenActivitySaved)
                 .environmentObject(activityStore)
                 .environmentObject(mainTabRouter)
         }
@@ -238,6 +263,11 @@ struct RunRecordingView: View {
                 trackingMapFillContent
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .transition(.opacity.combined(with: .move(edge: .bottom)))
+
+                trackingBottomCollapsedHandle
+                    .padding(.horizontal, 16)
+                    .padding(.top, 8)
+                    .padding(.bottom, 6)
             }
 
             HStack(spacing: 14) {
@@ -268,10 +298,10 @@ struct RunRecordingView: View {
                         Text("終了")
                     }
                     .font(.system(size: 17, weight: .bold))
-                    .foregroundColor(Color.tasukiOnBrandYellow)
+                    .foregroundColor(Color.pureWhite)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 16)
-                    .background(Capsule().fill(Color.tasukiPrimaryButtonFill))
+                    .background(Capsule().fill(Color.tasukiPrimary))
                 }
                 .buttonStyle(.plain)
             }
@@ -298,25 +328,26 @@ struct RunRecordingView: View {
             syncTrackingMapCamera()
         }
     }
-    
+
     private func syncTrackingMapCamera() {
         trackingMapCamera = .region(trackingLiveMapRegion)
     }
-    
+
     /// 展開前: 黄帯（画面上端まで）＋下スワイプで地図
     private var trackingExpandedYellowHeaderOnly: some View {
         VStack(spacing: 12) {
             Text("記録中")
-                .font(.system(size: 12, weight: .bold))
-                .tracking(0.8)
+                .font(.system(size: 11, weight: .bold))
+                .tracking(1.2)
                 .foregroundColor(Color.tasukiPrimary.opacity(0.75))
             HStack(alignment: .top, spacing: 0) {
                 VStack(alignment: .center, spacing: 6) {
                     Text("時間")
-                        .font(.system(size: 12, weight: .semibold))
+                        .font(.system(size: 11, weight: .bold))
+                        .tracking(1.2)
                         .foregroundColor(Color.tasukiPrimary.opacity(0.7))
                     Text(formatDuration(elapsedSeconds))
-                        .font(.system(size: 36, weight: .bold))
+                        .font(.system(size: 32, weight: .bold))
                         .foregroundColor(Color.tasukiPrimary)
                         .monospacedDigit()
                         .minimumScaleFactor(0.7)
@@ -325,18 +356,20 @@ struct RunRecordingView: View {
                 .frame(maxWidth: .infinity)
                 Rectangle()
                     .fill(Color.tasukiPrimary.opacity(0.2))
-                    .frame(width: 1, height: 56)
+                    .frame(width: 1, height: 48)
                 VStack(alignment: .center, spacing: 6) {
                     Text("消費カロリー")
-                        .font(.system(size: 12, weight: .semibold))
+                        .font(.system(size: 11, weight: .bold))
+                        .tracking(1.2)
                         .foregroundColor(Color.tasukiPrimary.opacity(0.7))
                     HStack(alignment: .firstTextBaseline, spacing: 2) {
                         Text("\(estimatedCaloriesKcal)")
-                            .font(.system(size: 36, weight: .bold))
+                            .font(.system(size: 32, weight: .bold))
                             .foregroundColor(Color.tasukiPrimary)
                             .monospacedDigit()
                         Text("kcal")
-                            .font(.system(size: 14, weight: .semibold))
+                            .font(.system(size: 11, weight: .bold))
+                            .tracking(1.2)
                             .foregroundColor(Color.tasukiPrimary.opacity(0.75))
                     }
                 }
@@ -346,7 +379,8 @@ struct RunRecordingView: View {
                 Image(systemName: "arrow.down")
                     .font(.system(size: 11, weight: .semibold))
                 Text("下にスワイプして地図を表示")
-                    .font(.system(size: 11, weight: .medium))
+                    .font(.system(size: 11, weight: .bold))
+                    .tracking(1.2)
             }
             .foregroundColor(Color.tasukiPrimary.opacity(0.55))
         }
@@ -369,20 +403,21 @@ struct RunRecordingView: View {
                 }
         )
     }
-    
+
     /// 地図表示時: 時間と平均ペースのみの折りたたみヘッダー
     private var trackingCompactYellowBar: some View {
         HStack(alignment: .center, spacing: 0) {
             VStack(alignment: .leading, spacing: 4) {
                 Text("時間")
-                    .font(.system(size: 11, weight: .semibold))
+                    .font(.system(size: 11, weight: .bold))
+                    .tracking(1.2)
                     .foregroundColor(Color.tasukiPrimary.opacity(0.65))
                 Text(formatDuration(elapsedSeconds))
-                    .font(.system(size: 22, weight: .bold))
+                    .font(.system(size: 32, weight: .bold))
                     .foregroundColor(Color.tasukiPrimary)
                     .monospacedDigit()
                     .lineLimit(1)
-                    .minimumScaleFactor(0.8)
+                    .minimumScaleFactor(0.65)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             Rectangle()
@@ -390,14 +425,15 @@ struct RunRecordingView: View {
                 .frame(width: 1, height: 40)
             VStack(alignment: .leading, spacing: 4) {
                 Text("平均ペース")
-                    .font(.system(size: 11, weight: .semibold))
+                    .font(.system(size: 11, weight: .bold))
+                    .tracking(1.2)
                     .foregroundColor(Color.tasukiPrimary.opacity(0.65))
                 Text(currentPaceText)
-                    .font(.system(size: 20, weight: .bold))
+                    .font(.system(size: 32, weight: .bold))
                     .foregroundColor(Color.tasukiPrimary)
                     .monospacedDigit()
                     .lineLimit(1)
-                    .minimumScaleFactor(0.75)
+                    .minimumScaleFactor(0.65)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             Image(systemName: "chevron.up")
@@ -424,19 +460,20 @@ struct RunRecordingView: View {
                 }
         )
     }
-    
+
     /// 平均速度・距離（黄帯の下）
     private var trackingStatsBlock: some View {
         VStack(spacing: 18) {
             VStack(spacing: 6) {
                 Text(String(format: "%.1f", averageSpeedKmh))
-                    .font(.system(size: 56, weight: .bold))
+                    .font(.system(size: 32, weight: .bold))
                     .foregroundColor(Color.tasukiPrimary)
                     .monospacedDigit()
                     .lineLimit(1)
-                    .minimumScaleFactor(0.55)
+                    .minimumScaleFactor(0.65)
                 Text("平均速度（km/h）")
-                    .font(.system(size: 14, weight: .medium))
+                    .font(.system(size: 11, weight: .bold))
+                    .tracking(1.2)
                     .foregroundColor(Color.tasukiMutedText)
             }
             .frame(maxWidth: .infinity)
@@ -451,21 +488,23 @@ struct RunRecordingView: View {
         .padding(.horizontal, 20)
         .padding(.bottom, 8)
     }
-    
+
     private func trackingCompactMetric(title: String, value: String, unit: String) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(title)
                 .font(.system(size: 11, weight: .bold))
+                .tracking(1.2)
                 .foregroundColor(Color.tasukiMutedText)
             HStack(alignment: .firstTextBaseline, spacing: 4) {
                 Text(value)
-                    .font(.system(size: 22, weight: .bold))
+                    .font(.system(size: 32, weight: .bold))
                     .foregroundColor(Color.tasukiPrimary)
                     .monospacedDigit()
                     .lineLimit(1)
-                    .minimumScaleFactor(0.75)
+                    .minimumScaleFactor(0.55)
                 Text(unit)
-                    .font(.system(size: 13, weight: .medium))
+                    .font(.system(size: 11, weight: .bold))
+                    .tracking(1.2)
                     .foregroundColor(Color.tasukiMutedText)
             }
         }
@@ -477,7 +516,7 @@ struct RunRecordingView: View {
                 .shadow(color: Color.black.opacity(0.04), radius: 4, y: 2)
         )
     }
-    
+
     /// 地図モード時: 残り領域いっぱい。走行軌跡（ポリライン）＋現在地
     private var trackingMapFillContent: some View {
         GeometryReader { geo in
@@ -522,6 +561,55 @@ struct RunRecordingView: View {
         }
         .padding(.horizontal, 16)
         .padding(.top, 8)
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 20)
+                .onEnded { value in
+                    if value.translation.height < -48 {
+                        withAnimation(.spring(response: 0.38, dampingFraction: 0.86)) {
+                            isTrackingMapExpanded = false
+                        }
+                    }
+                }
+        )
+    }
+
+    /// 地図表示中でも下部に残す「引き出し」風ハンドル。
+    private var trackingBottomCollapsedHandle: some View {
+        HStack(spacing: 10) {
+            Capsule()
+                .fill(Color.tasukiPrimary.opacity(0.25))
+                .frame(width: 34, height: 5)
+            Text("上に引き出して記録ビューへ")
+                .font(.system(size: 11, weight: .bold))
+                .tracking(1.2)
+                .foregroundColor(Color.tasukiMutedText)
+            Image(systemName: "chevron.up")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundColor(Color.tasukiMutedText.opacity(0.85))
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 12)
+        .background(
+            RoundedRectangle(cornerRadius: 14)
+                .fill(Color.tasukiSurface)
+                .shadow(color: Color.black.opacity(0.08), radius: 8, y: 2)
+        )
+        .contentShape(Rectangle())
+        .onTapGesture {
+            withAnimation(.spring(response: 0.38, dampingFraction: 0.86)) {
+                isTrackingMapExpanded = false
+            }
+        }
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 18)
+                .onEnded { value in
+                    if value.translation.height < -28 {
+                        withAnimation(.spring(response: 0.38, dampingFraction: 0.86)) {
+                            isTrackingMapExpanded = false
+                        }
+                    }
+                }
+        )
     }
 
     private var titleCard: some View {
@@ -550,21 +638,174 @@ struct RunRecordingView: View {
         }
     }
 
+    private var challengePreviewChallenge: MonthlyChallenge? {
+        let monthActivities = activityStore.activitiesInCurrentMonth()
+        let list = ChallengeService.shared.currentMonthChallenges(from: monthActivities)
+        return list.max { $0.progress < $1.progress }
+    }
+
+    private var challengeHubEntry: some View {
+        NavigationLink(destination: ChallengeHubView()) {
+            HStack(alignment: .top, spacing: 10) {
+                Image(systemName: "flag.checkered.2.crossed")
+                    .font(.system(size: 20, weight: .semibold))
+                    .foregroundColor(Color.tasukiPrimary)
+                    .accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("CHALLENGE")
+                        .font(.system(size: 15, weight: .bold))
+                        .foregroundColor(.black)
+                    if let c = challengePreviewChallenge {
+                        challengeTopProgressThumbnail(challenge: c)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundColor(Color.tasukiMutedText)
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
+            .background(
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(Color.tasukiBrandYellow.opacity(0.42))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 12)
+                    .strokeBorder(Color.tasukiPrimary.opacity(0.25), lineWidth: 1)
+            )
+        }
+        .buttonStyle(.plain)
+    }
+
+    @ViewBuilder
+    private func challengeTopProgressThumbnail(challenge: MonthlyChallenge) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(challenge.title)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundColor(.black)
+                .lineLimit(1)
+            ProgressView(value: challenge.progress)
+                .tint(challenge.isCompleted ? Color.green : Color.tasukiAccent)
+            HStack(spacing: 6) {
+                Text("\(formatChallengeMetric(challenge.current)) / \(formatChallengeMetric(challenge.target)) \(challenge.unit)")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundColor(Color.tasukiMutedText)
+                    .lineLimit(1)
+                Spacer(minLength: 0)
+                Text("\(Int((challenge.progress * 100).rounded()))%")
+                    .font(.system(size: 11, weight: .bold))
+                    .foregroundColor(Color.tasukiPrimary)
+                    .monospacedDigit()
+            }
+        }
+        .padding(10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 10)
+                .fill(Color.white.opacity(0.92))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 10)
+                .strokeBorder(Color.tasukiPrimary.opacity(0.14), lineWidth: 1)
+        )
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("進捗が最も進んでいるチャレンジ \(challenge.title)")
+    }
+
+    private func formatChallengeMetric(_ value: Double) -> String {
+        if value.rounded(.down) == value {
+            return "\(Int(value))"
+        }
+        return String(format: "%.1f", value)
+    }
+
     private var mapCard: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("ルート")
+            Text("スタート地点付近")
                 .font(.system(size: 11, weight: .bold))
                 .tracking(1.2)
                 .foregroundColor(Color.tasukiMutedText)
-            Map(initialPosition: .region(mapRegion), interactionModes: .all) {
-                if routeCoordinates.count >= 2 {
-                    MapPolyline(coordinates: routeCoordinates)
-                        .stroke(Color.tasukiAccent, lineWidth: 4)
+            ZStack {
+                Map(position: $idleMapCamera, interactionModes: .all) {
+                    if let cur = tracker.lastKnownCoordinate, !tracker.isTracking {
+                        Annotation("現在地", coordinate: cur) {
+                            ZStack {
+                                Circle()
+                                    .fill(Color.tasukiAccent.opacity(0.35))
+                                    .frame(width: 22, height: 22)
+                                Circle()
+                                    .fill(Color.white)
+                                    .frame(width: 10, height: 10)
+                                Circle()
+                                    .fill(Color.tasukiAccent)
+                                    .frame(width: 6, height: 6)
+                            }
+                        }
+                    }
+                    if routeCoordinates.count >= 2 {
+                        MapPolyline(coordinates: routeCoordinates)
+                            .stroke(Color.tasukiAccent, lineWidth: 4)
+                    }
+                }
+                .frame(height: 240)
+                .clipShape(RoundedRectangle(cornerRadius: 14))
+                .tasukiFlatCard()
+
+                if idleMapLocationOverlayVisible {
+                    VStack(spacing: 8) {
+                        ProgressView()
+                        Text(idleMapLocationOverlayMessage)
+                            .font(.caption)
+                            .foregroundColor(Color.tasukiMutedText)
+                            .multilineTextAlignment(.center)
+                    }
+                    .padding(16)
+                    .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12))
                 }
             }
-            .frame(height: 240)
-            .clipShape(RoundedRectangle(cornerRadius: 14))
-            .tasukiFlatCard()
+            if let err = tracker.locationError, !tracker.isTracking {
+                Text(err)
+                    .font(.caption)
+                    .foregroundColor(Color.tasukiAccentOrange)
+            }
+            Button {
+                requestCurrentLocationOnIdleMap()
+            } label: {
+                Label("現在地を取得", systemImage: "location.fill")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundColor(Color.tasukiPrimary)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .background(
+                        RoundedRectangle(cornerRadius: 10)
+                            .stroke(Color.tasukiDarkCardSecondary, lineWidth: 1)
+                    )
+            }
+            .buttonStyle(.plain)
+        }
+    }
+
+    private var idleMapLocationOverlayVisible: Bool {
+        guard !tracker.isTracking, tracker.lastKnownCoordinate == nil, tracker.locationError == nil else {
+            return false
+        }
+        switch tracker.authorizationStatus {
+        case .authorizedAlways, .authorizedWhenInUse, .notDetermined:
+            return true
+        default:
+            return false
+        }
+    }
+
+    private var idleMapLocationOverlayMessage: String {
+        switch tracker.authorizationStatus {
+        case .authorizedAlways, .authorizedWhenInUse:
+            return "現在地を取得しています…"
+        case .notDetermined:
+            return "位置情報を許可すると現在地が表示されます"
+        default:
+            return ""
         }
     }
 
@@ -600,10 +841,9 @@ struct RunRecordingView: View {
                 .buttonStyle(.plain)
             } else {
                 Button {
-                    tracker.start()
-                    now = Date()
+                    beginRunStartCountdown()
                 } label: {
-                    Text("走行を開始")
+                    Text(runStartCountdownPhase != nil ? "準備中…" : "走行を開始")
                         .font(.system(size: 16, weight: .bold))
                         .foregroundColor(Color.tasukiOnBrandYellow)
                         .frame(maxWidth: .infinity)
@@ -611,6 +851,41 @@ struct RunRecordingView: View {
                         .background(RoundedRectangle(cornerRadius: 12).fill(Color.tasukiPrimaryButtonFill))
                 }
                 .buttonStyle(.plain)
+                .disabled(runStartCountdownPhase != nil)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func runStartCountdownOverlay(phase: Int) -> some View {
+        ZStack {
+            Color.black.opacity(0.55)
+                .ignoresSafeArea()
+            Text("\(phase)")
+                .font(.system(size: 72, weight: .bold))
+                .foregroundColor(Color.tasukiBrandYellow)
+                .monospacedDigit()
+                .shadow(color: .black.opacity(0.35), radius: 8, y: 4)
+        }
+        .allowsHitTesting(true)
+        .transition(.opacity)
+    }
+
+    private func beginRunStartCountdown() {
+        runStartCountdownTask?.cancel()
+        runStartCountdownTask = Task { @MainActor in
+            defer { runStartCountdownTask = nil }
+            do {
+                for phase in (1...3).reversed() {
+                    runStartCountdownPhase = phase
+                    try await Task.sleep(nanoseconds: 1_000_000_000)
+                    try Task.checkCancellation()
+                }
+                runStartCountdownPhase = nil
+                tracker.start()
+                now = Date()
+            } catch {
+                runStartCountdownPhase = nil
             }
         }
     }
@@ -623,7 +898,12 @@ struct RunRecordingView: View {
                     .tracking(1.2)
                     .foregroundColor(Color.tasukiMutedText)
                 Spacer()
-                NavigationLink(destination: RunHistoryListView()) {
+                NavigationLink(
+                    destination: RunHistoryListView(
+                        entries: historyEntriesFromActivities,
+                        suppressMainTabBackToHomeButton: true
+                    )
+                ) {
                     Text("すべて見る")
                         .font(.caption)
                         .foregroundColor(Color.tasukiAccent)
@@ -666,6 +946,18 @@ struct RunRecordingView: View {
         }
     }
 
+    private var historyEntriesFromActivities: [RunHistoryEntry] {
+        activityStore.activities.map { activity in
+            RunHistoryEntry(
+                id: activity.id,
+                date: activity.startedAt,
+                distanceKm: activity.distanceKm,
+                pace: activity.paceLabel,
+                routeCoordinates: activity.route.map(\.coordinate)
+            )
+        }
+    }
+
     private var activityGraphCard: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Activity")
@@ -680,7 +972,10 @@ struct RunRecordingView: View {
                     trendStat(title: "今月距離", value: String(format: "%.1f km", activityStore.monthlyDistanceKm()))
                 }
 
-                TasukiWeeklyActivityLineChart(points: activityStore.weeklyActivityChartPoints())
+                TasukiWeeklyActivityLineChart(
+                    points: activityStore.weeklyActivityChartPoints(),
+                    runActivities: activityStore.activities
+                )
                     .frame(height: 190)
                     .padding(.horizontal, 4)
             }
@@ -691,15 +986,20 @@ struct RunRecordingView: View {
     private func metricItem(title: String, value: String, unit: String) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             Text(title)
-                .font(.caption2)
+                .font(.system(size: 11, weight: .bold))
+                .tracking(1.2)
                 .foregroundColor(Color.tasukiMutedText)
             HStack(alignment: .firstTextBaseline, spacing: 2) {
                 Text(value)
-                    .font(.system(size: 18, weight: .bold))
+                    .font(.system(size: 32, weight: .bold))
                     .foregroundColor(Color.tasukiPrimary)
+                    .monospacedDigit()
+                    .minimumScaleFactor(0.5)
+                    .lineLimit(1)
                 if !unit.isEmpty {
                     Text(unit)
-                        .font(.caption2)
+                        .font(.system(size: 11, weight: .bold))
+                        .tracking(1.2)
                         .foregroundColor(Color.tasukiMutedText)
                 }
             }
@@ -722,6 +1022,10 @@ struct RunRecordingView: View {
     private var averageSpeedKmh: Double {
         guard elapsedSeconds > 0 else { return 0 }
         return tracker.distanceKm / (elapsedSeconds / 3600.0)
+    }
+
+    init(onEkidenActivitySaved: ((RunActivity) -> Void)? = nil) {
+        self.onEkidenActivitySaved = onEkidenActivitySaved
     }
 
     private func finishAndPrepareDraft() {
@@ -779,5 +1083,6 @@ private struct RunRecordingNavigationBarHiddenModifier: ViewModifier {
         RunRecordingView()
             .environmentObject(CoachCertificationManager.shared)
             .environmentObject(MainTabRouter())
+            .environmentObject(TabBarVisibility())
     }
 }

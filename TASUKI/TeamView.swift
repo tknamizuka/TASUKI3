@@ -69,6 +69,8 @@ struct TeamView: View {
     @State private var selectedTeamId: String = ""
     @State private var showTeamDetail: Bool = false
     @State private var showJoinCreate: Bool = false
+    /// EKIDENタブ表示直後、所属チーム判定が返るまでのちらつき抑止
+    @State private var isResolvingEntryState: Bool = true
     
     // 自分のデータ管理
     @AppStorage("myCondition") private var myConditionRaw: String = Condition.good.rawValue
@@ -76,6 +78,15 @@ struct TeamView: View {
     @AppStorage("myName") private var myName: String = "Hiro"
     /// 未所属時に `TeamJoinCreateView` を出すか。脱退直後は `false` で「脱退完了」画面のみ
     @AppStorage("ekidenShowTeamJoinHub") private var showTeamJoinHub: Bool = true
+    /// チーム参加ハブで選んだ EKIDEN モード（脱退後の再参加フローでは毎回選び直し）
+    @State private var hubEkidenJoinMode: EkidenJoinMode? = nil
+    /// チーム未所属かつ開催中に表示する観戦ビュー
+    @State private var showGuestSpectatorView: Bool = false
+    @State private var spectatorStatusesForGuest: [EkidenSpectatorTeamStatus] = []
+    @State private var isLoadingGuestSpectator = false
+    @State private var guestSpectatorError: String?
+    @State private var guestSpectatorDayKey: String = ""
+    @State private var guestSpectatorFocusedMarkerId: String?
     
     // コンディション更新シート
     @State private var showConditionSheet = false
@@ -92,10 +103,12 @@ struct TeamView: View {
     /// `.sheet(isPresented:)` + optional だと内容が空の白シートになることがあるため `item` で提示する
     @State private var ekidenSubmitSheetItem: EkidenSubmitSheetItem? = nil
     @State private var showEkidenResultView = false
-    @State private var ekidenSubstituteSheetItem: EkidenSubmitSheetItem? = nil
     @State private var showPassTasukiConfirm = false
     @State private var passTasukiLegIndex: Int? = nil
     @State private var isPassingTasuki = false
+    @State private var showDisqualifyConfirm = false
+    @State private var isDisqualifying = false
+    @State private var disqualifyErrorMessage: String?
     @State private var showLeaveTeamConfirm = false
     /// オーナー脱退: 後任のオーナーを選ぶシート
     @State private var showOwnerLeaveSheet = false
@@ -107,6 +120,10 @@ struct TeamView: View {
 
     /// 区間賞
     @State private var showLegRankingSheet = false
+    /// 総合順位タップ → 全チームランキング（プログレスバー）
+    @State private var showOverallStandingsMap = false
+    /// 総合シートの「区間賞」から閉じた直後に区間賞シートを開く
+    @State private var openLegRankingAfterStandingsDismiss = false
     @State private var legRankingSnapshot: EkidenLegRankingSnapshot?
     @State private var legRankingSelectedLegIndex: Int = 0
     /// 沿道応援（観客投稿・チーム内フィード）
@@ -217,7 +234,7 @@ struct TeamView: View {
     
     /// 本番かつ未ログインでは EKIDEN チームフローをサンプル（モック）で動かす
     private var isSampleTeamFlow: Bool {
-        useMockTeamFlow || Auth.auth().currentUser == nil
+        useMockTeamFlow || TasukiDevelopmentFlags.skipFirestoreEkidenTabReads || Auth.auth().currentUser == nil
     }
     
     /// 参加チームID（本番の `userTeamId` またはプレビュー用）
@@ -226,43 +243,98 @@ struct TeamView: View {
         if let d = debugPreviewTeamId, !d.isEmpty { return d }
         return nil
     }
+
+    /// 初期表示時のみ、所属状態が未確定なら中間ローディングを出す
+    private var shouldShowEntryLoading: Bool {
+        isResolvingEntryState && !isSampleTeamFlow && debugPreviewTeamId == nil && userTeamId == nil
+    }
     
     /// 駅伝レース期間外のみ脱退可能（期間中はグレーアウト）
     private var canLeaveTeam: Bool {
         if let override = debugLeaveAllowedOverride {
             return override
         }
-        guard let state = ekidenViewState else { return true }
+        // EKIDEN 状態の読み込み前は一時的に脱退ボタンを出さない（文言ちらつき防止）
+        guard let state = ekidenViewState else { return false }
         return !state.isWithinEventWindow
     }
     
     var body: some View {
         NavigationStack {
-            if resolvedTeamId == nil {
-                if showTeamJoinHub {
-                    TeamJoinCreateView(onComplete: { teamId in
-                        if isSampleTeamFlow {
-                            self.userTeamId = teamId
-                            if let id = teamId {
-                                UserDefaults.standard.set(id, forKey: "myTeamId")
-                            }
-                        } else {
-                            loadUserTeamId()
-                        }
-                        if let id = teamId {
-                            self.selectedTeamId = id
-                            self.showTeamDetail = true
-                        }
-                        self.showTeamJoinHub = true
-                    }, useMockFlow: isSampleTeamFlow)
+            if shouldShowEntryLoading {
+                ekidenEntryLoadingView
                     .navigationTitle("")
                     .navigationBarTitleDisplayMode(.inline)
                     .toolbar {
                         ToolbarItem(placement: .principal) {
                             Text("Ekiden")
                                 .font(.system(size: 19, weight: .bold))
-                                .foregroundColor(.black)
+                                .foregroundColor(Color.tasukiPrimary)
+                                .fixedSize(horizontal: true, vertical: false)
                         }
+                    }
+            } else if resolvedTeamId == nil {
+                if showTeamJoinHub {
+                    Group {
+                        if showGuestSpectatorView, !spectatorStatusesForGuest.isEmpty {
+                            ekidenGuestSpectatorView
+                        } else if let mode = hubEkidenJoinMode {
+                            TeamJoinCreateView(
+                                ekidenJoinMode: mode,
+                                onComplete: { teamId in
+                                    if isSampleTeamFlow {
+                                        self.userTeamId = teamId
+                                        if let id = teamId {
+                                            UserDefaults.standard.set(id, forKey: "myTeamId")
+                                        }
+                                    } else {
+                                        loadUserTeamId()
+                                    }
+                                    if let id = teamId {
+                                        self.selectedTeamId = id
+                                        self.showTeamDetail = true
+                                    } else {
+                                        // 参加確定していない戻り（承認待ち・キャンセル）では参加済みUIにしない
+                                        self.selectedTeamId = ""
+                                        self.showTeamDetail = false
+                                    }
+                                    self.showTeamJoinHub = true
+                                },
+                                useMockFlow: isSampleTeamFlow
+                            )
+                        } else {
+                            EkidenJoinModeSelectionView { selected in
+                                hubEkidenJoinMode = selected
+                            }
+                        }
+                    }
+                    .navigationTitle("")
+                    .navigationBarTitleDisplayMode(.inline)
+                    .toolbar {
+                        ToolbarItem(placement: .principal) {
+                            Text("Ekiden")
+                                .font(.system(size: 19, weight: .bold))
+                                .foregroundColor(Color.tasukiPrimary)
+                                .fixedSize(horizontal: true, vertical: false)
+                        }
+                        // leading は空けておく（MainTabView の「Home」オーバーレイと横並びで“戻る系が二重”に見えないようにする）
+                        ToolbarItemGroup(placement: .topBarTrailing) {
+                            if hubEkidenJoinMode != nil {
+                                Button("モード") {
+                                    hubEkidenJoinMode = nil
+                                }
+                                .foregroundColor(Color.tasukiPrimary)
+                            }
+                            if !spectatorStatusesForGuest.isEmpty {
+                                Button(showGuestSpectatorView ? "参加へ" : "観戦") {
+                                    showGuestSpectatorView.toggle()
+                                }
+                                .foregroundColor(Color.tasukiPrimary)
+                            }
+                        }
+                    }
+                    .task {
+                        await refreshGuestSpectatorIfNeeded()
                     }
                 } else {
                     teamPostLeaveView
@@ -278,21 +350,18 @@ struct TeamView: View {
                                 if let ekiden = ekidenViewState {
                                     ekidenProgressCard(ekiden, isReadOnly: !ekiden.isWithinEventWindow)
                                 } else {
-                                    progressView
+                                    ekidenLoadingCard
                                 }
                             }
                             .padding(.horizontal, 20)
                             .padding(.top, 20)
 
                             if let ekiden = ekidenViewState {
-                                ekidenEngagementRow(ekiden)
-                                    .padding(.horizontal, 20)
-                                spectatorCheerFeedSection
-                                    .padding(.horizontal, 20)
+                                EmptyView()
                             }
 
                             if let ekiden = ekidenViewState {
-                                conditionRecordButton
+                                ekidenSubmitRecordButton(ekiden)
                                     .padding(.horizontal, 20)
                                 ekidenLegListView(ekiden, allowSubmit: ekiden.isWithinEventWindow)
                                     .padding(.horizontal, 20)
@@ -322,6 +391,11 @@ struct TeamView: View {
                                 }
                                 .padding(.horizontal, 20)
                             }
+
+                            if let ekiden = ekidenViewState {
+                                ownerDisqualifySection(ekiden)
+                                    .padding(.horizontal, 20)
+                            }
                             
                             leaveTeamSection
                                 .padding(.horizontal, 20)
@@ -337,10 +411,12 @@ struct TeamView: View {
                 .navigationTitle("")
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
+                    // principal を広げない（中央タイトルが trailing を圧縮してアイコンが小さく見えるのを防ぐ）
                     ToolbarItem(placement: .principal) {
                         Text("Ekiden")
                             .font(.system(size: 19, weight: .bold))
-                            .foregroundColor(.black)
+                            .foregroundColor(Color.tasukiPrimary)
+                            .fixedSize(horizontal: true, vertical: false)
                     }
                     ToolbarItem(placement: .topBarTrailing) {
                         Button {
@@ -348,27 +424,12 @@ struct TeamView: View {
                         } label: {
                             Image(systemName: "message.fill")
                                 .font(.system(size: 20))
-                                .foregroundColor(.black)
+                                .foregroundColor(Color.tasukiPrimary)
+                                .frame(width: 44, height: 44)
+                                .contentShape(Rectangle())
                         }
+                        .buttonStyle(.borderless)
                     }
-                }
-                .sheet(isPresented: $showConditionSheet) {
-                    ConditionUpdateSheet(
-                        selectedCondition: $selectedCondition,
-                        onSave: {
-                            let oldCondition = myCondition
-                            myConditionRaw = selectedCondition.rawValue
-                            
-                            if oldCondition != selectedCondition {
-                                addSystemMessage(condition: selectedCondition)
-                            }
-                            
-                            showConditionSheet = false
-                        },
-                        onCancel: {
-                            showConditionSheet = false
-                        }
-                    )
                 }
                 .sheet(isPresented: $showTeamChatSheet) {
                     TeamChatSheetView(
@@ -378,21 +439,6 @@ struct TeamView: View {
                         myName: myName,
                         myCondition: myCondition,
                         myStatusMessage: myStatusMessage
-                    )
-                }
-                .sheet(item: $ekidenSubstituteSheetItem) { item in
-                    EkidenSubstituteSheet(
-                        leg: item.leg,
-                        state: item.state,
-                        teamId: selectedTeamId,
-                        entryId: item.state.entry.id,
-                        isSampleTeam: isSampleTeamFlow || selectedTeamId.hasPrefix("example"),
-                        onDismiss: {
-                            ekidenSubstituteSheetItem = nil
-                        },
-                        onSuccess: {
-                            Task { await loadEkidenState(teamId: selectedTeamId) }
-                        }
                     )
                 }
                 .sheet(isPresented: $showEkidenResultView) {
@@ -431,14 +477,26 @@ struct TeamView: View {
                         )
                     }
                 }
-                .sheet(isPresented: $showSpectatorCheerSheet) {
+                .sheet(isPresented: $showOverallStandingsMap) {
                     if let ekiden = ekidenViewState {
-                        SpectatorCheerView(
+                        EkidenOverallStandingsMapView(
                             eventId: ekiden.event.id,
-                            teamId: selectedTeamId,
-                            teamName: teamName
+                            isSampleTeam: isSampleTeamFlow || selectedTeamId.hasPrefix("example"),
+                            usesHakoneCourse: ekiden.usesOfficialHakoneRelayRules,
+                            highlightTeamId: selectedTeamId,
+                            myOutboundRank: ekiden.outboundRank,
+                            referenceTotalKm: ekiden.rankingProgressReferenceKm,
+                            onOpenLegRanking: {
+                                openLegRankingAfterStandingsDismiss = true
+                                showOverallStandingsMap = false
+                            }
                         )
                     }
+                }
+                .onChange(of: showOverallStandingsMap) { _, presented in
+                    guard !presented, openLegRankingAfterStandingsDismiss else { return }
+                    openLegRankingAfterStandingsDismiss = false
+                    showLegRankingSheet = true
                 }
                 .onAppear {
                     selectedCondition = myCondition
@@ -451,33 +509,25 @@ struct TeamView: View {
                             userTeamId = d
                         }
                         loadTeamOwner(teamId: tid)
-                        startSpectatorCheerListener(teamId: selectedTeamId.isEmpty ? tid : selectedTeamId)
                         Task { await loadEkidenState(teamId: tid) }
                     }
-                }
-                .onDisappear {
-                    stopSpectatorCheerListener()
                 }
                 .onChange(of: userTeamId) { _, newId in
                     if let tid = newId, !tid.isEmpty {
                         loadTeamOwner(teamId: tid)
-                        startSpectatorCheerListener(teamId: selectedTeamId.isEmpty ? tid : selectedTeamId)
                         Task { await loadEkidenState(teamId: tid) }
                     } else {
                         isTeamOwner = false
                         ekidenViewState = nil
-                        stopSpectatorCheerListener()
                     }
                 }
                 .onChange(of: selectedTeamId) { _, newId in
                     if !newId.isEmpty {
                         loadTeamOwner(teamId: newId)
-                        startSpectatorCheerListener(teamId: newId)
                         Task { await loadEkidenState(teamId: newId) }
                     } else {
                         isTeamOwner = false
                         ekidenViewState = nil
-                        stopSpectatorCheerListener()
                     }
                 }
                 .alert("TASUKIをつなぐ", isPresented: $showPassTasukiConfirm) {
@@ -498,6 +548,14 @@ struct TeamView: View {
                 } message: {
                     Text("脱退後は駅伝のチーム機能を利用できなくなります。駅伝開催期間外のみ脱退できます。")
                 }
+                .alert("公式記録を棄権扱いにしますか？", isPresented: $showDisqualifyConfirm) {
+                    Button("キャンセル", role: .cancel) {}
+                    Button("棄権する", role: .destructive) {
+                        performTeamDisqualify()
+                    }
+                } message: {
+                    Text("この操作はオーナーのみ実行できます。チームの公式順位は失格（参考記録）として扱われます。")
+                }
                 .sheet(isPresented: $showOwnerLeaveSheet) {
                     ownerLeaveTransferSheet
                 }
@@ -509,7 +567,16 @@ struct TeamView: View {
                 if selectedTeamId.isEmpty { selectedTeamId = d }
             }
         }
+        .task {
+            await EkidenDeviceSampleDataSeeder.seedIfNeeded()
+        }
         .onAppear {
+            if isSampleTeamFlow || debugPreviewTeamId != nil {
+                isResolvingEntryState = false
+            } else {
+                isResolvingEntryState = true
+                loadUserTeamId()
+            }
             if userTeamId == nil, isSampleTeamFlow, let savedId = UserDefaults.standard.string(forKey: "myTeamId"), !savedId.isEmpty {
                 userTeamId = savedId
                 selectedTeamId = savedId
@@ -518,53 +585,195 @@ struct TeamView: View {
     } // body の閉じ (修正箇所)
 
     private func loadUserTeamId() {
-        guard let firebaseUser = Auth.auth().currentUser else { return }
+        guard let firebaseUser = Auth.auth().currentUser else {
+            isResolvingEntryState = false
+            return
+        }
+        if TasukiDevelopmentFlags.skipFirestoreEkidenTabReads {
+            DispatchQueue.main.async {
+                self.userTeamId = nil
+                self.isResolvingEntryState = false
+            }
+            return
+        }
         let db = Firestore.firestore()
         db.collection("users").document(firebaseUser.uid).getDocument { snapshot, error in
             if let data = snapshot?.data(), let teamId = data["teamId"] as? String {
                 DispatchQueue.main.async {
                     self.userTeamId = teamId
+                    self.isResolvingEntryState = false
                 }
             } else {
                 DispatchQueue.main.async {
                     self.userTeamId = nil
+                    self.isResolvingEntryState = false
                 }
             }
+        }
+    }
+
+    private var ekidenEntryLoadingView: some View {
+        ZStack {
+            Color.tasukiDarkBackground
+                .ignoresSafeArea()
+            VStack(spacing: 12) {
+                ProgressView()
+                    .tint(Color.tasukiAccentOrange)
+                Text("チーム情報を確認中...")
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundColor(Color.tasukiMutedText)
+            }
+        }
+    }
+
+    private var ekidenGuestSpectatorView: some View {
+        ScrollView(showsIndicators: false) {
+            VStack(spacing: 14) {
+                if isLoadingGuestSpectator {
+                    ProgressView("観戦データを読み込み中...")
+                        .padding(.top, 24)
+                }
+
+                if let guestSpectatorError, !guestSpectatorError.isEmpty {
+                    Text(guestSpectatorError)
+                        .font(.caption)
+                        .foregroundColor(.red)
+                        .padding(.horizontal, 20)
+                }
+
+                if !spectatorStatusesForGuest.isEmpty {
+                    let guestMarkers = spectatorStatusesForGuest.map {
+                        EkidenTeamsCourseProgressBar.Marker(
+                            id: $0.teamId,
+                            title: $0.teamName,
+                            cumulativeKm: $0.cumulativeDistanceKm
+                        )
+                    }
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("横軸は全区間を 100% とした累計の進捗（箱根 \(String(format: "%.1f", HakoneEkidenCourse.totalKm)) km）")
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundColor(Color.tasukiMutedText)
+                            .fixedSize(horizontal: false, vertical: true)
+                        EkidenTeamsCourseProgressBar(
+                            markers: guestMarkers,
+                            referenceTotalKm: HakoneEkidenCourse.totalKm,
+                            emphasizedMarkerIds: [],
+                            ownTeamMarkerIds: [],
+                            focusedMarkerId: $guestSpectatorFocusedMarkerId
+                        )
+                    }
+                    .padding(14)
+                    .background(
+                        RoundedRectangle(cornerRadius: 12)
+                            .fill(Color.tasukiDarkCardSecondary)
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 12)
+                            .stroke(Color.tasukiMutedText.opacity(0.25), lineWidth: 1)
+                    )
+                    .padding(.horizontal, 20)
+
+                    Text("観戦データは1日1回更新されます（\(guestSpectatorDayKey)時点）")
+                        .font(.system(size: 11))
+                        .foregroundColor(Color.tasukiMutedText)
+                        .padding(.horizontal, 20)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+
+                VStack(spacing: 10) {
+                    ForEach(spectatorStatusesForGuest) { status in
+                        HStack(spacing: 12) {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(status.teamName)
+                                    .font(.system(size: 14, weight: .bold))
+                                    .foregroundColor(.black)
+                                Text(status.currentRunnerName.map { "現在走者: \($0)" } ?? "現在走者: 集計中")
+                                    .font(.system(size: 12))
+                                    .foregroundColor(.black.opacity(0.78))
+                                Text(String(format: "累計 %.1f km", status.cumulativeDistanceKm))
+                                    .font(.system(size: 11))
+                                    .foregroundColor(.black.opacity(0.66))
+                            }
+                            .contentShape(Rectangle())
+                            .onTapGesture {
+                                guestSpectatorFocusedMarkerId = status.teamId
+                            }
+                            Spacer()
+                            Button {
+                                Task { await sendGuestCheer(to: status) }
+                            } label: {
+                                Text(canSendGuestCheerToday(teamId: status.teamId) ? "応援する" : "本日送信済み")
+                                    .font(.system(size: 12, weight: .semibold))
+                                    .foregroundColor(canSendGuestCheerToday(teamId: status.teamId) ? Color.tasukiOnBrandYellow : .gray)
+                                    .padding(.horizontal, 10)
+                                    .padding(.vertical, 8)
+                                    .background(
+                                        RoundedRectangle(cornerRadius: 8)
+                                            .fill(canSendGuestCheerToday(teamId: status.teamId) ? Color.tasukiPrimaryButtonFill : Color.gray.opacity(0.22))
+                                    )
+                            }
+                            .buttonStyle(.plain)
+                            .disabled(!canSendGuestCheerToday(teamId: status.teamId))
+                        }
+                        .padding(12)
+                        .background(RoundedRectangle(cornerRadius: 10).fill(Color.tasukiDarkCard))
+                    }
+                }
+                .padding(.horizontal, 20)
+                .padding(.bottom, 20)
+            }
+            .padding(.top, 16)
         }
     }
     
     @ViewBuilder
     private var leaveTeamSection: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Button {
-                if isTeamOwner {
-                    ownerLeaveError = nil
-                    selectedSuccessorUid = ""
-                    showOwnerLeaveSheet = true
-                } else {
-                    showLeaveTeamConfirm = true
+            if ekidenViewState == nil && debugLeaveAllowedOverride == nil {
+                HStack(spacing: 8) {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text("読み込み中…")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundColor(Color.tasukiMutedText)
                 }
-            } label: {
-                HStack {
-                    Spacer()
-                    Text("チームから脱退")
-                        .font(.system(size: 15, weight: .semibold))
-                    Spacer()
-                }
+                .frame(maxWidth: .infinity, alignment: .center)
                 .frame(height: 44)
                 .background(
                     RoundedRectangle(cornerRadius: 12)
-                        .fill(canLeaveTeam ? Color.white : Color.gray.opacity(0.22))
+                        .fill(Color.gray.opacity(0.12))
                 )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 12)
-                        .stroke(Color.gray.opacity(canLeaveTeam ? 0.4 : 0.2), lineWidth: 1)
-                )
+            } else {
+                Button {
+                    if isTeamOwner {
+                        ownerLeaveError = nil
+                        selectedSuccessorUid = ""
+                        showOwnerLeaveSheet = true
+                    } else {
+                        showLeaveTeamConfirm = true
+                    }
+                } label: {
+                    HStack {
+                        Spacer()
+                        Text("チームから脱退")
+                            .font(.system(size: 15, weight: .semibold))
+                        Spacer()
+                    }
+                    .frame(height: 44)
+                    .background(
+                        RoundedRectangle(cornerRadius: 12)
+                            .fill(canLeaveTeam ? Color.white : Color.gray.opacity(0.22))
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 12)
+                            .stroke(Color.gray.opacity(canLeaveTeam ? 0.4 : 0.2), lineWidth: 1)
+                    )
+                }
+                .foregroundColor(canLeaveTeam ? Color.tasukiPrimary : Color.gray)
+                .disabled(!canLeaveTeam)
             }
-            .foregroundColor(canLeaveTeam ? Color.tasukiPrimary : Color.gray)
-            .disabled(!canLeaveTeam)
             
-            if !canLeaveTeam {
+            if ekidenViewState != nil && !canLeaveTeam {
                 Text("駅伝レースの開催期間中は脱退できません（期間終了後に再度お試しください）")
                     .font(.caption)
                     .foregroundColor(Color.tasukiMutedText)
@@ -575,6 +784,45 @@ struct TeamView: View {
                     .font(.caption)
                     .foregroundColor(Color.tasukiMutedText)
                     .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func ownerDisqualifySection(_ state: EkidenViewState) -> some View {
+        if isTeamOwner {
+            VStack(alignment: .leading, spacing: 8) {
+                Button {
+                    if !state.entry.officialResultDisqualified && !isDisqualifying {
+                        disqualifyErrorMessage = nil
+                        showDisqualifyConfirm = true
+                    }
+                } label: {
+                    HStack {
+                        Spacer()
+                        Text(state.entry.officialResultDisqualified ? "棄権済み（参考記録）" : "棄権する")
+                            .font(.system(size: 15, weight: .semibold))
+                        Spacer()
+                    }
+                    .frame(height: 44)
+                    .background(
+                        RoundedRectangle(cornerRadius: 12)
+                            .fill(state.entry.officialResultDisqualified ? Color.gray.opacity(0.22) : Color.red.opacity(0.12))
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 12)
+                            .stroke(state.entry.officialResultDisqualified ? Color.gray.opacity(0.2) : Color.red.opacity(0.45), lineWidth: 1)
+                    )
+                }
+                .foregroundColor(state.entry.officialResultDisqualified ? Color.gray : Color.red)
+                .disabled(state.entry.officialResultDisqualified || isDisqualifying)
+
+                if let disqualifyErrorMessage {
+                    Text(disqualifyErrorMessage)
+                        .font(.caption)
+                        .foregroundColor(Color.red)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
         }
     }
@@ -869,6 +1117,7 @@ struct TeamView: View {
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, 28)
                 Button {
+                    hubEkidenJoinMode = nil
                     showTeamJoinHub = true
                 } label: {
                     HStack {
@@ -892,7 +1141,8 @@ struct TeamView: View {
             ToolbarItem(placement: .principal) {
                 Text("Ekiden")
                     .font(.system(size: 19, weight: .bold))
-                    .foregroundColor(.black)
+                    .foregroundColor(Color.tasukiPrimary)
+                    .fixedSize(horizontal: true, vertical: false)
             }
         }
     }
@@ -904,7 +1154,12 @@ struct TeamView: View {
         let defaultLegIdx: Int
         if let s = state {
             let maxIdx = max(0, s.event.legCount - 1)
-            defaultLegIdx = min(max(0, s.entry.currentLegIndex), maxIdx)
+            var idx = min(max(0, s.entry.currentLegIndex), maxIdx)
+            // 区間賞のモックは「提出済み区間」だけ生成するため、未提出の現在区間だと一覧が空になる
+            if isSample, !s.legs.indices.contains(idx) || s.legs[idx].status != .submitted || s.legs[idx].isPass {
+                idx = s.legs.firstIndex(where: { $0.status == .submitted && !$0.isPass }) ?? 0
+            }
+            defaultLegIdx = min(max(0, idx), maxIdx)
         } else {
             defaultLegIdx = 0
         }
@@ -1089,6 +1344,79 @@ struct TeamView: View {
         return f.localizedString(for: date, relativeTo: Date())
     }
 
+    private func dayKeyString(_ date: Date) -> String {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "ja_JP")
+        f.dateFormat = "yyyy-MM-dd"
+        return f.string(from: date)
+    }
+
+    private func guestCheerStorageKey(teamId: String, dayKey: String) -> String {
+        "guest_spectator_cheer_\(teamId)_\(dayKey)"
+    }
+
+    private func canSendGuestCheerToday(teamId: String) -> Bool {
+        let key = guestCheerStorageKey(teamId: teamId, dayKey: dayKeyString(Date()))
+        return !UserDefaults.standard.bool(forKey: key)
+    }
+
+    private func markGuestCheerSentToday(teamId: String) {
+        let key = guestCheerStorageKey(teamId: teamId, dayKey: dayKeyString(Date()))
+        UserDefaults.standard.set(true, forKey: key)
+    }
+
+    private func refreshGuestSpectatorIfNeeded() async {
+        guard resolvedTeamId == nil else { return }
+        let todayKey = dayKeyString(Date())
+        if guestSpectatorDayKey == todayKey, !spectatorStatusesForGuest.isEmpty {
+            return
+        }
+        if TasukiDevelopmentFlags.skipFirestoreEkidenTabReads {
+            await MainActor.run {
+                spectatorStatusesForGuest = []
+                guestSpectatorDayKey = todayKey
+                isLoadingGuestSpectator = false
+                guestSpectatorError = nil
+            }
+            return
+        }
+        await MainActor.run {
+            isLoadingGuestSpectator = true
+            guestSpectatorError = nil
+        }
+        let statuses = await EkidenDataService.shared.loadActiveEkidenSpectatorStatuses(isSampleTeam: isSampleTeamFlow)
+        await MainActor.run {
+            spectatorStatusesForGuest = statuses
+            guestSpectatorDayKey = todayKey
+            isLoadingGuestSpectator = false
+        }
+    }
+
+    private func sendGuestCheer(to status: EkidenSpectatorTeamStatus) async {
+        guard canSendGuestCheerToday(teamId: status.teamId) else { return }
+        if isSampleTeamFlow || status.teamId.hasPrefix("example") {
+            await MainActor.run {
+                markGuestCheerSentToday(teamId: status.teamId)
+            }
+            return
+        }
+        let spectatorUid = Auth.auth().currentUser?.uid ?? SpectatorCheerClientInstance.value
+        let result = await EkidenDataService.shared.sendSpectatorCheerOncePerDay(
+            teamId: status.teamId,
+            eventId: status.eventId,
+            spectatorUid: spectatorUid,
+            cheerDateKey: dayKeyString(Date())
+        )
+        await MainActor.run {
+            switch result {
+            case .success:
+                markGuestCheerSentToday(teamId: status.teamId)
+            case .failure(let error):
+                guestSpectatorError = "応援の送信に失敗しました: \(error.localizedDescription)"
+            }
+        }
+    }
+
     /// 当該区間の担当走者がログイン中の自分か。サンプルかつ未ログインのときはモック UID で判定。
     private func isCurrentUserAssignedRunner(leg: EkidenLeg, teamId: String, isSampleTeam: Bool) -> Bool {
         guard let assigned = leg.assignedUid else { return false }
@@ -1099,7 +1427,7 @@ struct TeamView: View {
         switch teamId {
         case "example_owner":
             return assigned == "sample_owner"
-        case "example_member":
+        case "example_member", "example_ekiden_real":
             return assigned == "u_kenji"
         default:
             return assigned == "sample_owner"
@@ -1131,6 +1459,7 @@ struct TeamView: View {
             return
         }
         let entryId = state.entry.id
+        let passedLegIndex = legIndex
         showPassTasukiConfirm = false
         passTasukiLegIndex = nil
         isPassingTasuki = true
@@ -1145,8 +1474,45 @@ struct TeamView: View {
             )
             await MainActor.run {
                 isPassingTasuki = false
-                if case .success = result {
+            }
+            guard case .success = result else { return }
+            await loadEkidenState(teamId: teamId)
+            await MainActor.run {
+                if let st = ekidenViewState {
+                    TasukiHandoffNotifier.notifyAfterPassTasuki(state: st, passedLegIndex: passedLegIndex)
+                }
+            }
+        }
+    }
+
+    private func performTeamDisqualify() {
+        guard isTeamOwner, let state = ekidenViewState else {
+            showDisqualifyConfirm = false
+            return
+        }
+        if state.entry.officialResultDisqualified {
+            showDisqualifyConfirm = false
+            return
+        }
+        let teamId = selectedTeamId
+        let isSample = isSampleTeamFlow || teamId.hasPrefix("example")
+        isDisqualifying = true
+        disqualifyErrorMessage = nil
+        showDisqualifyConfirm = false
+        Task {
+            let result = await EkidenDataService.shared.setOfficialResultDisqualified(
+                teamId: teamId,
+                entryId: state.entry.id,
+                isSampleTeam: isSample,
+                isDisqualified: true
+            )
+            await MainActor.run {
+                isDisqualifying = false
+                switch result {
+                case .success:
                     Task { await loadEkidenState(teamId: teamId) }
+                case .failure(let error):
+                    disqualifyErrorMessage = "棄権処理に失敗しました: \(error.localizedDescription)"
                 }
             }
         }
@@ -1156,7 +1522,7 @@ struct TeamView: View {
     private func loadTeamOwner(teamId: String) {
         isTeamOwner = false
         // サンプルチーム: example_owner のときだけオーナー視点
-        if teamId == "example_owner" || teamId == "example_member" {
+        if teamId == "example_owner" || teamId == "example_member" || teamId == "example_ekiden_real" {
             isTeamOwner = (teamId == "example_owner")
             return
         }
@@ -1180,6 +1546,37 @@ struct TeamView: View {
     }
     
     // MARK: - Ekiden Progress Card（駅伝進行カード）
+    private func ekidenSubmitRecordButton(_ state: EkidenViewState) -> some View {
+        let readyLeg = state.legs.first {
+            $0.status == .ready && isCurrentUserAssignedRunner(
+                leg: $0,
+                teamId: selectedTeamId,
+                isSampleTeam: isSampleTeamFlow || selectedTeamId.hasPrefix("example")
+            )
+        }
+        return Button {
+            guard let leg = readyLeg else { return }
+            ekidenSubmitSheetItem = EkidenSubmitSheetItem(leg: leg, state: state)
+        } label: {
+            HStack {
+                Spacer()
+                Image(systemName: "link.badge.plus")
+                Text(readyLeg == nil ? "提出可能な記録はありません" : "記録を提出する")
+                    .font(.system(size: 14, weight: .semibold))
+                Spacer()
+            }
+            .frame(height: 40)
+            .background(
+                RoundedRectangle(cornerRadius: 10)
+                    .fill(Color.tasukiPrimaryButtonFill)
+            )
+            .foregroundColor(Color.tasukiOnBrandYellow)
+            .opacity(readyLeg == nil ? 0.65 : 1.0)
+        }
+        .buttonStyle(.plain)
+        .disabled(readyLeg == nil)
+    }
+
     private func ekidenProgressCard(_ state: EkidenViewState, isReadOnly: Bool = false) -> some View {
         let calendar = Calendar.current
         let now = Date()
@@ -1196,6 +1593,15 @@ struct TeamView: View {
         if state.isCumulativeMode {
             legProgress = state.teamGoalKm > 0 ? min(1.0, state.cumulativeDistanceKm / state.teamGoalKm) * 100 : 0
             progressCaption = String(format: "チーム累計 %.1f / %.0f km", state.cumulativeDistanceKm, state.teamGoalKm)
+        } else if state.usesOfficialHakoneRelayRules {
+            legProgress = state.hakoneCourseProgressFraction * 100
+            progressCaption = String(
+                format: "コース進捗 %.1f / %.1f km（%d区まで） · %@",
+                state.cumulativeDistanceKm,
+                HakoneEkidenCourse.totalKm,
+                state.submittedLegCount,
+                HakoneEkidenCourse.mapProgressLabel(cumulativeRunKm: state.cumulativeDistanceKm)
+            )
         } else {
             legProgress = state.event.legCount > 0 ? Double(state.submittedLegCount) / Double(state.event.legCount) * 100 : 0
             progressCaption = "\(state.submittedLegCount)/\(state.event.legCount) 区間"
@@ -1219,14 +1625,54 @@ struct TeamView: View {
                         .foregroundColor(.black)
                 }
                 Spacer()
-                if let rank = state.provisionalRank {
-                    VStack(alignment: .trailing, spacing: 2) {
-                        Text("暫定 \(rank)位")
-                            .font(.system(size: 14, weight: .bold))
+                if state.provisionalRank != nil || state.outboundRank != nil || state.totalTeams > 0 {
+                    VStack(alignment: .trailing, spacing: 6) {
+                        Button {
+                            showOverallStandingsMap = true
+                        } label: {
+                            VStack(alignment: .trailing, spacing: 2) {
+                                if let outbound = state.outboundRank {
+                                    Text("往路 \(outbound)位")
+                                        .font(.system(size: 11, weight: .semibold))
+                                        .foregroundColor(.black.opacity(0.8))
+                                }
+                                if let rank = state.provisionalRank {
+                                    Text("総合 \(rank)位")
+                                        .font(.system(size: 14, weight: .bold))
+                                        .foregroundColor(.black)
+                                } else if state.totalTeams > 0 {
+                                    Text("総合ランキング")
+                                        .font(.system(size: 12, weight: .semibold))
+                                        .foregroundColor(.black.opacity(0.85))
+                                }
+                                Text(state.totalTeams > 0 ? "/\(state.totalTeams)チーム" : "")
+                                    .font(.system(size: 10))
+                                    .foregroundColor(.black)
+                                Text("タップで一覧・区間賞へ")
+                                    .font(.system(size: 9, weight: .medium))
+                                    .foregroundColor(Color.tasukiMutedText)
+                            }
+                            .padding(.vertical, 4)
+                            .padding(.horizontal, 4)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("総合ランキングを開く")
+
+                        Button {
+                            showLegRankingSheet = true
+                        } label: {
+                            HStack(spacing: 3) {
+                                Image(systemName: "trophy.fill")
+                                Text("区間賞")
+                            }
+                            .font(.system(size: 10, weight: .bold))
                             .foregroundColor(.black)
-                        Text(state.totalTeams > 0 ? "/\(state.totalTeams)チーム" : "")
-                            .font(.system(size: 10))
-                            .foregroundColor(.black)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 3)
+                            .background(RoundedRectangle(cornerRadius: 6).fill(Color.tasukiDarkCardSecondary))
+                        }
+                        .buttonStyle(.plain)
                     }
                 }
             }
@@ -1288,12 +1734,58 @@ struct TeamView: View {
             Text(progressCaption)
                 .font(.system(size: 12))
                 .foregroundColor(.black)
+                .fixedSize(horizontal: false, vertical: true)
+
+            if state.usesOfficialHakoneRelayRules {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("コース上の進捗（累計距離）")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundColor(.black)
+                    EkidenTeamsCourseProgressBar(
+                        markers: [
+                            EkidenTeamsCourseProgressBar.Marker(
+                                id: state.entry.teamId,
+                                title: "あなたのチーム",
+                                cumulativeKm: state.cumulativeDistanceKm
+                            )
+                        ],
+                        referenceTotalKm: HakoneEkidenCourse.totalKm,
+                        emphasizedMarkerIds: Set([state.entry.teamId]),
+                        ownTeamMarkerIds: Set([state.entry.teamId]),
+                        focusedMarkerId: .constant(nil)
+                    )
+                    Text(HakoneEkidenCourse.mapProgressLabel(cumulativeRunKm: state.cumulativeDistanceKm))
+                        .font(.system(size: 11))
+                        .foregroundColor(.black.opacity(0.72))
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .padding(12)
+                .background(
+                    RoundedRectangle(cornerRadius: 12)
+                        .fill(Color.tasukiDarkCardSecondary)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12)
+                        .stroke(Color.tasukiMutedText.opacity(0.25), lineWidth: 1)
+                )
+            }
+
+            if state.entry.officialResultDisqualified {
+                Text("公式記録は失格（参考記録・繰り上げ完走の扱い）です。")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundColor(Color.orange)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
+            if state.usesOfficialHakoneRelayRules {
+                Text(HakoneEkidenCourse.officialRulesFootnote)
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundColor(.black.opacity(0.55))
+                    .fixedSize(horizontal: false, vertical: true)
+            }
             
             LazyVGrid(
-                columns: Array(
-                    repeating: GridItem(.flexible(), spacing: 4),
-                    count: max(1, state.event.legCount)
-                ),
+                columns: [GridItem(.adaptive(minimum: 44, maximum: 72), spacing: 4)],
                 spacing: 4
             ) {
                 ForEach(0..<state.event.legCount, id: \.self) { i in
@@ -1410,9 +1902,6 @@ struct TeamView: View {
                         onTapSubmit: {
                             ekidenSubmitSheetItem = EkidenSubmitSheetItem(leg: leg, state: state)
                         },
-                        onTapSubstitute: {
-                            ekidenSubstituteSheetItem = EkidenSubmitSheetItem(leg: leg, state: state)
-                        },
                         onTapPassTasuki: {
                             passTasukiLegIndex = leg.id
                             showPassTasukiConfirm = true
@@ -1423,7 +1912,7 @@ struct TeamView: View {
         }
     }
     
-    private func ekidenLegRowView(leg: EkidenLeg, state: EkidenViewState, teamId: String, isSampleTeam: Bool, allowSubmit: Bool = true, isTeamOwner: Bool = false, onTapSubmit: @escaping () -> Void, onTapSubstitute: @escaping () -> Void = {}, onTapPassTasuki: (() -> Void)? = nil) -> some View {
+    private func ekidenLegRowView(leg: EkidenLeg, state: EkidenViewState, teamId: String, isSampleTeam: Bool, allowSubmit: Bool = true, isTeamOwner: Bool = false, onTapSubmit: @escaping () -> Void, onTapPassTasuki: (() -> Void)? = nil) -> some View {
         let name = leg.assignedUid.flatMap { state.memberNames[$0] } ?? "未割当"
         let statusText: String
         let icon: String
@@ -1476,6 +1965,15 @@ struct TeamView: View {
             }
             .padding(.vertical, 10)
             .padding(.horizontal, 0)
+
+            if state.usesOfficialHakoneRelayRules, let route = HakoneEkidenCourse.legRouteCaption(legIndex: leg.id) {
+                Text(route)
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundColor(.black.opacity(0.58))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.leading, 44)
+                    .padding(.bottom, 2)
+            }
             
             ViewThatFits(in: .horizontal) {
                 HStack(spacing: 8) {
@@ -1484,9 +1982,7 @@ struct TeamView: View {
                         canSubmit: canSubmit,
                         allowSubmit: allowSubmit,
                         isTeamOwner: isTeamOwner,
-                        substituteButtonFullWidth: false,
                         onTapSubmit: onTapSubmit,
-                        onTapSubstitute: onTapSubstitute,
                         onTapPassTasuki: onTapPassTasuki
                     )
                 }
@@ -1496,9 +1992,7 @@ struct TeamView: View {
                         canSubmit: canSubmit,
                         allowSubmit: allowSubmit,
                         isTeamOwner: isTeamOwner,
-                        substituteButtonFullWidth: true,
                         onTapSubmit: onTapSubmit,
-                        onTapSubstitute: onTapSubstitute,
                         onTapPassTasuki: onTapPassTasuki
                     )
                 }
@@ -1512,51 +2006,11 @@ struct TeamView: View {
         canSubmit: Bool,
         allowSubmit: Bool,
         isTeamOwner: Bool,
-        substituteButtonFullWidth: Bool,
         onTapSubmit: @escaping () -> Void,
-        onTapSubstitute: @escaping () -> Void,
         onTapPassTasuki: (() -> Void)?
     ) -> some View {
-        if canSubmit {
-            Button(action: onTapSubmit) {
-                HStack(spacing: 6) {
-                    Image(systemName: "figure.run")
-                    Text("区間を走って提出")
-                        .font(.system(size: 13, weight: .semibold))
-                }
-                .foregroundColor(.black)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 8)
-            }
-            .buttonStyle(.plain)
-            if let onPass = onTapPassTasuki {
-                Button(action: onPass) {
-                    HStack(spacing: 6) {
-                        Image(systemName: "arrow.right.circle")
-                        Text("TASUKIをつなぐ")
-                            .font(.system(size: 13, weight: .semibold))
-                    }
-                    .foregroundColor(.black)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 8)
-                }
-                .buttonStyle(.plain)
-            }
-        }
-        if isTeamOwner && allowSubmit && (leg.status == .ready || leg.status == .awaitingTasuki) {
-            Button(action: onTapSubstitute) {
-                HStack(spacing: 4) {
-                    Image(systemName: "person.2")
-                    Text("代走")
-                        .font(.system(size: 12, weight: .medium))
-                }
-                .foregroundColor(.black)
-                .frame(maxWidth: substituteButtonFullWidth ? .infinity : nil)
-                .padding(.vertical, 6)
-                .padding(.horizontal, 0)
-            }
-            .buttonStyle(.plain)
-        }
+        // 区間行からの操作ボタン（区間提出/襷つなぎ/代走）は表示しない。
+        EmptyView()
     }
     
     // MARK: - Slim Member List View
@@ -1583,9 +2037,6 @@ struct TeamView: View {
                     slimMemberRowView(member: member)
                 }
             }
-            
-            conditionRecordButton
-                .padding(.top, 16)
         }
     }
     
@@ -1645,6 +2096,19 @@ struct TeamView: View {
         .padding(.horizontal, 0)
     }
     
+    // MARK: - Progress View (The Tasuki Bar)
+    private var ekidenLoadingCard: some View {
+        VStack(spacing: 14) {
+            ProgressView()
+                .tint(Color.tasukiAccentOrange)
+            Text("EKIDENデータを読み込み中...")
+                .font(.system(size: 14, weight: .medium))
+                .foregroundColor(.black.opacity(0.75))
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 34)
+    }
+
     // MARK: - Progress View (The Tasuki Bar)
     private var progressView: some View {
         VStack(spacing: 16) {
@@ -1766,7 +2230,12 @@ struct TeamView: View {
     }
 }
 
-// MARK: - 区間賞シート
+// MARK: - 区間賞シート（ランキング行タップ → コースマップ）
+private struct LegRankingMapTapPayload: Identifiable {
+    let id: String
+    let row: EkidenLegRankingRow
+}
+
 private struct EkidenLegRankingSheetView: View {
     let state: EkidenViewState
     @Binding var selectedLegIndex: Int
@@ -1777,6 +2246,7 @@ private struct EkidenLegRankingSheetView: View {
     let reload: (Int) async -> Void
 
     @Environment(\.dismiss) private var dismiss
+    @State private var mapTapPayload: LegRankingMapTapPayload?
 
     var body: some View {
         NavigationStack {
@@ -1818,22 +2288,31 @@ private struct EkidenLegRankingSheetView: View {
                                         Divider()
                                             .background(Color.tasukiMutedText.opacity(0.2))
                                     }
-                                    HStack(alignment: .top, spacing: 10) {
-                                        Text("\(row.rank)")
-                                            .font(.system(size: 14, weight: .bold))
-                                            .frame(width: 28, alignment: .leading)
-                                            .foregroundColor(.black)
-                                        VStack(alignment: .leading, spacing: 2) {
-                                            Text(row.displayName)
-                                                .font(.system(size: 15, weight: .semibold))
+                                    Button {
+                                        mapTapPayload = LegRankingMapTapPayload(id: row.entryId, row: row)
+                                    } label: {
+                                        HStack(alignment: .top, spacing: 10) {
+                                            Text(row.rank > 0 ? "\(row.rank)位" : "—")
+                                                .font(.system(size: 14, weight: .bold))
+                                                .frame(minWidth: 40, alignment: .leading)
                                                 .foregroundColor(.black)
-                                            Text(EkidenViewState.formatElapsed(row.elapsedSeconds))
-                                                .font(.caption)
-                                                .foregroundColor(.black)
+                                            VStack(alignment: .leading, spacing: 2) {
+                                                Text(row.displayName)
+                                                    .font(.system(size: 15, weight: .semibold))
+                                                    .foregroundColor(.black)
+                                                Text(EkidenViewState.formatElapsed(row.elapsedSeconds))
+                                                    .font(.caption)
+                                                    .foregroundColor(.black)
+                                            }
+                                            Spacer(minLength: 0)
+                                            Image(systemName: "chart.line.uptrend.xyaxis")
+                                                .font(.system(size: 14, weight: .semibold))
+                                                .foregroundColor(Color.tasukiAccent.opacity(0.85))
                                         }
-                                        Spacer(minLength: 0)
+                                        .padding(.vertical, 12)
+                                        .contentShape(Rectangle())
                                     }
-                                    .padding(.vertical, 12)
+                                    .buttonStyle(.plain)
                                 }
                             }
                             .padding(.bottom, 16)
@@ -1858,6 +2337,20 @@ private struct EkidenLegRankingSheetView: View {
             }
             .task {
                 await reload(selectedLegIndex)
+            }
+            .sheet(item: $mapTapPayload) { payload in
+                EkidenRankingCourseMapView(
+                    eventId: state.event.id,
+                    isSampleTeam: isSampleTeam,
+                    usesHakoneCourse: state.usesOfficialHakoneRelayRules,
+                    referenceTotalKm: state.rankingProgressReferenceKm,
+                    ownEntryId: myEntryId,
+                    selectedLegIndex: selectedLegIndex,
+                    legRankForHighlight: snapshot?.rank(forEntryId: payload.row.entryId),
+                    legTotalFinishers: snapshot?.totalFinishers ?? 0,
+                    highlightEntryId: payload.row.entryId,
+                    tappedRowDisplayName: payload.row.displayName
+                )
             }
         }
     }
@@ -1888,7 +2381,7 @@ struct TeamChatSheetView: View {
     var body: some View {
         NavigationStack {
             ZStack {
-                Color.tasukiDarkBackground
+                Color.white
                     .ignoresSafeArea()
                 
                 VStack(spacing: 0) {
@@ -1921,17 +2414,23 @@ struct TeamChatSheetView: View {
                                     Text(phrase)
                                         .font(.system(size: 11, weight: .semibold))
                                         .foregroundColor(.black)
+                                        .padding(.horizontal, 10)
                                         .padding(.vertical, 7)
+                                        .background(
+                                            Capsule()
+                                                .fill(Color(.systemGray6))
+                                        )
                                 }
                                 .buttonStyle(.plain)
                             }
                         }
                         .padding(.horizontal, 16)
-                        .padding(.vertical, 6)
+                        .padding(.vertical, 8)
                     }
+                    .background(Color.white)
                     
                     HStack(spacing: 12) {
-                        TextField("メッセージを入力...", text: $messageText, axis: .vertical)
+                        TextField("メッセージを入力", text: $messageText, axis: .vertical)
                             .textFieldStyle(.plain)
                             .font(.system(size: 16))
                             .foregroundColor(.black)
@@ -1939,7 +2438,7 @@ struct TeamChatSheetView: View {
                             .padding(.vertical, 10)
                             .background(
                                 RoundedRectangle(cornerRadius: 20)
-                                    .fill(Color.tasukiDarkCardSecondary)
+                                    .fill(Color(.systemGray6))
                             )
                             .focused($isTextFieldFocused)
                             .lineLimit(1...4)
@@ -1960,17 +2459,24 @@ struct TeamChatSheetView: View {
                     }
                     .padding(.horizontal, 16)
                     .padding(.vertical, 12)
-                    .background(Color.tasukiDarkBackground)
+                    .background(Color.white)
                 }
             }
-            .navigationTitle("チームチャット")
+            .navigationTitle("")
             .navigationBarTitleDisplayMode(.inline)
+            .navigationBarBackButtonHidden(true)
             .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button("閉じる") {
-                        dismiss()
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button(action: { dismiss() }) {
+                        Image(systemName: "chevron.left")
+                            .font(.system(size: 16, weight: .semibold))
+                            .foregroundColor(Color.tasukiAccent)
                     }
-                    .foregroundColor(.black)
+                }
+                ToolbarItem(placement: .principal) {
+                    Text("チームチャット")
+                        .font(.system(size: 19, weight: .bold))
+                        .foregroundColor(Color.tasukiPrimary)
                 }
             }
         }
@@ -2043,7 +2549,7 @@ struct TeamChatSheetView: View {
                 Spacer()
                 Text("--- \(message.content) ---")
                     .font(.system(size: 11, weight: .regular))
-                    .foregroundColor(.black)
+                    .foregroundColor(Color.tasukiMutedText)
                 Spacer()
             }
             .padding(.vertical, 8)
@@ -2068,18 +2574,18 @@ struct TeamChatSheetView: View {
                 VStack(alignment: isFromMe ? .trailing : .leading, spacing: 4) {
                     if !isFromMe {
                         Text(message.user.name)
-                            .font(.system(size: 11, weight: .semibold))
-                            .foregroundColor(.black)
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundColor(Color.tasukiPrimary.opacity(0.7))
                     }
                     
                     Text(message.content)
-                        .font(.system(size: 15, weight: .regular))
-                        .foregroundColor(isFromMe ? Color.tasukiOnBrandYellow : .black)
-                        .padding(.horizontal, 14)
+                        .font(.system(size: 16, weight: .regular))
+                        .foregroundColor(isFromMe ? .white : .black)
+                        .padding(.horizontal, 12)
                         .padding(.vertical, 10)
                         .background(
                             RoundedRectangle(cornerRadius: 18)
-                                .fill(isFromMe ? Color.tasukiPrimaryButtonFill : Color.clear)
+                                .fill(isFromMe ? Color.royalBlue : Color.gray.opacity(0.2))
                         )
                 }
                 .frame(maxWidth: UIScreen.main.bounds.width * 0.7, alignment: isFromMe ? .trailing : .leading)
