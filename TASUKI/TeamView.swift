@@ -185,193 +185,9 @@ struct TeamView: View {
     var body: some View {
         NavigationStack {
             if userTeamId == nil {
-                // 未所属の場合、チーム参加/作成画面を表示
-                TeamJoinCreateView(onComplete: { teamId in
-                    if isSampleTeamFlow {
-                        self.userTeamId = teamId
-                        if let id = teamId {
-                            UserDefaults.standard.set(id, forKey: "myTeamId")
-                        }
-                    } else {
-                        loadUserTeamId()
-                    }
-                    if let id = teamId {
-                        self.selectedTeamId = id
-                        self.showTeamDetail = true
-                    }
-                }, useMockFlow: isSampleTeamFlow)
-                .navigationTitle("EKIDEN MODE")
-                .navigationBarTitleDisplayMode(.large)
+                teamJoinCreateScreen
             } else {
-                ZStack {
-                    Color.tasukiDarkBackground
-                        .ignoresSafeArea()
-                    
-                    ScrollView {
-                        VStack(spacing: 20) {
-                            Group {
-                                if let ekiden = ekidenViewState {
-                                    ekidenProgressCard(ekiden, isReadOnly: !ekiden.isWithinEventWindow)
-                                } else {
-                                    progressView
-                                }
-                            }
-                            .padding(.horizontal, 20)
-                            .padding(.top, 20)
-                            
-                            if let ekiden = ekidenViewState {
-                                conditionRecordButton
-                                    .padding(.horizontal, 20)
-                                ekidenLegListView(ekiden, allowSubmit: ekiden.isWithinEventWindow)
-                                    .padding(.horizontal, 20)
-                            } else {
-                                slimMemberListView
-                                    .padding(.horizontal, 20)
-                            }
-                            
-                            // オーナーのみ: メンバー管理（参加申請・チーム詳細）へ
-                            if isTeamOwner {
-                                Button(action: { showTeamDetail = true }) {
-                                    HStack {
-                                        Spacer()
-                                        Text("メンバー管理")
-                                            .font(.system(size: 16, weight: .semibold))
-                                            .foregroundColor(.white)
-                                        Image(systemName: "person.2.fill")
-                                            .font(.system(size: 16))
-                                            .foregroundColor(.white)
-                                        Spacer()
-                                    }
-                                    .frame(height: 50)
-                                    .background(
-                                        RoundedRectangle(cornerRadius: 12)
-                                            .fill(Color.tasukiAccentOrange)
-                                    )
-                                }
-                                .padding(.horizontal, 20)
-                                .padding(.bottom, 20)
-                            }
-                        }
-                        .padding(.bottom, scrollContentBottomPadding)
-                    }
-                    
-                    NavigationLink(destination: TeamDetailView(teamId: selectedTeamId), isActive: $showTeamDetail) {
-                        EmptyView()
-                    }
-                }
-                .overlay(alignment: .topTrailing) {
-                    Button(action: { showTeamChatSheet = true }) {
-                        Image(systemName: "message.fill")
-                            .font(.system(size: 22))
-                            .foregroundColor(.white)
-                            .frame(width: 56, height: 56)
-                            .background(Circle().fill(Color.tasukiAccentOrange))
-                    }
-                    .padding(.top, 8)
-                    .padding(.trailing, 20)
-                }
-                .navigationTitle("EKIDEN MODE")
-                .navigationBarTitleDisplayMode(.large)
-                .sheet(isPresented: $showConditionSheet) {
-                    ConditionUpdateSheet(
-                        selectedCondition: $selectedCondition,
-                        onSave: {
-                            let oldCondition = myCondition
-                            myConditionRaw = selectedCondition.rawValue
-                            
-                            if oldCondition != selectedCondition {
-                                addSystemMessage(condition: selectedCondition)
-                            }
-                            
-                            showConditionSheet = false
-                        },
-                        onCancel: {
-                            showConditionSheet = false
-                        }
-                    )
-                }
-                .sheet(isPresented: $showTeamChatSheet) {
-                    TeamChatSheetView(
-                        teamId: selectedTeamId,
-                        isSampleTeam: isSampleTeamFlow || selectedTeamId.hasPrefix("example_"),
-                        teamMessages: $teamMessages,
-                        myName: myName,
-                        myCondition: myCondition,
-                        myStatusMessage: myStatusMessage
-                    )
-                }
-                .sheet(item: $ekidenSubstituteSheetItem) { item in
-                    EkidenSubstituteSheet(
-                        leg: item.leg,
-                        state: item.state,
-                        teamId: selectedTeamId,
-                        entryId: item.state.entry.id,
-                        isSampleTeam: isSampleTeamFlow || selectedTeamId.hasPrefix("example"),
-                        onDismiss: {
-                            ekidenSubstituteSheetItem = nil
-                        },
-                        onSuccess: {
-                            Task { await loadEkidenState(teamId: selectedTeamId) }
-                        }
-                    )
-                }
-                .sheet(isPresented: $showEkidenResultView) {
-                    if let state = ekidenViewState {
-                        EkidenResultView(state: state, teamId: selectedTeamId, onDismiss: {
-                            showEkidenResultView = false
-                        })
-                    }
-                }
-                .sheet(item: $ekidenSubmitSheetItem) { item in
-                    EkidenLegSubmitSheet(
-                        leg: item.leg,
-                        state: item.state,
-                        teamId: selectedTeamId,
-                        isSampleTeam: isSampleTeamFlow || selectedTeamId.hasPrefix("example"),
-                        onDismiss: {
-                            ekidenSubmitSheetItem = nil
-                        },
-                        onSuccess: {
-                            Task { await loadEkidenState(teamId: selectedTeamId) }
-                        }
-                    )
-                }
-                .onAppear {
-                    selectedCondition = myCondition
-                    if !isSampleTeamFlow {
-                        loadUserTeamId()
-                    }
-                    if let tid = userTeamId, !tid.isEmpty {
-                        loadTeamOwner(teamId: tid)
-                        Task { await loadEkidenState(teamId: tid) }
-                    }
-                }
-                .onChange(of: userTeamId) { _, newId in
-                    if let tid = newId, !tid.isEmpty {
-                        loadTeamOwner(teamId: tid)
-                        Task { await loadEkidenState(teamId: tid) }
-                    } else {
-                        isTeamOwner = false
-                        ekidenViewState = nil
-                    }
-                }
-                .onChange(of: selectedTeamId) { _, newId in
-                    if !newId.isEmpty {
-                        Task { await loadEkidenState(teamId: newId) }
-                    } else {
-                        ekidenViewState = nil
-                    }
-                }
-                .alert("TASUKIをつなぐ", isPresented: $showPassTasukiConfirm) {
-                    Button("キャンセル", role: .cancel) {
-                        passTasukiLegIndex = nil
-                    }
-                    Button("つなぐ", role: .none) {
-                        performPassTasuki()
-                    }
-                } message: {
-                    Text("走らずにTASUKIだけ次の担当へ渡します。距離は加算されません。")
-                }
+                teamJoinedMainScreen
             }
         }
         .onAppear {
@@ -380,7 +196,201 @@ struct TeamView: View {
                 selectedTeamId = savedId
             }
         }
-    } // body の閉じ (修正箇所)
+    }
+
+    /// 未所属時のチーム参加/作成
+    @ViewBuilder
+    private var teamJoinCreateScreen: some View {
+        TeamJoinCreateView(onComplete: { teamId in
+            if isSampleTeamFlow {
+                self.userTeamId = teamId
+                if let id = teamId {
+                    UserDefaults.standard.set(id, forKey: "myTeamId")
+                }
+            } else {
+                loadUserTeamId()
+            }
+            if let id = teamId {
+                self.selectedTeamId = id
+                self.showTeamDetail = true
+            }
+        }, useMockFlow: isSampleTeamFlow)
+        .navigationTitle("EKIDEN MODE")
+        .navigationBarTitleDisplayMode(.large)
+    }
+
+    /// 所属済みメイン（スクロール・シート・ナビゲーション）
+    @ViewBuilder
+    private var teamJoinedMainScreen: some View {
+        ZStack {
+            Color.tasukiDarkBackground
+                .ignoresSafeArea()
+
+            ScrollView {
+                VStack(spacing: 20) {
+                    Group {
+                        if let ekiden = ekidenViewState {
+                            ekidenProgressCard(ekiden, isReadOnly: !ekiden.isWithinEventWindow)
+                        } else {
+                            progressView
+                        }
+                    }
+                    .padding(.horizontal, 20)
+                    .padding(.top, 20)
+
+                    if let ekiden = ekidenViewState {
+                        conditionRecordButton
+                            .padding(.horizontal, 20)
+                        ekidenLegListView(ekiden, allowSubmit: ekiden.isWithinEventWindow)
+                            .padding(.horizontal, 20)
+                    } else {
+                        slimMemberListView
+                            .padding(.horizontal, 20)
+                    }
+
+                    if isTeamOwner {
+                        Button(action: { showTeamDetail = true }) {
+                            HStack {
+                                Spacer()
+                                Text("メンバー管理")
+                                    .font(.system(size: 16, weight: .semibold))
+                                    .foregroundColor(.white)
+                                Image(systemName: "person.2.fill")
+                                    .font(.system(size: 16))
+                                    .foregroundColor(.white)
+                                Spacer()
+                            }
+                            .frame(height: 50)
+                            .background(
+                                RoundedRectangle(cornerRadius: 12)
+                                    .fill(Color.tasukiAccentOrange)
+                            )
+                        }
+                        .padding(.horizontal, 20)
+                        .padding(.bottom, 20)
+                    }
+                }
+                .padding(.bottom, scrollContentBottomPadding)
+            }
+
+            NavigationLink(destination: TeamDetailView(teamId: selectedTeamId), isActive: $showTeamDetail) {
+                EmptyView()
+            }
+        }
+        .overlay(alignment: .topTrailing) {
+            Button(action: { showTeamChatSheet = true }) {
+                Image(systemName: "message.fill")
+                    .font(.system(size: 22))
+                    .foregroundColor(.white)
+                    .frame(width: 56, height: 56)
+                    .background(Circle().fill(Color.tasukiAccentOrange))
+            }
+            .padding(.top, 8)
+            .padding(.trailing, 20)
+        }
+        .navigationTitle("EKIDEN MODE")
+        .navigationBarTitleDisplayMode(.large)
+        .sheet(isPresented: $showConditionSheet) {
+            ConditionUpdateSheet(
+                selectedCondition: $selectedCondition,
+                onSave: {
+                    let oldCondition = myCondition
+                    myConditionRaw = selectedCondition.rawValue
+
+                    if oldCondition != selectedCondition {
+                        addSystemMessage(condition: selectedCondition)
+                    }
+
+                    showConditionSheet = false
+                },
+                onCancel: {
+                    showConditionSheet = false
+                }
+            )
+        }
+        .sheet(isPresented: $showTeamChatSheet) {
+            TeamChatSheetView(
+                teamId: selectedTeamId,
+                isSampleTeam: isSampleTeamFlow || selectedTeamId.hasPrefix("example_"),
+                teamMessages: $teamMessages,
+                myName: myName,
+                myCondition: myCondition,
+                myStatusMessage: myStatusMessage
+            )
+        }
+        .sheet(item: $ekidenSubstituteSheetItem) { item in
+            EkidenSubstituteSheet(
+                leg: item.leg,
+                state: item.state,
+                teamId: selectedTeamId,
+                entryId: item.state.entry.id,
+                isSampleTeam: isSampleTeamFlow || selectedTeamId.hasPrefix("example"),
+                onDismiss: {
+                    ekidenSubstituteSheetItem = nil
+                },
+                onSuccess: {
+                    Task { await loadEkidenState(teamId: selectedTeamId) }
+                }
+            )
+        }
+        .sheet(isPresented: $showEkidenResultView) {
+            if let state = ekidenViewState {
+                EkidenResultView(state: state, teamId: selectedTeamId, onDismiss: {
+                    showEkidenResultView = false
+                })
+            }
+        }
+        .sheet(item: $ekidenSubmitSheetItem) { item in
+            EkidenLegSubmitSheet(
+                leg: item.leg,
+                state: item.state,
+                teamId: selectedTeamId,
+                isSampleTeam: isSampleTeamFlow || selectedTeamId.hasPrefix("example"),
+                onDismiss: {
+                    ekidenSubmitSheetItem = nil
+                },
+                onSuccess: {
+                    Task { await loadEkidenState(teamId: selectedTeamId) }
+                }
+            )
+        }
+        .onAppear {
+            selectedCondition = myCondition
+            if !isSampleTeamFlow {
+                loadUserTeamId()
+            }
+            if let tid = userTeamId, !tid.isEmpty {
+                loadTeamOwner(teamId: tid)
+                Task { await loadEkidenState(teamId: tid) }
+            }
+        }
+        .onChange(of: userTeamId) { _, newId in
+            if let tid = newId, !tid.isEmpty {
+                loadTeamOwner(teamId: tid)
+                Task { await loadEkidenState(teamId: tid) }
+            } else {
+                isTeamOwner = false
+                ekidenViewState = nil
+            }
+        }
+        .onChange(of: selectedTeamId) { _, newId in
+            if !newId.isEmpty {
+                Task { await loadEkidenState(teamId: newId) }
+            } else {
+                ekidenViewState = nil
+            }
+        }
+        .alert("TASUKIをつなぐ", isPresented: $showPassTasukiConfirm) {
+            Button("キャンセル", role: .cancel) {
+                passTasukiLegIndex = nil
+            }
+            Button("つなぐ", role: .none) {
+                performPassTasuki()
+            }
+        } message: {
+            Text("走らずにTASUKIだけ次の担当へ渡します。距離は加算されません。")
+        }
+    }
 
     private func loadUserTeamId() {
         guard let firebaseUser = Auth.auth().currentUser else { return }
