@@ -30,8 +30,9 @@ struct RunRecordingView: View {
     )
     @State private var postRunDraft: RunFinishDraft?
     @State private var navigateToCoach = false
-    /// 走行開始直後は false。黄帯を下にスワイプすると true になり地図表示＋ヘッダー折りたたみ
-    @State private var isTrackingMapExpanded = false
+    /// 記録中: 背面マップの上に載るシートの高さ比率。最大＝デフォルトの記録主体画面（上端にマップが細く見える）、最小＝折りたたみ。スナップはこの二段階のみ。
+    @State private var recordingSheetFraction: CGFloat = 0.94
+    @State private var recordingSheetDragStartFraction: CGFloat?
     /// 「走行を開始」後の 3→2→1。nil のときは表示しない。
     @State private var runStartCountdownPhase: Int? = nil
     @State private var runStartCountdownTask: Task<Void, Never>? = nil
@@ -124,9 +125,9 @@ struct RunRecordingView: View {
                 } else {
                     ScrollView(showsIndicators: false) {
                         VStack(spacing: 0) {
-                            titleCard
+                            TasukiBrandedHeroHeader(title: "RUN", compactToolbarStyle: true)
+                            runHeroTagline
                                 .padding(.horizontal, 20)
-                                .padding(.top, 12)
                                 .padding(.bottom, 20)
 
                             Button {
@@ -161,15 +162,11 @@ struct RunRecordingView: View {
                                 .padding(.horizontal, 20)
                                 .padding(.bottom, 20)
 
-                            challengeHubEntry
+                            primaryStartRunButton
                                 .padding(.horizontal, 20)
                                 .padding(.bottom, 20)
 
                             mapCard
-                                .padding(.horizontal, 20)
-                                .padding(.bottom, 24)
-
-                            actionButtons
                                 .padding(.horizontal, 20)
                                 .padding(.bottom, 24)
 
@@ -185,12 +182,12 @@ struct RunRecordingView: View {
             }
         }
         .background(Color.tasukiDarkBackground.ignoresSafeArea())
-        .navigationTitle(tracker.isTracking ? "" : "Run")
+        .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
         .modifier(RunRecordingNavigationBarHiddenModifier(isHidden: tracker.isTracking))
         .onChange(of: tracker.isTracking) { _, isOn in
             if isOn {
-                isTrackingMapExpanded = false
+                recordingSheetFraction = recordingSheetMaxFraction
             } else {
                 tracker.startMapPreviewLocationUpdates()
                 syncIdleMapCameraFromTracker()
@@ -243,73 +240,72 @@ struct RunRecordingView: View {
     }
 
     private var trackingFocusedView: some View {
-        VStack(spacing: 0) {
-            Group {
-                if isTrackingMapExpanded {
-                    trackingCompactYellowBar
-                } else {
-                    VStack(spacing: 0) {
-                        trackingExpandedYellowHeaderOnly
-                        Spacer(minLength: 0)
-                        trackingStatsBlock
-                        Spacer(minLength: 0)
-                    }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+        GeometryReader { geo in
+            let totalH = geo.size.height
+            let safeBottom = geo.safeAreaInsets.bottom
+            let bottomControlsHeight: CGFloat = 64 + safeBottom
+            let contentH = max(120, totalH - bottomControlsHeight)
+            let minF = recordingSheetMinFraction
+            let maxF = recordingSheetMaxFraction
+            let frac = min(max(recordingSheetFraction, minF), maxF)
+            let sheetH = contentH * frac
+
+            VStack(spacing: 0) {
+                ZStack(alignment: .bottom) {
+                    trackingMapBackgroundLayer(height: contentH, width: geo.size.width)
+
+                    recordingTrackingSheet(totalHeight: contentH, topSafeInset: geo.safeAreaInsets.top)
+                        .frame(height: sheetH)
+                        .frame(maxWidth: .infinity, alignment: .bottom)
+                        .clipped()
                 }
-            }
-            .animation(.spring(response: 0.38, dampingFraction: 0.86), value: isTrackingMapExpanded)
+                .frame(height: contentH)
+                .frame(maxWidth: .infinity)
 
-            if isTrackingMapExpanded {
-                trackingMapFillContent
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .transition(.opacity.combined(with: .move(edge: .bottom)))
-
-                trackingBottomCollapsedHandle
-                    .padding(.horizontal, 16)
-                    .padding(.top, 8)
-                    .padding(.bottom, 6)
-            }
-
-            HStack(spacing: 14) {
-                Button {
-                    if tracker.isPaused {
-                        tracker.resume()
-                    } else {
-                        tracker.pause()
+                HStack(spacing: 14) {
+                    Button {
+                        if tracker.isPaused {
+                            tracker.resume()
+                        } else {
+                            tracker.pause()
+                        }
+                    } label: {
+                        HStack(spacing: 8) {
+                            Image(systemName: tracker.isPaused ? "play.fill" : "pause.fill")
+                            Text(tracker.isPaused ? "再開" : "一時停止")
+                        }
+                        .font(.system(size: 17, weight: .bold))
+                        .foregroundColor(Color.tasukiOnBrandYellow)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 16)
+                        .background(Capsule().fill(Color.tasukiPrimaryButtonFill))
                     }
-                } label: {
-                    HStack(spacing: 8) {
-                        Image(systemName: tracker.isPaused ? "play.fill" : "pause.fill")
-                        Text(tracker.isPaused ? "再開" : "一時停止")
+                    .buttonStyle(.plain)
+
+                    Button {
+                        finishAndPrepareDraft()
+                    } label: {
+                        HStack(spacing: 8) {
+                            Image(systemName: "flag.checkered")
+                            Text("終了")
+                        }
+                        .font(.system(size: 17, weight: .bold))
+                        .foregroundColor(Color.pureWhite)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 16)
+                        .background(Capsule().fill(Color.tasukiPrimary))
                     }
-                    .font(.system(size: 17, weight: .bold))
-                    .foregroundColor(Color.tasukiOnBrandYellow)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 16)
-                    .background(Capsule().fill(Color.tasukiPrimaryButtonFill))
+                    .buttonStyle(.plain)
                 }
-                .buttonStyle(.plain)
-
-                Button {
-                    finishAndPrepareDraft()
-                } label: {
-                    HStack(spacing: 8) {
-                        Image(systemName: "flag.checkered")
-                        Text("終了")
-                    }
-                    .font(.system(size: 17, weight: .bold))
-                    .foregroundColor(Color.pureWhite)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 16)
-                    .background(Capsule().fill(Color.tasukiPrimary))
-                }
-                .buttonStyle(.plain)
+                .padding(.horizontal, 20)
+                .padding(.vertical, 12)
+                .padding(.bottom, safeBottom > 0 ? 0 : 8)
+                .background(Color.tasukiDarkBackground)
             }
-            .padding(.horizontal, 20)
-            .padding(.vertical, 12)
-            .background(Color.tasukiDarkBackground)
+            .frame(width: geo.size.width, height: totalH, alignment: .top)
         }
         .background(Color.tasukiDarkBackground)
+        .ignoresSafeArea(edges: .top)
         .onChange(of: now) { _, _ in
             syncTrackingMapCamera()
         }
@@ -319,22 +315,157 @@ struct RunRecordingView: View {
         .onChange(of: tracker.lastKnownCoordinate?.latitude) { _, _ in
             syncTrackingMapCamera()
         }
-        .onChange(of: isTrackingMapExpanded) { _, expanded in
-            if expanded {
-                syncTrackingMapCamera()
-            }
+        .onChange(of: recordingSheetFraction) { _, _ in
+            syncTrackingMapCamera()
         }
         .onAppear {
             syncTrackingMapCamera()
         }
     }
 
-    private func syncTrackingMapCamera() {
-        trackingMapCamera = .region(trackingLiveMapRegion)
+    /// 折りたたみ（画像2: 下部シート・マップ多め）
+    private let recordingSheetMinFraction: CGFloat = 0.30
+    /// デフォルト展開（画像1: 記録が主役・上端にマップが細く見える）
+    private let recordingSheetMaxFraction: CGFloat = 0.94
+
+    /// 二段階 UI の切り替え境界（スナップの中央値と一致）
+    private var recordingSheetCollapsedThreshold: CGFloat {
+        (recordingSheetMinFraction + recordingSheetMaxFraction) / 2
     }
 
-    /// 展開前: 黄帯（画面上端まで）＋下スワイプで地図
-    private var trackingExpandedYellowHeaderOnly: some View {
+    /// 走行中: 記録シートの下に敷く全幅マップ（常に同じ領域に配置し、シートで覆う／見せる）。
+    private func trackingMapBackgroundLayer(height: CGFloat, width: CGFloat) -> some View {
+        ZStack(alignment: .topTrailing) {
+            Map(position: $trackingMapCamera, interactionModes: [.pan, .zoom, .rotate]) {
+                if routeCoordinates.count >= 2 {
+                    MapPolyline(coordinates: routeCoordinates)
+                        .stroke(Color.tasukiAccent, lineWidth: 5)
+                }
+                if let cur = tracker.lastKnownCoordinate {
+                    Annotation("現在地", coordinate: cur) {
+                        ZStack {
+                            Circle()
+                                .fill(Color.tasukiAccent.opacity(0.35))
+                                .frame(width: 24, height: 24)
+                            Circle()
+                                .fill(Color.white)
+                                .frame(width: 11, height: 11)
+                            Circle()
+                                .fill(Color.tasukiAccent)
+                                .frame(width: 7, height: 7)
+                        }
+                    }
+                }
+            }
+            .frame(width: width, height: height)
+            .allowsHitTesting(recordingSheetFraction < recordingSheetCollapsedThreshold)
+
+            if tracker.lastKnownCoordinate != nil {
+                Label("GPS", systemImage: "location.fill")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundColor(Color.tasukiAccent)
+                    .padding(10)
+                    .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 10))
+                    .padding(14)
+                    .allowsHitTesting(false)
+            }
+        }
+        .frame(width: width, height: height)
+        .clipped()
+        .simultaneousGesture(recordingSheetResizeGesture(totalHeight: height))
+    }
+
+    private func recordingTrackingSheet(totalHeight: CGFloat, topSafeInset: CGFloat) -> some View {
+        /// スナップが二値のため、中央より下なら折りたたみ UI（マップ最大化側）
+        let collapsed = recordingSheetFraction < recordingSheetCollapsedThreshold
+        let hintTopPadding = max(topSafeInset, 12)
+        return Group {
+            if collapsed {
+                VStack(spacing: 0) {
+                    recordingSheetDragHandleRow(compact: true)
+                    recordingCompactYellowStatsBar
+                }
+            } else {
+                VStack(spacing: 0) {
+                    recordingSheetDragHandleRow(compact: false)
+                        .padding(.top, hintTopPadding)
+                    recordingExpandedYellowHeaderBlock
+                    trackingStatsBlock
+                    Spacer(minLength: 0)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .background(Color.tasukiDarkBackground)
+        .clipShape(
+            UnevenRoundedRectangle(
+                topLeadingRadius: 22,
+                bottomLeadingRadius: 0,
+                bottomTrailingRadius: 0,
+                topTrailingRadius: 22,
+                style: .continuous
+            )
+        )
+        .shadow(color: Color.black.opacity(0.18), radius: 18, y: -6)
+        .highPriorityGesture(recordingSheetResizeGesture(totalHeight: totalHeight))
+    }
+
+    private func recordingSheetDragHandleRow(compact: Bool) -> some View {
+        VStack(spacing: 8) {
+            Capsule()
+                .fill(Color.tasukiPrimary.opacity(0.28))
+                .frame(width: 42, height: 5)
+            Text(compact ? "上にスワイプして記録を全画面に" : "下にスワイプしてマップを表示")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundColor(Color.tasukiMutedText)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 12)
+        }
+        .padding(.top, compact ? 10 : 0)
+        .padding(.bottom, compact ? 8 : 14)
+        .frame(maxWidth: .infinity)
+    }
+
+    /// パネルを狭めたときの黄帯（時間・ペース）
+    private var recordingCompactYellowStatsBar: some View {
+        HStack(alignment: .center, spacing: 0) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("時間")
+                    .font(.system(size: 11, weight: .bold))
+                    .tracking(1.2)
+                    .foregroundColor(Color.tasukiPrimary.opacity(0.65))
+                Text(formatDuration(elapsedSeconds))
+                    .font(.system(size: 28, weight: .bold))
+                    .foregroundColor(Color.tasukiPrimary)
+                    .monospacedDigit()
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.65)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            Rectangle()
+                .fill(Color.tasukiPrimary.opacity(0.2))
+                .frame(width: 1, height: 36)
+            VStack(alignment: .leading, spacing: 4) {
+                Text("平均ペース")
+                    .font(.system(size: 11, weight: .bold))
+                    .tracking(1.2)
+                    .foregroundColor(Color.tasukiPrimary.opacity(0.65))
+                Text(currentPaceText)
+                    .font(.system(size: 28, weight: .bold))
+                    .foregroundColor(Color.tasukiPrimary)
+                    .monospacedDigit()
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.65)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(.horizontal, 20)
+        .padding(.vertical, 12)
+        .background(Color.tasukiBrandYellow)
+    }
+
+    /// パネルを広げたときの黄ヘッダ（時間・カロリー）
+    private var recordingExpandedYellowHeaderBlock: some View {
         VStack(spacing: 12) {
             Text("記録中")
                 .font(.system(size: 11, weight: .bold))
@@ -375,93 +506,48 @@ struct RunRecordingView: View {
                 }
                 .frame(maxWidth: .infinity)
             }
-            HStack(spacing: 6) {
-                Image(systemName: "arrow.down")
-                    .font(.system(size: 11, weight: .semibold))
-                Text("下にスワイプして地図を表示")
-                    .font(.system(size: 11, weight: .bold))
-                    .tracking(1.2)
-            }
-            .foregroundColor(Color.tasukiPrimary.opacity(0.55))
         }
         .padding(.horizontal, 20)
-        .padding(.top, 8)
+        .padding(.top, 4)
         .padding(.bottom, 14)
         .frame(maxWidth: .infinity)
-        .background(
-            Color.tasukiBrandYellow
-                .ignoresSafeArea(edges: .top)
-        )
-        .gesture(
-            DragGesture(minimumDistance: 24)
-                .onEnded { value in
-                    if value.translation.height > 56 {
-                        withAnimation(.spring(response: 0.38, dampingFraction: 0.86)) {
-                            isTrackingMapExpanded = true
-                        }
-                    }
-                }
-        )
+        .background(Color.tasukiBrandYellow)
     }
 
-    /// 地図表示時: 時間と平均ペースのみの折りたたみヘッダー
-    private var trackingCompactYellowBar: some View {
-        HStack(alignment: .center, spacing: 0) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("時間")
-                    .font(.system(size: 11, weight: .bold))
-                    .tracking(1.2)
-                    .foregroundColor(Color.tasukiPrimary.opacity(0.65))
-                Text(formatDuration(elapsedSeconds))
-                    .font(.system(size: 32, weight: .bold))
-                    .foregroundColor(Color.tasukiPrimary)
-                    .monospacedDigit()
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.65)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            Rectangle()
-                .fill(Color.tasukiPrimary.opacity(0.2))
-                .frame(width: 1, height: 40)
-            VStack(alignment: .leading, spacing: 4) {
-                Text("平均ペース")
-                    .font(.system(size: 11, weight: .bold))
-                    .tracking(1.2)
-                    .foregroundColor(Color.tasukiPrimary.opacity(0.65))
-                Text(currentPaceText)
-                    .font(.system(size: 32, weight: .bold))
-                    .foregroundColor(Color.tasukiPrimary)
-                    .monospacedDigit()
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.65)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            Image(systemName: "chevron.up")
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundColor(Color.tasukiPrimary.opacity(0.45))
-                .padding(.leading, 4)
-        }
-        .padding(.horizontal, 20)
-        .padding(.vertical, 12)
-        .padding(.top, 4)
-        .frame(maxWidth: .infinity)
-        .background(
-            Color.tasukiBrandYellow
-                .ignoresSafeArea(edges: .top)
-        )
-        .gesture(
-            DragGesture(minimumDistance: 20)
-                .onEnded { value in
-                    if value.translation.height < -48 {
-                        withAnimation(.spring(response: 0.38, dampingFraction: 0.86)) {
-                            isTrackingMapExpanded = false
-                        }
-                    }
+    private func recordingSheetResizeGesture(totalHeight: CGFloat) -> some Gesture {
+        DragGesture(minimumDistance: 10, coordinateSpace: .local)
+            .onChanged { value in
+                let dx = abs(value.translation.width)
+                let dy = value.translation.height
+                guard abs(dy) > dx * 0.45 else { return }
+                if recordingSheetDragStartFraction == nil {
+                    recordingSheetDragStartFraction = recordingSheetFraction
                 }
-        )
+                guard let start = recordingSheetDragStartFraction else { return }
+                let delta = dy / max(totalHeight, 120)
+                let next = start - delta
+                recordingSheetFraction = min(max(next, recordingSheetMinFraction), recordingSheetMaxFraction)
+            }
+            .onEnded { _ in
+                recordingSheetDragStartFraction = nil
+                withAnimation(.spring(response: 0.42, dampingFraction: 0.88)) {
+                    recordingSheetFraction = snapRecordingSheetFraction(recordingSheetFraction)
+                }
+            }
     }
 
-    /// 平均速度・距離（黄帯の下）
+    /// 記録の全画面とマップ最大化の二段階のみ
+    private func snapRecordingSheetFraction(_ f: CGFloat) -> CGFloat {
+        let clamped = min(max(f, recordingSheetMinFraction), recordingSheetMaxFraction)
+        let mid = (recordingSheetMinFraction + recordingSheetMaxFraction) / 2
+        return clamped >= mid ? recordingSheetMaxFraction : recordingSheetMinFraction
+    }
+
+    private func syncTrackingMapCamera() {
+        trackingMapCamera = .region(trackingLiveMapRegion)
+    }
+
+    /// 平均速度・距離（展開パネル内）
     private var trackingStatsBlock: some View {
         VStack(spacing: 18) {
             VStack(spacing: 6) {
@@ -517,108 +603,13 @@ struct RunRecordingView: View {
         )
     }
 
-    /// 地図モード時: 残り領域いっぱい。走行軌跡（ポリライン）＋現在地
-    private var trackingMapFillContent: some View {
-        GeometryReader { geo in
-            ZStack(alignment: .topLeading) {
-                Map(position: $trackingMapCamera, interactionModes: [.pan, .zoom, .rotate]) {
-                    if routeCoordinates.count >= 2 {
-                        MapPolyline(coordinates: routeCoordinates)
-                            .stroke(Color.tasukiAccent, lineWidth: 5)
-                    }
-                    if let cur = tracker.lastKnownCoordinate {
-                        Annotation("現在地", coordinate: cur) {
-                            ZStack {
-                                Circle()
-                                    .fill(Color.tasukiAccent.opacity(0.35))
-                                    .frame(width: 24, height: 24)
-                                Circle()
-                                    .fill(Color.white)
-                                    .frame(width: 11, height: 11)
-                                Circle()
-                                    .fill(Color.tasukiAccent)
-                                    .frame(width: 7, height: 7)
-                            }
-                        }
-                    }
-                }
-                .frame(width: geo.size.width, height: geo.size.height)
-                .clipShape(RoundedRectangle(cornerRadius: 16))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 16)
-                        .stroke(Color.tasukiDarkCardSecondary, lineWidth: 1)
-                )
-
-                if tracker.lastKnownCoordinate != nil {
-                    Label("GPS", systemImage: "location.fill")
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundColor(Color.tasukiAccent)
-                        .padding(10)
-                        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 10))
-                        .padding(10)
-                }
-            }
-        }
-        .padding(.horizontal, 16)
-        .padding(.top, 8)
-        .simultaneousGesture(
-            DragGesture(minimumDistance: 20)
-                .onEnded { value in
-                    if value.translation.height < -48 {
-                        withAnimation(.spring(response: 0.38, dampingFraction: 0.86)) {
-                            isTrackingMapExpanded = false
-                        }
-                    }
-                }
-        )
-    }
-
-    /// 地図表示中でも下部に残す「引き出し」風ハンドル。
-    private var trackingBottomCollapsedHandle: some View {
-        HStack(spacing: 10) {
-            Capsule()
-                .fill(Color.tasukiPrimary.opacity(0.25))
-                .frame(width: 34, height: 5)
-            Text("上に引き出して記録ビューへ")
-                .font(.system(size: 11, weight: .bold))
-                .tracking(1.2)
-                .foregroundColor(Color.tasukiMutedText)
-            Image(systemName: "chevron.up")
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundColor(Color.tasukiMutedText.opacity(0.85))
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 12)
-        .background(
-            RoundedRectangle(cornerRadius: 14)
-                .fill(Color.tasukiSurface)
-                .shadow(color: Color.black.opacity(0.08), radius: 8, y: 2)
-        )
-        .contentShape(Rectangle())
-        .onTapGesture {
-            withAnimation(.spring(response: 0.38, dampingFraction: 0.86)) {
-                isTrackingMapExpanded = false
-            }
-        }
-        .simultaneousGesture(
-            DragGesture(minimumDistance: 18)
-                .onEnded { value in
-                    if value.translation.height < -28 {
-                        withAnimation(.spring(response: 0.38, dampingFraction: 0.86)) {
-                            isTrackingMapExpanded = false
-                        }
-                    }
-                }
-        )
-    }
-
-    private var titleCard: some View {
+    private var runHeroTagline: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("RUN RECORDER")
                 .font(.system(size: 11, weight: .bold))
                 .tracking(1.2)
                 .foregroundColor(Color.tasukiMutedText)
-            Text("GPSで記録して履歴・チャレンジに反映")
+            Text("GPSで記録して履歴に反映")
                 .font(.system(size: 16, weight: .semibold))
                 .foregroundColor(Color.tasukiPrimary)
         }
@@ -638,86 +629,20 @@ struct RunRecordingView: View {
         }
     }
 
-    private var challengePreviewChallenge: MonthlyChallenge? {
-        let monthActivities = activityStore.activitiesInCurrentMonth()
-        let list = ChallengeService.shared.currentMonthChallenges(from: monthActivities)
-        return list.max { $0.progress < $1.progress }
-    }
-
-    private var challengeHubEntry: some View {
-        NavigationLink(destination: ChallengeHubView()) {
-            HStack(alignment: .top, spacing: 10) {
-                Image(systemName: "flag.checkered.2.crossed")
-                    .font(.system(size: 20, weight: .semibold))
-                    .foregroundColor(Color.tasukiPrimary)
-                    .accessibilityHidden(true)
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("CHALLENGE")
-                        .font(.system(size: 15, weight: .bold))
-                        .foregroundColor(.black)
-                    if let c = challengePreviewChallenge {
-                        challengeTopProgressThumbnail(challenge: c)
-                    }
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundColor(Color.tasukiMutedText)
-            }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 10)
-            .background(
-                RoundedRectangle(cornerRadius: 12)
-                    .fill(Color.tasukiBrandYellow.opacity(0.42))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 12)
-                    .strokeBorder(Color.tasukiPrimary.opacity(0.25), lineWidth: 1)
-            )
+    /// 旧 CHALLENGE 行の位置。カウントダウン後に `beginRunStartCountdown` と同じフローで記録開始。
+    private var primaryStartRunButton: some View {
+        Button {
+            beginRunStartCountdown()
+        } label: {
+            Text(runStartCountdownPhase != nil ? "準備中…" : "走行を開始")
+                .font(.system(size: 16, weight: .bold))
+                .foregroundColor(Color.tasukiOnBrandYellow)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 14)
+                .background(RoundedRectangle(cornerRadius: 12).fill(Color.tasukiPrimaryButtonFill))
         }
         .buttonStyle(.plain)
-    }
-
-    @ViewBuilder
-    private func challengeTopProgressThumbnail(challenge: MonthlyChallenge) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(challenge.title)
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundColor(.black)
-                .lineLimit(1)
-            ProgressView(value: challenge.progress)
-                .tint(challenge.isCompleted ? Color.green : Color.tasukiAccent)
-            HStack(spacing: 6) {
-                Text("\(formatChallengeMetric(challenge.current)) / \(formatChallengeMetric(challenge.target)) \(challenge.unit)")
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundColor(Color.tasukiMutedText)
-                    .lineLimit(1)
-                Spacer(minLength: 0)
-                Text("\(Int((challenge.progress * 100).rounded()))%")
-                    .font(.system(size: 11, weight: .bold))
-                    .foregroundColor(Color.tasukiPrimary)
-                    .monospacedDigit()
-            }
-        }
-        .padding(10)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: 10)
-                .fill(Color.white.opacity(0.92))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 10)
-                .strokeBorder(Color.tasukiPrimary.opacity(0.14), lineWidth: 1)
-        )
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("進捗が最も進んでいるチャレンジ \(challenge.title)")
-    }
-
-    private func formatChallengeMetric(_ value: Double) -> String {
-        if value.rounded(.down) == value {
-            return "\(Int(value))"
-        }
-        return String(format: "%.1f", value)
+        .disabled(runStartCountdownPhase != nil)
     }
 
     private var mapCard: some View {
@@ -809,53 +734,6 @@ struct RunRecordingView: View {
         }
     }
 
-    private var actionButtons: some View {
-        VStack(spacing: 10) {
-            if tracker.isTracking {
-                Button {
-                    finishAndPrepareDraft()
-                } label: {
-                    Text("走行を終了して保存")
-                        .font(.system(size: 16, weight: .bold))
-                        .foregroundColor(Color.tasukiOnBrandYellow)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 14)
-                        .background(RoundedRectangle(cornerRadius: 12).fill(Color.tasukiPrimaryButtonFill))
-                }
-                .buttonStyle(.plain)
-
-                Button {
-                    tracker.stop()
-                    tracker.reset()
-                } label: {
-                    Text("保存せずに破棄")
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundColor(Color.tasukiPrimary)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 12)
-                        .background(
-                            RoundedRectangle(cornerRadius: 12)
-                                .stroke(Color.tasukiDarkCardSecondary, lineWidth: 1)
-                        )
-                }
-                .buttonStyle(.plain)
-            } else {
-                Button {
-                    beginRunStartCountdown()
-                } label: {
-                    Text(runStartCountdownPhase != nil ? "準備中…" : "走行を開始")
-                        .font(.system(size: 16, weight: .bold))
-                        .foregroundColor(Color.tasukiOnBrandYellow)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 14)
-                        .background(RoundedRectangle(cornerRadius: 12).fill(Color.tasukiPrimaryButtonFill))
-                }
-                .buttonStyle(.plain)
-                .disabled(runStartCountdownPhase != nil)
-            }
-        }
-    }
-
     @ViewBuilder
     private func runStartCountdownOverlay(phase: Int) -> some View {
         ZStack {
@@ -882,6 +760,7 @@ struct RunRecordingView: View {
                     try Task.checkCancellation()
                 }
                 runStartCountdownPhase = nil
+                recordingSheetFraction = recordingSheetMaxFraction
                 tracker.start()
                 now = Date()
             } catch {

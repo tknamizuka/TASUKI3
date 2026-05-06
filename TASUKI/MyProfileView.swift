@@ -43,37 +43,35 @@ struct MyProfileView: View {
 
                 ScrollView(showsIndicators: false) {
                     VStack(spacing: 0) {
-                        heroSection
-                            .padding(.bottom, 28)
-                        if coachCertification.isCertifiedCoach {
-                            certifiedCoachSection
+                        TasukiBrandedHeroHeader(title: "ME")
+                        VStack(spacing: 0) {
+                            heroSection
                                 .padding(.bottom, 28)
+                            if coachCertification.isCertifiedCoach {
+                                certifiedCoachSection
+                                    .padding(.bottom, 28)
+                            }
+                            activitySection
+                                .padding(.bottom, 28)
+                            statsSection
+                                .padding(.bottom, 28)
+                            profileSection
+                                .padding(.bottom, 28)
+                            aboutSection
                         }
-                        activitySection
-                            .padding(.bottom, 28)
-                        statsSection
-                            .padding(.bottom, 28)
-                        profileSection
-                            .padding(.bottom, 28)
-                        aboutSection
+                        .padding(.horizontal, 20)
+                        .padding(.top, 8)
                     }
-                    .padding(.horizontal, 20)
-                    .padding(.top, 10)
                     .padding(.bottom, 36)
                 }
             }
             .navigationTitle("")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .principal) {
-                    Text("Me")
-                        .font(.system(size: 19, weight: .bold))
-                        .foregroundColor(.black)
-                }
                 ToolbarItem(placement: .navigationBarTrailing) {
                     NavigationLink(destination: ProfileEditView()) {
                         Image(systemName: "pencil")
-                            .foregroundColor(.black)
+                            .foregroundColor(Color.tasukiPrimary)
                     }
                 }
             }

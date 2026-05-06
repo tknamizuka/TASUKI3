@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct ChallengeHubView: View {
+    var showsOwnToolbar: Bool = true
     @ObservedObject private var activityStore = RunActivityStore.shared
     @State private var challenges: [MonthlyChallenge] = []
     @State private var leaderboard: [ChallengeLeaderboardEntry] = []
@@ -26,10 +27,12 @@ struct ChallengeHubView: View {
         .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            ToolbarItem(placement: .principal) {
-                Text("Challenges")
-                    .font(.system(size: 19, weight: .bold))
-                    .foregroundColor(Color.tasukiPrimary)
+            if showsOwnToolbar {
+                ToolbarItem(placement: .principal) {
+                    Text("Challenges")
+                        .font(.system(size: 19, weight: .bold))
+                        .foregroundColor(Color.tasukiPrimary)
+                }
             }
         }
         .onAppear(perform: refresh)

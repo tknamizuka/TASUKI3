@@ -6,7 +6,6 @@
 //
 
 import SwiftUI
-import UIKit
 import Combine
 
 /// HealthKit 取得待ちの間に円グラフへ出すサンプル値（黄→紫の弧の見た目用。取得後は実距離に切り替わる）。
@@ -131,23 +130,7 @@ struct HomeView: View {
 
             ScrollView(showsIndicators: false) {
                 VStack(spacing: 0) {
-                    GeometryReader { geo in
-                        ZStack {
-                            HStack(alignment: .center, spacing: 12) {
-                                tasukiHomeLogo()
-                                Text("TASUKI")
-                                    .font(.system(size: 50, weight: .heavy))
-                                    .tracking(10)
-                                    .foregroundColor(Color.tasukiPrimary)
-                                    .shadow(color: .white.opacity(0.8), radius: 2, x: 0, y: 0)
-                            }
-                            .accessibilityElement(children: .combine)
-                            .accessibilityLabel("TASUKI")
-                        }
-                        .frame(width: geo.size.width, height: geo.size.height)
-                    }
-                    .frame(height: 136)
-                    .padding(.top, 20)
+                    TasukiBrandedHeroHeader(title: "TASUKI")
 
                     if runTracker.isTracking {
                         activeRunHomeBanner
@@ -249,15 +232,6 @@ struct HomeView: View {
                     }
 
                     VStack(spacing: 0) {
-                        NavigationLink(destination: ChallengeHubView()) {
-                            TasukiFlatHubRow(
-                                title: "CHALLENGE",
-                                subtitle: "進捗は参考",
-                                systemImage: "flag.checkered.2.crossed",
-                                iconForegroundColor: Color.tasukiPrimary
-                            )
-                        }
-                        .buttonStyle(.plain)
                     }
                     .padding(.horizontal, 20)
 
@@ -425,36 +399,6 @@ struct HomeView: View {
             return String(format: "%d:%02d:%02d", h, m, s)
         }
         return String(format: "%02d:%02d", m, s)
-    }
-
-    /// バンドル内の `logo.jpg` またはアセットカタログの `logo`（透過 PNG 可）
-    @ViewBuilder
-    private func tasukiHomeLogo() -> some View {
-        if let ui = Self.loadBundledLogoImage() {
-            Image(uiImage: ui)
-                .resizable()
-                .interpolation(.high)
-                .scaledToFit()
-                .frame(width: 84, height: 84)
-                .accessibilityHidden(true)
-        }
-    }
-
-    private static func loadBundledLogoImage() -> UIImage? {
-        let base: UIImage?
-        if let img = UIImage(named: "logo") {
-            base = img
-        } else if let path = Bundle.main.path(forResource: "logo", ofType: "png"),
-                  let img = UIImage(contentsOfFile: path) {
-            base = img
-        } else if let path = Bundle.main.path(forResource: "logo", ofType: "jpg"),
-                  let img = UIImage(contentsOfFile: path) {
-            base = img
-        } else {
-            base = nil
-        }
-        guard let base else { return nil }
-        return base.tasukiKnockingOutNearWhiteBackground()
     }
 
     private func loadDistanceFromHealthKit() {

@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 struct MainTabView: View {
     @StateObject private var mainTabRouter = MainTabRouter()
@@ -6,6 +7,9 @@ struct MainTabView: View {
     @State private var tabEnterDate: Date = Date()
     @State private var showReengagementSheet = false
     @State private var reengagementGapDays = 0
+    /// 非 Home タブのパネルを右へずらす量（Home を手前に見せる）
+    @State private var panelSlideOffset: CGFloat = 0
+    @State private var screenWidth: CGFloat = UIScreen.main.bounds.width
     @EnvironmentObject private var unreadProvider: UnreadCountProviderBase
     @EnvironmentObject private var authManager: AuthManager
     @EnvironmentObject private var coachCertification: CoachCertificationManager
@@ -25,30 +29,26 @@ struct MainTabView: View {
     }
 
     var body: some View {
-        Group {
-            switch mainTabRouter.selectedTab {
-            case 0:
-                NavigationStack {
-                    HomeView()
-                        .environmentObject(unreadProvider)
-                        .environmentObject(mainTabRouter)
-                        .environmentObject(tabBarVisibility)
+        GeometryReader { geo in
+            let w = geo.size.width
+            ZStack {
+                homeTabRoot
+                    .frame(width: w, height: geo.size.height)
+                    .allowsHitTesting(mainTabRouter.selectedTab == 0)
+
+                if mainTabRouter.selectedTab != 0 {
+                    nonHomeTabRoot(for: mainTabRouter.selectedTab)
+                        .frame(width: w, height: geo.size.height)
+                        .offset(x: panelSlideOffset)
+                        .background(Color.tasukiDarkBackground)
+                        .clipped()
+                        .shadow(color: Color.black.opacity(panelSlideOffset > 2 ? 0.18 : 0), radius: 10, x: -6, y: 0)
                 }
-            case 1:
-                NavigationStack {
-                    RunRecordingView()
-                        .environmentObject(coachCertification)
-                        .environmentObject(mainTabRouter)
-                }
-            case 2:
-                TeamView()
-            case 3:
-                FindView()
-            case 4:
-                meTabContent()
-            default:
-                NavigationStack { HomeView().environmentObject(unreadProvider).environmentObject(mainTabRouter).environmentObject(tabBarVisibility) }
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .onAppear { screenWidth = w }
+            .onChange(of: w) { _, newW in screenWidth = newW }
+            .simultaneousGesture(interactiveSwipeToHomeGesture(screenWidth: w))
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .environmentObject(mainTabRouter)
@@ -57,7 +57,6 @@ struct MainTabView: View {
                 backToHomeButton
             }
         }
-        .simultaneousGesture(returnToHomeGesture)
         .safeAreaInset(edge: .bottom, spacing: 0) {
             if shouldShowMenuBar {
                 customTabBar
@@ -84,6 +83,9 @@ struct MainTabView: View {
             }
         }
         .onChange(of: mainTabRouter.selectedTab) { newValue in
+            if newValue != 0 {
+                panelSlideOffset = 0
+            }
             if newValue == 2 {
                 mainTabRouter.suppressBackToHomeOverlay = false
             }
@@ -139,23 +141,85 @@ struct MainTabView: View {
         .padding(.leading, 12)
     }
 
-    /// 右フリック（強め）で Home に戻す（閾値は短すぎる誤爆を避けるためやや長め）。
-    private var returnToHomeGesture: some Gesture {
-        DragGesture(minimumDistance: 32, coordinateSpace: .local)
+    private var homeTabRoot: some View {
+        NavigationStack {
+            HomeView()
+                .environmentObject(unreadProvider)
+                .environmentObject(mainTabRouter)
+                .environmentObject(tabBarVisibility)
+        }
+    }
+
+    @ViewBuilder
+    private func nonHomeTabRoot(for tab: Int) -> some View {
+        switch tab {
+        case 1:
+            NavigationStack {
+                RunRecordingView()
+                    .environmentObject(coachCertification)
+                    .environmentObject(mainTabRouter)
+            }
+        case 2:
+            TeamView()
+        case 3:
+            FindView()
+        case 4:
+            meTabContent()
+        default:
+            NavigationStack {
+                HomeView()
+                    .environmentObject(unreadProvider)
+                    .environmentObject(mainTabRouter)
+                    .environmentObject(tabBarVisibility)
+            }
+        }
+    }
+
+    /// 右にスワイプしてパネルを動かし、閾値で Home に戻る（縦スクロールとの兼ね合いで横方向を優先）。
+    private func interactiveSwipeToHomeGesture(screenWidth: CGFloat) -> some Gesture {
+        DragGesture(minimumDistance: 28, coordinateSpace: .local)
+            .onChanged { value in
+                guard mainTabRouter.selectedTab != 0 else { return }
+                guard !mainTabRouter.suppressBackToHomeOverlay else { return }
+                let dx = value.translation.width
+                let dy = abs(value.translation.height)
+                guard dx > 0, dx > dy * 0.65 else { return }
+                panelSlideOffset = min(dx, screenWidth)
+            }
             .onEnded { value in
                 guard mainTabRouter.selectedTab != 0 else { return }
-                let movedRightFarEnough = value.translation.width >= 240
-                let hasStrongRightVelocity = value.predictedEndTranslation.width >= 380
-                if movedRightFarEnough || hasStrongRightVelocity {
-                    returnToHome()
+                guard !mainTabRouter.suppressBackToHomeOverlay else {
+                    withAnimation(.spring(response: 0.38, dampingFraction: 0.88)) {
+                        panelSlideOffset = 0
+                    }
+                    return
+                }
+                let dx = value.translation.width
+                let predicted = value.predictedEndTranslation.width
+                let shouldComplete = dx >= 240 || predicted >= 380
+                if shouldComplete {
+                    finishSwipeTransitionToHome(usingWidth: screenWidth)
+                } else {
+                    withAnimation(.spring(response: 0.38, dampingFraction: 0.88)) {
+                        panelSlideOffset = 0
+                    }
                 }
             }
     }
 
-    private func returnToHome() {
-        withAnimation(.easeInOut(duration: 0.22)) {
-            mainTabRouter.selectedTab = 0
+    private func finishSwipeTransitionToHome(usingWidth: CGFloat) {
+        let w = usingWidth > 1 ? usingWidth : screenWidth
+        withAnimation(.easeInOut(duration: 0.28)) {
+            panelSlideOffset = w
         }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.29) {
+            mainTabRouter.selectedTab = 0
+            panelSlideOffset = 0
+        }
+    }
+
+    private func returnToHome() {
+        finishSwipeTransitionToHome(usingWidth: screenWidth)
     }
     
     private func meTabContent() -> some View {
@@ -198,7 +262,13 @@ struct MainTabView: View {
     private var customTabBar: some View {
         HStack(spacing: 0) {
             ForEach(0..<tabItems.count, id: \.self) { index in
-                Button(action: { mainTabRouter.selectedTab = index }) {
+                Button(action: {
+                    if index == 0, mainTabRouter.selectedTab != 0 {
+                        returnToHome()
+                    } else {
+                        mainTabRouter.selectedTab = index
+                    }
+                }) {
                     VStack(spacing: 2) {
                         tabBarIcon(systemName: tabItems[index].icon, index: index)
                         Text(tabItems[index].label)

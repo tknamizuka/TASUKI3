@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import UIKit
 import FirebaseAuth
 import FirebaseFirestore
 
@@ -56,8 +57,26 @@ private struct EkidenSubmitSheetItem: Identifiable {
     }
 }
 
+/// チームチャットシート内: EKIDEN 用 / Distance 用の別チームルーム
+private enum TeamChatChannel: Int, Hashable {
+    case ekiden = 0
+    case distance = 1
+}
+
+/// Firestore `teams/{id}` の読み取り先（EKIDEN 用 `teamId` / Distance 用 `distanceTeamId`）
+private enum TeamFirestoreSlot {
+    case ekiden
+    case distance
+}
+
 // MARK: - Team View
 struct TeamView: View {
+    private enum TeamMode: Int {
+        case challenge
+        case ekiden
+        case distanceChallenge
+    }
+
     private let maxTeamMembers = 10
     var useMockTeamFlow: Bool = false
     /// プレビュー用: `true` で脱退可UI、`false` で期間中（グレー）を強制。`nil` で実データの駅伝期間を使用
@@ -66,9 +85,13 @@ struct TeamView: View {
     var debugPreviewTeamId: String? = nil
     
     @State private var userTeamId: String? = nil
-    @State private var selectedTeamId: String = ""
+    /// Distance チャレンジ用チーム（Firestore `users.distanceTeamId`）。未設定なら `nil`
+    @State private var userDistanceTeamId: String? = nil
+    /// メンバー管理などで開くチームドキュメント ID（EKIDEN / Distance で別）
+    @State private var teamDetailNavTeamId: String = ""
     @State private var showTeamDetail: Bool = false
     @State private var showJoinCreate: Bool = false
+    @State private var selectedMode: TeamMode = .ekiden
     /// EKIDENタブ表示直後、所属チーム判定が返るまでのちらつき抑止
     @State private var isResolvingEntryState: Bool = true
     
@@ -94,12 +117,21 @@ struct TeamView: View {
     
     // チームチャットシート
     @State private var showTeamChatSheet = false
+    @State private var teamChatOpenChannel: TeamChatChannel = .ekiden
+    @EnvironmentObject private var mainTabRouter: MainTabRouter
     
-    // オーナーかどうか（メンバー管理の表示用）
-    @State private var isTeamOwner: Bool = false
-    
-    // 駅伝イベント状態（MVP UI）
-    @State private var ekidenViewState: EkidenViewState? = nil
+    /// EKIDEN 用チーム（`users.teamId`）のオーナーか
+    @State private var isOwnerEkidenTeam: Bool = false
+    /// Distance 用チーム（`users.distanceTeamId`）のオーナーか
+    @State private var isOwnerDistanceTeam: Bool = false
+
+    /// 駅伝イベント状態: EKIDEN チーム用（`teamId` 由来）
+    @State private var ekidenLineState: EkidenViewState? = nil
+    /// 駅伝イベント状態: Distance チーム用（`distanceTeamId` 由来・enjoy モード等）
+    @State private var distanceLineState: EkidenViewState? = nil
+
+    /// Distance チーム未所属時の参加シート
+    @State private var showDistanceTeamJoinSheet: Bool = false
     /// `.sheet(isPresented:)` + optional だと内容が空の白シートになることがあるため `item` で提示する
     @State private var ekidenSubmitSheetItem: EkidenSubmitSheetItem? = nil
     @State private var showEkidenResultView = false
@@ -131,6 +163,8 @@ struct TeamView: View {
     @State private var spectatorCheers: [SpectatorCheerDisplay] = []
     @State private var spectatorCheerListener: ListenerRegistration?
     @State private var spectatorCheersExpanded = false
+    /// `users/{uid}` の `teamId` / `distanceTeamId` をリアルタイム同期（チャットと所属表示のずれ防止）
+    @State private var userTeamFieldsListener: ListenerRegistration?
     
     // チーム情報
     @State private var teamName: String = "皇居ランナーズ"
@@ -171,9 +205,9 @@ struct TeamView: View {
         return Array(allMembers.prefix(maxTeamMembers))
     }
     
-    // チームチャット
-    // 注: TeamMessageモデルが別ファイルで定義されている前提です。mockTeamMessagesがない場合は空配列で初期化します。
-    @State private var teamMessages: [TeamMessage] = []
+    // チームチャット（モック用: EKIDEN チーム / Distance チームで別配列）
+    @State private var teamMessagesEkiden: [TeamMessage] = []
+    @State private var teamMessagesDistance: [TeamMessage] = []
     
     var progressPercentage: Double {
         guard targetDistance > 0 else { return 0 }
@@ -240,13 +274,56 @@ struct TeamView: View {
     /// 参加チームID（本番の `userTeamId` またはプレビュー用）
     private var resolvedTeamId: String? {
         if let u = userTeamId, !u.isEmpty { return u }
+        if let dist = userDistanceTeamId, !dist.isEmpty { return dist }
         if let d = debugPreviewTeamId, !d.isEmpty { return d }
         return nil
     }
 
+    /// EKIDEN チームID（`users.teamId`）
+    private var ekidenChatTeamId: String {
+        if let u = userTeamId, !u.isEmpty { return u }
+        if let d = debugPreviewTeamId, !d.isEmpty { return d }
+        return ""
+    }
+
+    /// Distance 用チームID（`users.distanceTeamId`）。プレビューは EKIDEN と同様に `debugPreviewTeamId` で共有
+    private var distanceChatTeamId: String {
+        if let d = userDistanceTeamId, !d.isEmpty { return d }
+        if let d = debugPreviewTeamId, !d.isEmpty { return d }
+        return ""
+    }
+
+    /// 現在のタブに対応する駅伝 UI 状態（EKIDEN / Distance で別キャッシュ）
+    private var ekidenStateForSelectedMode: EkidenViewState? {
+        switch selectedMode {
+        case .ekiden:
+            return ekidenLineState
+        case .distanceChallenge:
+            return distanceLineState
+        case .challenge:
+            return nil
+        }
+    }
+
+    /// メンバー管理ボタン等: 現在モードのチームでのオーナー権限
+    private var isTeamOwnerForCurrentMode: Bool {
+        switch selectedMode {
+        case .ekiden:
+            return isOwnerEkidenTeam
+        case .distanceChallenge:
+            return isOwnerDistanceTeam
+        case .challenge:
+            return false
+        }
+    }
+
+    private func isSampleTeamId(_ teamId: String) -> Bool {
+        isSampleTeamFlow || teamId.hasPrefix("example_") || teamId.hasPrefix("example")
+    }
+
     /// 初期表示時のみ、所属状態が未確定なら中間ローディングを出す
     private var shouldShowEntryLoading: Bool {
-        isResolvingEntryState && !isSampleTeamFlow && debugPreviewTeamId == nil && userTeamId == nil
+        isResolvingEntryState && !isSampleTeamFlow && debugPreviewTeamId == nil
     }
     
     /// 駅伝レース期間外のみ脱退可能（期間中はグレーアウト）
@@ -255,7 +332,7 @@ struct TeamView: View {
             return override
         }
         // EKIDEN 状態の読み込み前は一時的に脱退ボタンを出さない（文言ちらつき防止）
-        guard let state = ekidenViewState else { return false }
+        guard let state = ekidenStateForSelectedMode else { return false }
         return !state.isWithinEventWindow
     }
     
@@ -267,10 +344,7 @@ struct TeamView: View {
                     .navigationBarTitleDisplayMode(.inline)
                     .toolbar {
                         ToolbarItem(placement: .principal) {
-                            Text("Ekiden")
-                                .font(.system(size: 19, weight: .bold))
-                                .foregroundColor(Color.tasukiPrimary)
-                                .fixedSize(horizontal: true, vertical: false)
+                            teamToolbarBrandedTitle(for: .ekiden)
                         }
                     }
             } else if resolvedTeamId == nil {
@@ -283,19 +357,23 @@ struct TeamView: View {
                                 ekidenJoinMode: mode,
                                 onComplete: { teamId in
                                     if isSampleTeamFlow {
-                                        self.userTeamId = teamId
-                                        if let id = teamId {
-                                            UserDefaults.standard.set(id, forKey: "myTeamId")
+                                        if hubEkidenJoinMode == .realEkiden {
+                                            self.userTeamId = teamId
+                                            if let id = teamId {
+                                                UserDefaults.standard.set(id, forKey: "myTeamId")
+                                            }
+                                        } else {
+                                            self.userDistanceTeamId = teamId
+                                            if let id = teamId {
+                                                UserDefaults.standard.set(id, forKey: "myDistanceTeamId")
+                                            }
                                         }
-                                    } else {
-                                        loadUserTeamId()
                                     }
                                     if let id = teamId {
-                                        self.selectedTeamId = id
+                                        self.teamDetailNavTeamId = id
                                         self.showTeamDetail = true
                                     } else {
-                                        // 参加確定していない戻り（承認待ち・キャンセル）では参加済みUIにしない
-                                        self.selectedTeamId = ""
+                                        self.teamDetailNavTeamId = ""
                                         self.showTeamDetail = false
                                     }
                                     self.showTeamJoinHub = true
@@ -312,10 +390,7 @@ struct TeamView: View {
                     .navigationBarTitleDisplayMode(.inline)
                     .toolbar {
                         ToolbarItem(placement: .principal) {
-                            Text("Ekiden")
-                                .font(.system(size: 19, weight: .bold))
-                                .foregroundColor(Color.tasukiPrimary)
-                                .fixedSize(horizontal: true, vertical: false)
+                            teamToolbarBrandedTitle(for: .ekiden)
                         }
                         // leading は空けておく（MainTabView の「Home」オーバーレイと横並びで“戻る系が二重”に見えないようにする）
                         ToolbarItemGroup(placement: .topBarTrailing) {
@@ -340,39 +415,387 @@ struct TeamView: View {
                     teamPostLeaveView
                 }
             } else {
+                teamJoinedRootView
+            }
+        }
+        .task(id: debugPreviewTeamId) {
+            if let d = debugPreviewTeamId, !d.isEmpty {
+                if userTeamId == nil { userTeamId = d }
+                if teamDetailNavTeamId.isEmpty { teamDetailNavTeamId = d }
+            }
+        }
+        .task {
+            await EkidenDeviceSampleDataSeeder.seedIfNeeded()
+        }
+        .onAppear {
+            if isSampleTeamFlow || debugPreviewTeamId != nil {
+                isResolvingEntryState = false
+            } else {
+                isResolvingEntryState = true
+                attachUserTeamFieldsListener()
+            }
+            if userTeamId == nil, isSampleTeamFlow, let savedId = UserDefaults.standard.string(forKey: "myTeamId"), !savedId.isEmpty {
+                userTeamId = savedId
+                teamDetailNavTeamId = savedId
+            }
+            if userDistanceTeamId == nil, isSampleTeamFlow, let savedDist = UserDefaults.standard.string(forKey: "myDistanceTeamId"), !savedDist.isEmpty {
+                userDistanceTeamId = savedDist
+            }
+        }
+        .onDisappear {
+            mainTabRouter.suppressBackToHomeOverlay = false
+            detachUserTeamFieldsListener()
+        }
+    } // body の閉じ (修正箇所)
+
+    /// 所属済み時: ナビ・ツールバー・スワイプなど（シート類より先に型チェックさせる）
+    private var teamJoinedChromeView: some View {
+        VStack(spacing: 0) {
+            teamModeSwitcher
+                .padding(.horizontal, 20)
+                .padding(.top, 12)
+            selectedModeContent
+        }
+        .navigationTitle("")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .principal) {
+                teamToolbarBrandedTitle(for: selectedMode)
+            }
+            if selectedMode != .challenge {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        teamChatOpenChannel = (selectedMode == .distanceChallenge) ? .distance : .ekiden
+                        showTeamChatSheet = true
+                    } label: {
+                        Image(systemName: "message.fill")
+                            .font(.system(size: 20))
+                            .foregroundColor(Color.tasukiPrimary)
+                            .frame(width: 44, height: 44)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.borderless)
+                }
+            }
+        }
+        .highPriorityGesture(
+            DragGesture(minimumDistance: 28, coordinateSpace: .local)
+                .onEnded { value in
+                    let horizontal = value.translation.width
+                    let vertical = abs(value.translation.height)
+                    guard vertical < 90 else { return }
+                    guard abs(horizontal) >= 70 else { return }
+                    if horizontal < 0 {
+                        moveToNextMode()
+                    } else {
+                        moveToPreviousMode()
+                    }
+                }
+        )
+    }
+
+    /// 所属済み時のメインUI（`body` の型推論負荷を下げるため切り出し）
+    private var teamJoinedRootView: some View {
+        teamJoinedChromeView
+        .sheet(isPresented: $showTeamChatSheet) {
+            TeamDualTeamChatSheetView(
+                initialChannel: teamChatOpenChannel,
+                ekidenTeamId: ekidenChatTeamId,
+                distanceTeamId: distanceChatTeamId,
+                isSampleEkiden: isSampleTeamId(ekidenChatTeamId),
+                isSampleDistance: distanceChatTeamId.isEmpty ? false : isSampleTeamId(distanceChatTeamId),
+                teamMessagesEkiden: $teamMessagesEkiden,
+                teamMessagesDistance: $teamMessagesDistance,
+                myName: myName,
+                myCondition: myCondition,
+                myStatusMessage: myStatusMessage
+            )
+            .id("chat-\(ekidenChatTeamId)|\(distanceChatTeamId)")
+        }
+        .sheet(isPresented: $showEkidenResultView) {
+            if let state = ekidenLineState {
+                EkidenResultView(state: state, teamId: state.entry.teamId, onDismiss: {
+                    showEkidenResultView = false
+                })
+            }
+        }
+        .sheet(item: $ekidenSubmitSheetItem) { item in
+            EkidenLegSubmitSheet(
+                leg: item.leg,
+                state: item.state,
+                teamId: item.state.entry.teamId,
+                isSampleTeam: isSampleTeamFlow || item.state.entry.teamId.hasPrefix("example"),
+                onDismiss: {
+                    ekidenSubmitSheetItem = nil
+                },
+                onSuccess: {
+                    Task { await loadEkidenState(teamId: item.state.entry.teamId) }
+                }
+            )
+        }
+        .sheet(isPresented: $showLegRankingSheet) {
+            if let ekiden = ekidenLineState {
+                EkidenLegRankingSheetView(
+                    state: ekiden,
+                    selectedLegIndex: $legRankingSelectedLegIndex,
+                    snapshot: $legRankingSnapshot,
+                    isSampleTeam: isSampleTeamFlow || ekiden.entry.teamId.hasPrefix("example"),
+                    myEntryId: ekiden.entry.id,
+                    currentUid: Auth.auth().currentUser?.uid,
+                    reload: { legIdx in
+                        await reloadLegRanking(legIndex: legIdx, state: ekiden)
+                    }
+                )
+            }
+        }
+        .sheet(isPresented: $showOverallStandingsMap) {
+            if let ekiden = ekidenLineState {
+                EkidenOverallStandingsMapView(
+                    eventId: ekiden.event.id,
+                    isSampleTeam: isSampleTeamFlow || ekiden.entry.teamId.hasPrefix("example"),
+                    usesHakoneCourse: ekiden.usesOfficialHakoneRelayRules,
+                    highlightTeamId: ekiden.entry.teamId,
+                    myOutboundRank: ekiden.outboundRank,
+                    referenceTotalKm: ekiden.rankingProgressReferenceKm,
+                    onOpenLegRanking: {
+                        openLegRankingAfterStandingsDismiss = true
+                        showOverallStandingsMap = false
+                    }
+                )
+            }
+        }
+        .onChange(of: showOverallStandingsMap) { _, presented in
+            guard !presented, openLegRankingAfterStandingsDismiss else { return }
+            openLegRankingAfterStandingsDismiss = false
+            showLegRankingSheet = true
+        }
+        .onAppear {
+            selectedCondition = myCondition
+            if let tid = resolvedTeamId, !tid.isEmpty {
+                if teamDetailNavTeamId.isEmpty { teamDetailNavTeamId = tid }
+                if userTeamId == nil, let d = debugPreviewTeamId, !d.isEmpty {
+                    userTeamId = d
+                }
+                refreshFirestoreTeamAssociations()
+            }
+        }
+        .onChange(of: userTeamId) { _, _ in
+            refreshFirestoreTeamAssociations()
+        }
+        .onChange(of: userDistanceTeamId) { _, _ in
+            refreshFirestoreTeamAssociations()
+        }
+        .alert("TASUKIをつなぐ", isPresented: $showPassTasukiConfirm) {
+            Button("キャンセル", role: .cancel) {
+                passTasukiLegIndex = nil
+            }
+            Button("つなぐ", role: .none) {
+                performPassTasuki()
+            }
+        } message: {
+            Text("走らずにTASUKIだけ次の担当へ渡します。距離は加算されません。")
+        }
+        .alert("チームから脱退しますか？", isPresented: $showLeaveTeamConfirm) {
+            Button("キャンセル", role: .cancel) {}
+            Button("脱退する", role: .destructive) {
+                performLeaveTeam()
+            }
+        } message: {
+            Text("脱退後は駅伝のチーム機能を利用できなくなります。駅伝開催期間外のみ脱退できます。")
+        }
+        .alert("公式記録を棄権扱いにしますか？", isPresented: $showDisqualifyConfirm) {
+            Button("キャンセル", role: .cancel) {}
+            Button("棄権する", role: .destructive) {
+                performTeamDisqualify()
+            }
+        } message: {
+            Text("この操作はオーナーのみ実行できます。チームの公式順位は失格（参考記録）として扱われます。")
+        }
+        .sheet(isPresented: $showOwnerLeaveSheet) {
+            ownerLeaveTransferSheet
+        }
+    }
+
+    @ViewBuilder
+    private var selectedModeContent: some View {
+        switch selectedMode {
+        case .challenge:
+            challengeContent
+        case .ekiden:
+            ekidenContent
+        case .distanceChallenge:
+            distanceChallengeContent
+        }
+    }
+
+    private var modeTabs: [(title: String, mode: TeamMode)] {
+        [
+            ("Challenge", .challenge),
+            ("EKIDEN", .ekiden),
+            ("Distance", .distanceChallenge)
+        ]
+    }
+
+    private var teamModeSwitcher: some View {
+        HStack(spacing: 0) {
+            ForEach(modeTabs, id: \.mode.rawValue) { item in
+                modeSwitchButton(title: item.title, mode: item.mode)
+            }
+        }
+        .padding(.bottom, 6)
+        .overlay(alignment: .bottom) {
+            Rectangle()
+                .fill(Color.tasukiMutedText.opacity(0.2))
+                .frame(height: 1)
+        }
+    }
+
+    private func modeSwitchButton(title: String, mode: TeamMode) -> some View {
+        Button {
+            selectedMode = mode
+        } label: {
+            VStack(spacing: 10) {
+                Text(title)
+                    .font(.system(size: 18, weight: .bold))
+                    .foregroundColor(selectedMode == mode ? Color.tasukiPrimary : Color.tasukiMutedText.opacity(0.7))
+                Rectangle()
+                    .fill(selectedMode == mode ? Color.tasukiAccentOrange : Color.clear)
+                    .frame(height: 4)
+            }
+            .frame(maxWidth: .infinity)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func moveToNextMode() {
+        let order: [TeamMode] = [.challenge, .ekiden, .distanceChallenge]
+        guard let idx = order.firstIndex(of: selectedMode), idx < order.count - 1 else { return }
+        selectedMode = order[idx + 1]
+    }
+
+    private func moveToPreviousMode() {
+        let order: [TeamMode] = [.challenge, .ekiden, .distanceChallenge]
+        guard let idx = order.firstIndex(of: selectedMode), idx > 0 else { return }
+        selectedMode = order[idx - 1]
+    }
+
+    /// Home の「TASUKI」と同系統（ロゴ + `.heavy` + トラッキング + 白シャドウ）。ナビバー用に縮小。
+    private func teamToolbarBrandedTitle(for mode: TeamMode) -> some View {
+        HStack(alignment: .center, spacing: 8) {
+            teamToolbarLogo()
+            Text(teamToolbarHeadline(for: mode))
+                .font(.system(size: mode == .challenge ? 18 : 21, weight: .heavy))
+                .tracking(teamToolbarTracking(for: mode))
+                .foregroundColor(Color.tasukiPrimary)
+                .shadow(color: .white.opacity(0.8), radius: 2, x: 0, y: 0)
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(teamToolbarHeadline(for: mode))
+    }
+
+    private func teamToolbarHeadline(for mode: TeamMode) -> String {
+        switch mode {
+        case .challenge: return "CHALLENGE"
+        case .ekiden: return "EKIDEN"
+        case .distanceChallenge: return "DISTANCE"
+        }
+    }
+
+    private func teamToolbarTracking(for mode: TeamMode) -> CGFloat {
+        switch mode {
+        case .challenge: return 5
+        case .ekiden: return 8
+        case .distanceChallenge: return 7
+        }
+    }
+
+    @ViewBuilder
+    private func teamToolbarLogo() -> some View {
+        if let ui = Self.loadBundledToolbarLogoImage() {
+            Image(uiImage: ui)
+                .resizable()
+                .interpolation(.high)
+                .scaledToFit()
+                .frame(width: 36, height: 36)
+                .accessibilityHidden(true)
+        }
+    }
+
+    private static func loadBundledToolbarLogoImage() -> UIImage? {
+        let base: UIImage?
+        if let img = UIImage(named: "logo") {
+            base = img
+        } else if let path = Bundle.main.path(forResource: "logo", ofType: "png"),
+                  let img = UIImage(contentsOfFile: path) {
+            base = img
+        } else if let path = Bundle.main.path(forResource: "logo", ofType: "jpg"),
+                  let img = UIImage(contentsOfFile: path) {
+            base = img
+        } else {
+            base = nil
+        }
+        guard let base else { return nil }
+        return base.tasukiKnockingOutNearWhiteBackground()
+    }
+
+    private var challengeContent: some View {
+        ChallengeHubView(showsOwnToolbar: false)
+    }
+
+    private var distanceChallengeContent: some View {
+        Group {
+            if distanceChatTeamId.isEmpty {
                 ZStack {
                     Color.tasukiDarkBackground
                         .ignoresSafeArea()
-                    
+                    VStack(spacing: 18) {
+                        Text("Distance 用チームに未参加です")
+                            .font(.system(size: 17, weight: .bold))
+                            .foregroundColor(Color.tasukiPrimary)
+                            .multilineTextAlignment(.center)
+                        Text("Firestore の `users.distanceTeamId` にチーム ID が入ると、Distance タブでメンバー・チャット・進捗が表示されます。")
+                            .font(.system(size: 13))
+                            .foregroundColor(Color.tasukiMutedText)
+                            .multilineTextAlignment(.center)
+                            .padding(.horizontal, 24)
+                        Button {
+                            showDistanceTeamJoinSheet = true
+                        } label: {
+                            HStack {
+                                Spacer()
+                                Text("Distance チームを探す・つくる")
+                                    .font(.system(size: 15, weight: .bold))
+                                    .foregroundColor(Color.tasukiOnBrandYellow)
+                                Spacer()
+                            }
+                            .frame(height: 48)
+                            .background(RoundedRectangle(cornerRadius: 12).fill(Color.tasukiPrimaryButtonFill))
+                        }
+                        .buttonStyle(.plain)
+                        .padding(.horizontal, 28)
+                    }
+                    .padding(.vertical, 32)
+                }
+            } else {
+                ZStack {
+                    Color.tasukiDarkBackground
+                        .ignoresSafeArea()
+
                     ScrollView(showsIndicators: false) {
                         VStack(spacing: 20) {
-                            Group {
-                                if let ekiden = ekidenViewState {
-                                    ekidenProgressCard(ekiden, isReadOnly: !ekiden.isWithinEventWindow)
-                                } else {
-                                    ekidenLoadingCard
-                                }
-                            }
-                            .padding(.horizontal, 20)
-                            .padding(.top, 20)
-
-                            if let ekiden = ekidenViewState {
-                                EmptyView()
-                            }
-
-                            if let ekiden = ekidenViewState {
-                                ekidenSubmitRecordButton(ekiden)
-                                    .padding(.horizontal, 20)
-                                ekidenLegListView(ekiden, allowSubmit: ekiden.isWithinEventWindow)
-                                    .padding(.horizontal, 20)
-                            } else {
-                                slimMemberListView
-                                    .padding(.horizontal, 20)
-                            }
-                            
-                            // オーナーのみ: メンバー管理（参加申請・チーム詳細）へ
-                            if isTeamOwner {
-                                Button(action: { showTeamDetail = true }) {
+                            progressView
+                                .padding(.horizontal, 20)
+                                .padding(.top, 20)
+                            conditionRecordButton
+                                .padding(.horizontal, 20)
+                            slimMemberListView
+                                .padding(.horizontal, 20)
+                            if isTeamOwnerForCurrentMode {
+                                Button(action: {
+                                    teamDetailNavTeamId = distanceChatTeamId
+                                    showTeamDetail = true
+                                }) {
                                     HStack {
                                         Spacer()
                                         Text("メンバー管理")
@@ -391,200 +814,124 @@ struct TeamView: View {
                                 }
                                 .padding(.horizontal, 20)
                             }
-
-                            if let ekiden = ekidenViewState {
-                                ownerDisqualifySection(ekiden)
-                                    .padding(.horizontal, 20)
-                            }
-                            
                             leaveTeamSection
                                 .padding(.horizontal, 20)
                                 .padding(.bottom, 20)
                         }
                         .padding(.bottom, scrollContentBottomPadding)
                     }
-                    
-                    NavigationLink(destination: TeamDetailView(teamId: selectedTeamId), isActive: $showTeamDetail) {
+
+                    NavigationLink(destination: TeamDetailView(teamId: teamDetailNavTeamId), isActive: $showTeamDetail) {
                         EmptyView()
                     }
                 }
-                .navigationTitle("")
-                .navigationBarTitleDisplayMode(.inline)
+            }
+        }
+        .sheet(isPresented: $showDistanceTeamJoinSheet) {
+            NavigationStack {
+                TeamJoinCreateView(
+                    ekidenJoinMode: .enjoyEkiden,
+                    onComplete: { teamId in
+                        showDistanceTeamJoinSheet = false
+                        if isSampleTeamFlow {
+                            self.userDistanceTeamId = teamId
+                            if let id = teamId {
+                                UserDefaults.standard.set(id, forKey: "myDistanceTeamId")
+                            }
+                        }
+                        if let id = teamId {
+                            self.teamDetailNavTeamId = id
+                            self.showTeamDetail = true
+                        }
+                        refreshFirestoreTeamAssociations()
+                    },
+                    useMockFlow: isSampleTeamFlow
+                )
                 .toolbar {
-                    // principal を広げない（中央タイトルが trailing を圧縮してアイコンが小さく見えるのを防ぐ）
-                    ToolbarItem(placement: .principal) {
-                        Text("Ekiden")
-                            .font(.system(size: 19, weight: .bold))
-                            .foregroundColor(Color.tasukiPrimary)
-                            .fixedSize(horizontal: true, vertical: false)
-                    }
-                    ToolbarItem(placement: .topBarTrailing) {
-                        Button {
-                            showTeamChatSheet = true
-                        } label: {
-                            Image(systemName: "message.fill")
-                                .font(.system(size: 20))
-                                .foregroundColor(Color.tasukiPrimary)
-                                .frame(width: 44, height: 44)
-                                .contentShape(Rectangle())
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("閉じる") {
+                            showDistanceTeamJoinSheet = false
                         }
-                        .buttonStyle(.borderless)
                     }
-                }
-                .sheet(isPresented: $showTeamChatSheet) {
-                    TeamChatSheetView(
-                        teamId: selectedTeamId,
-                        isSampleTeam: isSampleTeamFlow || selectedTeamId.hasPrefix("example_"),
-                        teamMessages: $teamMessages,
-                        myName: myName,
-                        myCondition: myCondition,
-                        myStatusMessage: myStatusMessage
-                    )
-                }
-                .sheet(isPresented: $showEkidenResultView) {
-                    if let state = ekidenViewState {
-                        EkidenResultView(state: state, teamId: selectedTeamId, onDismiss: {
-                            showEkidenResultView = false
-                        })
-                    }
-                }
-                .sheet(item: $ekidenSubmitSheetItem) { item in
-                    EkidenLegSubmitSheet(
-                        leg: item.leg,
-                        state: item.state,
-                        teamId: selectedTeamId,
-                        isSampleTeam: isSampleTeamFlow || selectedTeamId.hasPrefix("example"),
-                        onDismiss: {
-                            ekidenSubmitSheetItem = nil
-                        },
-                        onSuccess: {
-                            Task { await loadEkidenState(teamId: selectedTeamId) }
-                        }
-                    )
-                }
-                .sheet(isPresented: $showLegRankingSheet) {
-                    if let ekiden = ekidenViewState {
-                        EkidenLegRankingSheetView(
-                            state: ekiden,
-                            selectedLegIndex: $legRankingSelectedLegIndex,
-                            snapshot: $legRankingSnapshot,
-                            isSampleTeam: isSampleTeamFlow || selectedTeamId.hasPrefix("example"),
-                            myEntryId: ekiden.entry.id,
-                            currentUid: Auth.auth().currentUser?.uid,
-                            reload: { legIdx in
-                                await reloadLegRanking(legIndex: legIdx, state: ekiden)
-                            }
-                        )
-                    }
-                }
-                .sheet(isPresented: $showOverallStandingsMap) {
-                    if let ekiden = ekidenViewState {
-                        EkidenOverallStandingsMapView(
-                            eventId: ekiden.event.id,
-                            isSampleTeam: isSampleTeamFlow || selectedTeamId.hasPrefix("example"),
-                            usesHakoneCourse: ekiden.usesOfficialHakoneRelayRules,
-                            highlightTeamId: selectedTeamId,
-                            myOutboundRank: ekiden.outboundRank,
-                            referenceTotalKm: ekiden.rankingProgressReferenceKm,
-                            onOpenLegRanking: {
-                                openLegRankingAfterStandingsDismiss = true
-                                showOverallStandingsMap = false
-                            }
-                        )
-                    }
-                }
-                .onChange(of: showOverallStandingsMap) { _, presented in
-                    guard !presented, openLegRankingAfterStandingsDismiss else { return }
-                    openLegRankingAfterStandingsDismiss = false
-                    showLegRankingSheet = true
-                }
-                .onAppear {
-                    selectedCondition = myCondition
-                    if !isSampleTeamFlow {
-                        loadUserTeamId()
-                    }
-                    if let tid = resolvedTeamId, !tid.isEmpty {
-                        if selectedTeamId.isEmpty { selectedTeamId = tid }
-                        if userTeamId == nil, let d = debugPreviewTeamId, !d.isEmpty {
-                            userTeamId = d
-                        }
-                        loadTeamOwner(teamId: tid)
-                        Task { await loadEkidenState(teamId: tid) }
-                    }
-                }
-                .onChange(of: userTeamId) { _, newId in
-                    if let tid = newId, !tid.isEmpty {
-                        loadTeamOwner(teamId: tid)
-                        Task { await loadEkidenState(teamId: tid) }
-                    } else {
-                        isTeamOwner = false
-                        ekidenViewState = nil
-                    }
-                }
-                .onChange(of: selectedTeamId) { _, newId in
-                    if !newId.isEmpty {
-                        loadTeamOwner(teamId: newId)
-                        Task { await loadEkidenState(teamId: newId) }
-                    } else {
-                        isTeamOwner = false
-                        ekidenViewState = nil
-                    }
-                }
-                .alert("TASUKIをつなぐ", isPresented: $showPassTasukiConfirm) {
-                    Button("キャンセル", role: .cancel) {
-                        passTasukiLegIndex = nil
-                    }
-                    Button("つなぐ", role: .none) {
-                        performPassTasuki()
-                    }
-                } message: {
-                    Text("走らずにTASUKIだけ次の担当へ渡します。距離は加算されません。")
-                }
-                .alert("チームから脱退しますか？", isPresented: $showLeaveTeamConfirm) {
-                    Button("キャンセル", role: .cancel) {}
-                    Button("脱退する", role: .destructive) {
-                        performLeaveTeam()
-                    }
-                } message: {
-                    Text("脱退後は駅伝のチーム機能を利用できなくなります。駅伝開催期間外のみ脱退できます。")
-                }
-                .alert("公式記録を棄権扱いにしますか？", isPresented: $showDisqualifyConfirm) {
-                    Button("キャンセル", role: .cancel) {}
-                    Button("棄権する", role: .destructive) {
-                        performTeamDisqualify()
-                    }
-                } message: {
-                    Text("この操作はオーナーのみ実行できます。チームの公式順位は失格（参考記録）として扱われます。")
-                }
-                .sheet(isPresented: $showOwnerLeaveSheet) {
-                    ownerLeaveTransferSheet
                 }
             }
         }
-        .task(id: debugPreviewTeamId) {
-            if let d = debugPreviewTeamId, !d.isEmpty {
-                if userTeamId == nil { userTeamId = d }
-                if selectedTeamId.isEmpty { selectedTeamId = d }
-            }
-        }
-        .task {
-            await EkidenDeviceSampleDataSeeder.seedIfNeeded()
-        }
-        .onAppear {
-            if isSampleTeamFlow || debugPreviewTeamId != nil {
-                isResolvingEntryState = false
-            } else {
-                isResolvingEntryState = true
-                loadUserTeamId()
-            }
-            if userTeamId == nil, isSampleTeamFlow, let savedId = UserDefaults.standard.string(forKey: "myTeamId"), !savedId.isEmpty {
-                userTeamId = savedId
-                selectedTeamId = savedId
-            }
-        }
-    } // body の閉じ (修正箇所)
+    }
 
-    private func loadUserTeamId() {
+    private var ekidenContent: some View {
+        ZStack {
+            Color.tasukiDarkBackground
+                .ignoresSafeArea()
+
+            ScrollView(showsIndicators: false) {
+                VStack(spacing: 20) {
+                    Group {
+                        if let ekiden = ekidenLineState {
+                            ekidenProgressCard(ekiden, isReadOnly: !ekiden.isWithinEventWindow)
+                        } else {
+                            ekidenLoadingCard
+                        }
+                    }
+                    .padding(.horizontal, 20)
+                    .padding(.top, 20)
+
+                    if let ekiden = ekidenLineState {
+                        ekidenSubmitRecordButton(ekiden)
+                            .padding(.horizontal, 20)
+                        ekidenLegListView(ekiden, allowSubmit: ekiden.isWithinEventWindow)
+                            .padding(.horizontal, 20)
+                    } else {
+                        slimMemberListView
+                            .padding(.horizontal, 20)
+                    }
+
+                    // オーナーのみ: メンバー管理（参加申請・チーム詳細）へ
+                    if isTeamOwnerForCurrentMode {
+                        Button(action: {
+                            teamDetailNavTeamId = ekidenChatTeamId
+                            showTeamDetail = true
+                        }) {
+                            HStack {
+                                Spacer()
+                                Text("メンバー管理")
+                                    .font(.system(size: 16, weight: .semibold))
+                                    .foregroundColor(Color.tasukiOnBrandYellow)
+                                Image(systemName: "person.2.fill")
+                                    .font(.system(size: 16))
+                                    .foregroundColor(Color.tasukiOnBrandYellow)
+                                Spacer()
+                            }
+                            .frame(height: 50)
+                            .background(
+                                RoundedRectangle(cornerRadius: 12)
+                                    .fill(Color.tasukiPrimaryButtonFill)
+                            )
+                        }
+                        .padding(.horizontal, 20)
+                    }
+
+                    if let ekiden = ekidenLineState {
+                        ownerDisqualifySection(ekiden)
+                            .padding(.horizontal, 20)
+                    }
+
+                    leaveTeamSection
+                        .padding(.horizontal, 20)
+                        .padding(.bottom, 20)
+                }
+                .padding(.bottom, scrollContentBottomPadding)
+            }
+
+            NavigationLink(destination: TeamDetailView(teamId: teamDetailNavTeamId), isActive: $showTeamDetail) {
+                EmptyView()
+            }
+        }
+    }
+
+    /// Firestore `users/{uid}` の所属フィールドを購読し、Distance / EKIDEN のチャット・タブと常に一致させる
+    private func attachUserTeamFieldsListener() {
+        userTeamFieldsListener?.remove()
+        userTeamFieldsListener = nil
         guard let firebaseUser = Auth.auth().currentUser else {
             isResolvingEntryState = false
             return
@@ -592,24 +939,34 @@ struct TeamView: View {
         if TasukiDevelopmentFlags.skipFirestoreEkidenTabReads {
             DispatchQueue.main.async {
                 self.userTeamId = nil
+                self.userDistanceTeamId = nil
                 self.isResolvingEntryState = false
             }
             return
         }
         let db = Firestore.firestore()
-        db.collection("users").document(firebaseUser.uid).getDocument { snapshot, error in
-            if let data = snapshot?.data(), let teamId = data["teamId"] as? String {
-                DispatchQueue.main.async {
+        let uid = firebaseUser.uid
+        userTeamFieldsListener = db.collection("users").document(uid).addSnapshotListener { snapshot, _ in
+            let data = snapshot?.data()
+            DispatchQueue.main.async {
+                if let teamId = data?["teamId"] as? String, !teamId.isEmpty {
                     self.userTeamId = teamId
-                    self.isResolvingEntryState = false
-                }
-            } else {
-                DispatchQueue.main.async {
+                } else {
                     self.userTeamId = nil
-                    self.isResolvingEntryState = false
                 }
+                if let dist = data?["distanceTeamId"] as? String, !dist.isEmpty {
+                    self.userDistanceTeamId = dist
+                } else {
+                    self.userDistanceTeamId = nil
+                }
+                self.isResolvingEntryState = false
             }
         }
+    }
+
+    private func detachUserTeamFieldsListener() {
+        userTeamFieldsListener?.remove()
+        userTeamFieldsListener = nil
     }
 
     private var ekidenEntryLoadingView: some View {
@@ -729,7 +1086,7 @@ struct TeamView: View {
     @ViewBuilder
     private var leaveTeamSection: some View {
         VStack(alignment: .leading, spacing: 8) {
-            if ekidenViewState == nil && debugLeaveAllowedOverride == nil {
+            if ekidenStateForSelectedMode == nil && debugLeaveAllowedOverride == nil {
                 HStack(spacing: 8) {
                     ProgressView()
                         .controlSize(.small)
@@ -745,7 +1102,7 @@ struct TeamView: View {
                 )
             } else {
                 Button {
-                    if isTeamOwner {
+                    if isTeamOwnerForCurrentMode {
                         ownerLeaveError = nil
                         selectedSuccessorUid = ""
                         showOwnerLeaveSheet = true
@@ -773,13 +1130,13 @@ struct TeamView: View {
                 .disabled(!canLeaveTeam)
             }
             
-            if ekidenViewState != nil && !canLeaveTeam {
+            if ekidenStateForSelectedMode != nil && !canLeaveTeam {
                 Text("駅伝レースの開催期間中は脱退できません（期間終了後に再度お試しください）")
                     .font(.caption)
                     .foregroundColor(Color.tasukiMutedText)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            if isTeamOwner, canLeaveTeam {
+            if isTeamOwnerForCurrentMode, canLeaveTeam {
                 Text("オーナーの場合は、脱退前に他のメンバーへオーナー権を譲る必要があります。")
                     .font(.caption)
                     .foregroundColor(Color.tasukiMutedText)
@@ -790,7 +1147,7 @@ struct TeamView: View {
 
     @ViewBuilder
     private func ownerDisqualifySection(_ state: EkidenViewState) -> some View {
-        if isTeamOwner {
+        if isTeamOwnerForCurrentMode {
             VStack(alignment: .leading, spacing: 8) {
                 Button {
                     if !state.entry.officialResultDisqualified && !isDisqualifying {
@@ -891,8 +1248,17 @@ struct TeamView: View {
     }
     
     private func effectiveTeamIdForLeave() -> String {
-        let tid = selectedTeamId.isEmpty ? (userTeamId ?? "") : selectedTeamId
-        return tid
+        switch selectedMode {
+        case .ekiden:
+            return ekidenChatTeamId
+        case .distanceChallenge:
+            if !distanceChatTeamId.isEmpty {
+                return distanceChatTeamId
+            }
+            return ekidenChatTeamId
+        case .challenge:
+            return ekidenChatTeamId
+        }
     }
     
     private func mockOwnerSuccessorCandidates(teamId: String) -> [OwnerSuccessorCandidate] {
@@ -983,6 +1349,10 @@ struct TeamView: View {
     private func performOwnerTransferAndLeave() async {
         let tid = effectiveTeamIdForLeave()
         guard !tid.isEmpty, !selectedSuccessorUid.isEmpty else { return }
+        let removeDistanceFieldOnly: Bool = {
+            guard let dist = userDistanceTeamId, !dist.isEmpty else { return false }
+            return dist == tid && tid != (userTeamId ?? "")
+        }()
         await MainActor.run {
             isPerformingOwnerLeave = true
             ownerLeaveError = nil
@@ -996,11 +1366,21 @@ struct TeamView: View {
             try? await Task.sleep(nanoseconds: 350_000_000)
             await MainActor.run {
                 TeamLeavePolicy.recordLeave(teamId: tid, isMock: true)
-                UserDefaults.standard.removeObject(forKey: "myTeamId")
-                userTeamId = nil
-                selectedTeamId = ""
-                ekidenViewState = nil
-                isTeamOwner = false
+                if removeDistanceFieldOnly {
+                    UserDefaults.standard.removeObject(forKey: "myDistanceTeamId")
+                    userDistanceTeamId = nil
+                    distanceLineState = nil
+                    isOwnerDistanceTeam = false
+                } else {
+                    UserDefaults.standard.removeObject(forKey: "myTeamId")
+                    userTeamId = nil
+                    userDistanceTeamId = nil
+                    ekidenLineState = nil
+                    distanceLineState = nil
+                    isOwnerEkidenTeam = false
+                    isOwnerDistanceTeam = false
+                }
+                teamDetailNavTeamId = ""
                 showTeamJoinHub = false
                 showOwnerLeaveSheet = false
                 ownerSuccessorCandidates = []
@@ -1043,18 +1423,32 @@ struct TeamView: View {
             for doc in entriesSnap.documents {
                 batch.updateData(["ownerUid": newOwner], forDocument: doc.reference)
             }
-            batch.updateData(["teamId": FieldValue.delete()], forDocument: userRef)
+            if removeDistanceFieldOnly {
+                batch.updateData(["distanceTeamId": FieldValue.delete()], forDocument: userRef)
+            } else {
+                batch.updateData(["teamId": FieldValue.delete()], forDocument: userRef)
+            }
             try await commitFirestoreBatch(batch)
             await MainActor.run {
                 TeamLeavePolicy.recordLeave(teamId: tid, isMock: false)
-                userTeamId = nil
-                selectedTeamId = ""
-                ekidenViewState = nil
-                isTeamOwner = false
+                if removeDistanceFieldOnly {
+                    userDistanceTeamId = nil
+                    distanceLineState = nil
+                    isOwnerDistanceTeam = false
+                } else {
+                    userTeamId = nil
+                    userDistanceTeamId = nil
+                    ekidenLineState = nil
+                    distanceLineState = nil
+                    isOwnerEkidenTeam = false
+                    isOwnerDistanceTeam = false
+                }
+                teamDetailNavTeamId = ""
                 showTeamJoinHub = false
                 showOwnerLeaveSheet = false
                 ownerSuccessorCandidates = []
                 ownerLeaveError = nil
+                refreshFirestoreTeamAssociations()
             }
         } catch {
             await MainActor.run {
@@ -1064,34 +1458,80 @@ struct TeamView: View {
     }
     
     private func performLeaveTeam() {
-        let tid = selectedTeamId.isEmpty ? (userTeamId ?? "") : selectedTeamId
+        let onlyDistanceTeam: Bool = {
+            guard selectedMode == .distanceChallenge else { return false }
+            let dist = distanceChatTeamId
+            let ek = ekidenChatTeamId
+            return !dist.isEmpty && dist != ek
+        }()
+        let tid: String = {
+            if onlyDistanceTeam { return distanceChatTeamId }
+            return ekidenChatTeamId
+        }()
         guard !tid.isEmpty else { return }
         // オーナーは通常フローではシート側で処理（二重実行防止）
-        if isTeamOwner {
+        if isTeamOwnerForCurrentMode {
             return
         }
         if isSampleTeamFlow {
             TeamLeavePolicy.recordLeave(teamId: tid, isMock: true)
-            UserDefaults.standard.removeObject(forKey: "myTeamId")
-            userTeamId = nil
-            selectedTeamId = ""
-            ekidenViewState = nil
-            isTeamOwner = false
+            if onlyDistanceTeam {
+                UserDefaults.standard.removeObject(forKey: "myDistanceTeamId")
+                userDistanceTeamId = nil
+            } else {
+                UserDefaults.standard.removeObject(forKey: "myTeamId")
+                userTeamId = nil
+                userDistanceTeamId = nil
+            }
+            teamDetailNavTeamId = ""
+            ekidenLineState = nil
+            distanceLineState = nil
+            isOwnerEkidenTeam = false
+            isOwnerDistanceTeam = false
             showLeaveTeamConfirm = false
             showTeamJoinHub = false
             return
         }
         guard let uid = Auth.auth().currentUser?.uid else { return }
         let db = Firestore.firestore()
-        db.collection("users").document(uid).updateData(["teamId": FieldValue.delete()]) { err in
+        let userRef = db.collection("users").document(uid)
+        if onlyDistanceTeam {
+            userRef.updateData(["distanceTeamId": FieldValue.delete()]) { err in
+                DispatchQueue.main.async {
+                    self.showLeaveTeamConfirm = false
+                    if err == nil {
+                        TeamLeavePolicy.recordLeave(teamId: tid, isMock: false)
+                        self.userDistanceTeamId = nil
+                        let ek = self.ekidenChatTeamId
+                        if !ek.isEmpty {
+                            self.teamDetailNavTeamId = ek
+                            Task { await self.loadEkidenState(teamId: ek) }
+                        } else {
+                            self.teamDetailNavTeamId = ""
+                            self.ekidenLineState = nil
+                            self.distanceLineState = nil
+                            self.isOwnerEkidenTeam = false
+                            self.isOwnerDistanceTeam = false
+                            self.showTeamJoinHub = false
+                        }
+                        self.refreshFirestoreTeamAssociations()
+                    }
+                }
+            }
+            return
+        }
+        userRef.updateData(["teamId": FieldValue.delete()]) { err in
             DispatchQueue.main.async {
                 self.showLeaveTeamConfirm = false
                 if err == nil {
                     TeamLeavePolicy.recordLeave(teamId: tid, isMock: false)
                     self.userTeamId = nil
-                    self.selectedTeamId = ""
-                    self.ekidenViewState = nil
-                    self.isTeamOwner = false
+                    self.userDistanceTeamId = nil
+                    self.teamDetailNavTeamId = ""
+                    self.ekidenLineState = nil
+                    self.distanceLineState = nil
+                    self.isOwnerEkidenTeam = false
+                    self.isOwnerDistanceTeam = false
                     self.showTeamJoinHub = false
                 }
             }
@@ -1139,14 +1579,31 @@ struct TeamView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .principal) {
-                Text("Ekiden")
-                    .font(.system(size: 19, weight: .bold))
-                    .foregroundColor(Color.tasukiPrimary)
-                    .fixedSize(horizontal: true, vertical: false)
+                teamToolbarBrandedTitle(for: .ekiden)
             }
         }
     }
-    
+
+    /// Firestore の `users.teamId` / `users.distanceTeamId` と `teams/*` を同期（各タブ用の状態を別々に更新）
+    private func refreshFirestoreTeamAssociations() {
+        let ek = ekidenChatTeamId
+        let dist = distanceChatTeamId
+        if !ek.isEmpty {
+            loadTeamOwner(teamId: ek, slot: .ekiden)
+            Task { await loadEkidenState(teamId: ek) }
+        } else {
+            isOwnerEkidenTeam = false
+            ekidenLineState = nil
+        }
+        if !dist.isEmpty {
+            loadTeamOwner(teamId: dist, slot: .distance)
+            Task { await loadEkidenState(teamId: dist) }
+        } else {
+            isOwnerDistanceTeam = false
+            distanceLineState = nil
+        }
+    }
+
     /// 駅伝イベント状態を取得
     private func loadEkidenState(teamId: String) async {
         let isSample = isSampleTeamFlow || teamId.hasPrefix("example")
@@ -1163,12 +1620,26 @@ struct TeamView: View {
         } else {
             defaultLegIdx = 0
         }
+        let ek = ekidenChatTeamId
+        let dist = distanceChatTeamId
         await MainActor.run {
-            ekidenViewState = state
-            legRankingSelectedLegIndex = defaultLegIdx
+            if teamId == ek && !ek.isEmpty {
+                ekidenLineState = state
+                if selectedMode == .ekiden {
+                    legRankingSelectedLegIndex = defaultLegIdx
+                }
+            }
+            if teamId == dist && !dist.isEmpty {
+                distanceLineState = state
+                if selectedMode == .distanceChallenge {
+                    legRankingSelectedLegIndex = defaultLegIdx
+                }
+            }
         }
         guard let s = state else {
-            await MainActor.run { legRankingSnapshot = nil }
+            await MainActor.run {
+                if teamId == ek { legRankingSnapshot = nil }
+            }
             return
         }
         let snap: EkidenLegRankingSnapshot?
@@ -1177,11 +1648,16 @@ struct TeamView: View {
         } else {
             snap = await EkidenDataService.shared.loadLegRankingSnapshot(eventId: s.event.id, legIndex: defaultLegIdx)
         }
-        await MainActor.run { legRankingSnapshot = snap }
+        await MainActor.run {
+            if teamId == ek {
+                legRankingSnapshot = snap
+            }
+        }
     }
 
     private func reloadLegRanking(legIndex: Int, state: EkidenViewState) async {
-        let isSample = isSampleTeamFlow || selectedTeamId.hasPrefix("example")
+        let tid = state.entry.teamId
+        let isSample = isSampleTeamFlow || tid.hasPrefix("example")
         let snap: EkidenLegRankingSnapshot?
         if isSample {
             snap = EkidenLegRankingSnapshot.buildMock(from: state, legIndex: legIndex)
@@ -1437,12 +1913,12 @@ struct TeamView: View {
     /// TASUKIをつなぐ（TASUKIだけ次へ、距離加算なし）
     private func performPassTasuki() {
         guard let legIndex = passTasukiLegIndex,
-              let state = ekidenViewState else {
+              let state = ekidenStateForSelectedMode else {
             showPassTasukiConfirm = false
             passTasukiLegIndex = nil
             return
         }
-        let teamId = selectedTeamId
+        let teamId = state.entry.teamId
         let isSample = isSampleTeamFlow || teamId.hasPrefix("example")
         guard let leg = state.legs.first(where: { $0.id == legIndex }),
               isCurrentUserAssignedRunner(leg: leg, teamId: teamId, isSampleTeam: isSample) else {
@@ -1478,7 +1954,7 @@ struct TeamView: View {
             guard case .success = result else { return }
             await loadEkidenState(teamId: teamId)
             await MainActor.run {
-                if let st = ekidenViewState {
+                if let st = self.ekidenStateForSelectedMode {
                     TasukiHandoffNotifier.notifyAfterPassTasuki(state: st, passedLegIndex: passedLegIndex)
                 }
             }
@@ -1486,7 +1962,7 @@ struct TeamView: View {
     }
 
     private func performTeamDisqualify() {
-        guard isTeamOwner, let state = ekidenViewState else {
+        guard isOwnerEkidenTeam, let state = ekidenLineState else {
             showDisqualifyConfirm = false
             return
         }
@@ -1494,7 +1970,7 @@ struct TeamView: View {
             showDisqualifyConfirm = false
             return
         }
-        let teamId = selectedTeamId
+        let teamId = state.entry.teamId
         let isSample = isSampleTeamFlow || teamId.hasPrefix("example")
         isDisqualifying = true
         disqualifyErrorMessage = nil
@@ -1519,11 +1995,29 @@ struct TeamView: View {
     }
     
     /// チームのオーナー（管理者）かどうかを取得。「メンバー管理」ボタン表示用
-    private func loadTeamOwner(teamId: String) {
-        isTeamOwner = false
+    private func loadTeamOwner(teamId: String, slot: TeamFirestoreSlot) {
+        guard !teamId.isEmpty else {
+            DispatchQueue.main.async {
+                switch slot {
+                case .ekiden:
+                    self.isOwnerEkidenTeam = false
+                case .distance:
+                    self.isOwnerDistanceTeam = false
+                }
+            }
+            return
+        }
         // サンプルチーム: example_owner のときだけオーナー視点
         if teamId == "example_owner" || teamId == "example_member" || teamId == "example_ekiden_real" {
-            isTeamOwner = (teamId == "example_owner")
+            let isOwner = (teamId == "example_owner")
+            DispatchQueue.main.async {
+                switch slot {
+                case .ekiden:
+                    self.isOwnerEkidenTeam = isOwner
+                case .distance:
+                    self.isOwnerDistanceTeam = isOwner
+                }
+            }
             return
         }
         guard let currentUid = Auth.auth().currentUser?.uid else {
@@ -1532,26 +2026,46 @@ struct TeamView: View {
         let db = Firestore.firestore()
         db.collection("teams").document(teamId).getDocument { snapshot, error in
             if error != nil {
-                DispatchQueue.main.async { self.isTeamOwner = false }
+                DispatchQueue.main.async {
+                    switch slot {
+                    case .ekiden:
+                        self.isOwnerEkidenTeam = false
+                    case .distance:
+                        self.isOwnerDistanceTeam = false
+                    }
+                }
                 return
             }
             guard let data = snapshot?.data(), let ownerUid = data["ownerUid"] as? String else {
-                DispatchQueue.main.async { self.isTeamOwner = false }
+                DispatchQueue.main.async {
+                    switch slot {
+                    case .ekiden:
+                        self.isOwnerEkidenTeam = false
+                    case .distance:
+                        self.isOwnerDistanceTeam = false
+                    }
+                }
                 return
             }
             DispatchQueue.main.async {
-                self.isTeamOwner = (ownerUid == currentUid)
+                switch slot {
+                case .ekiden:
+                    self.isOwnerEkidenTeam = (ownerUid == currentUid)
+                case .distance:
+                    self.isOwnerDistanceTeam = (ownerUid == currentUid)
+                }
             }
         }
     }
     
     // MARK: - Ekiden Progress Card（駅伝進行カード）
     private func ekidenSubmitRecordButton(_ state: EkidenViewState) -> some View {
+        let teamDocId = state.entry.teamId
         let readyLeg = state.legs.first {
             $0.status == .ready && isCurrentUserAssignedRunner(
                 leg: $0,
-                teamId: selectedTeamId,
-                isSampleTeam: isSampleTeamFlow || selectedTeamId.hasPrefix("example")
+                teamId: teamDocId,
+                isSampleTeam: isSampleTeamFlow || teamDocId.hasPrefix("example")
             )
         }
         return Button {
@@ -1607,6 +2121,7 @@ struct TeamView: View {
             progressCaption = "\(state.submittedLegCount)/\(state.event.legCount) 区間"
         }
         
+        let pointsTeamId = state.entry.teamId
         return VStack(spacing: 16) {
             HStack(spacing: 8) {
                 Text(teamName)
@@ -1614,8 +2129,8 @@ struct TeamView: View {
                     .foregroundColor(.black)
                     .lineLimit(1)
                     .minimumScaleFactor(0.8)
-                if !selectedTeamId.isEmpty {
-                    let total = PointService.shared.teamTotalPoints(teamId: selectedTeamId)
+                if !pointsTeamId.isEmpty {
+                    let total = PointService.shared.teamTotalPoints(teamId: pointsTeamId)
                     let tier = TeamRankTier.tier(forTeamPoints: total)
                     Text(tier.displayName)
                         .font(.system(size: 11, weight: .semibold))
@@ -1895,10 +2410,10 @@ struct TeamView: View {
                     ekidenLegRowView(
                         leg: leg,
                         state: state,
-                        teamId: selectedTeamId,
-                        isSampleTeam: isSampleTeamFlow || selectedTeamId.hasPrefix("example"),
+                        teamId: state.entry.teamId,
+                        isSampleTeam: isSampleTeamFlow || state.entry.teamId.hasPrefix("example"),
                         allowSubmit: allowSubmit,
-                        isTeamOwner: isTeamOwner,
+                        isTeamOwner: isTeamOwnerForCurrentMode,
                         onTapSubmit: {
                             ekidenSubmitSheetItem = EkidenSubmitSheetItem(leg: leg, state: state)
                         },
@@ -2118,8 +2633,8 @@ struct TeamView: View {
                     .foregroundColor(.black)
                     .lineLimit(1)
                     .minimumScaleFactor(0.8)
-                if !selectedTeamId.isEmpty {
-                    let total = PointService.shared.teamTotalPoints(teamId: selectedTeamId)
+                if !distanceChatTeamId.isEmpty {
+                    let total = PointService.shared.teamTotalPoints(teamId: distanceChatTeamId)
                     let tier = TeamRankTier.tier(forTeamPoints: total)
                     Text(tier.displayName)
                         .font(.system(size: 11, weight: .semibold))
@@ -2129,9 +2644,9 @@ struct TeamView: View {
                         .foregroundColor(.black)
                 }
                 Spacer()
-                if !selectedTeamId.isEmpty {
+                if !distanceChatTeamId.isEmpty {
                     VStack(alignment: .trailing, spacing: 2) {
-                        Text("\(PointService.shared.teamTotalPoints(teamId: selectedTeamId))pt")
+                        Text("\(PointService.shared.teamTotalPoints(teamId: distanceChatTeamId))pt")
                             .font(.system(size: 14, weight: .bold))
                             .foregroundColor(.black)
                         Text("累計")
@@ -2226,7 +2741,7 @@ struct TeamView: View {
             isSystem: true
         )
         
-        teamMessages.append(systemMessage)
+        teamMessagesDistance.append(systemMessage)
     }
 }
 
@@ -2356,34 +2871,180 @@ private struct EkidenLegRankingSheetView: View {
     }
 }
 
-// MARK: - Team Chat Sheet View（TeamView 内専用。HomeView のメッセージとは連携しない）
-struct TeamChatSheetView: View {
+// MARK: - Team Chat（EKIDEN / Distance で別チーム・別ルーム。Challenge はチャットなし）
+
+private struct TeamDualTeamChatSheetView: View {
+    let initialChannel: TeamChatChannel
+    let ekidenTeamId: String
+    let distanceTeamId: String
+    let isSampleEkiden: Bool
+    let isSampleDistance: Bool
+    @Binding var teamMessagesEkiden: [TeamMessage]
+    @Binding var teamMessagesDistance: [TeamMessage]
+    let myName: String
+    let myCondition: Condition
+    let myStatusMessage: String
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var selectedChannel: TeamChatChannel
+
+    init(
+        initialChannel: TeamChatChannel,
+        ekidenTeamId: String,
+        distanceTeamId: String,
+        isSampleEkiden: Bool,
+        isSampleDistance: Bool,
+        teamMessagesEkiden: Binding<[TeamMessage]>,
+        teamMessagesDistance: Binding<[TeamMessage]>,
+        myName: String,
+        myCondition: Condition,
+        myStatusMessage: String
+    ) {
+        self.initialChannel = initialChannel
+        self.ekidenTeamId = ekidenTeamId
+        self.distanceTeamId = distanceTeamId
+        self.isSampleEkiden = isSampleEkiden
+        self.isSampleDistance = isSampleDistance
+        _teamMessagesEkiden = teamMessagesEkiden
+        _teamMessagesDistance = teamMessagesDistance
+        self.myName = myName
+        self.myCondition = myCondition
+        self.myStatusMessage = myStatusMessage
+        _selectedChannel = State(initialValue: initialChannel)
+    }
+
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 0) {
+                teamChatChannelBar
+                TabView(selection: $selectedChannel) {
+                    TeamChatContentView(
+                        teamId: ekidenTeamId,
+                        isSampleTeam: isSampleEkiden,
+                        teamMessages: $teamMessagesEkiden,
+                        myName: myName,
+                        myCondition: myCondition,
+                        myStatusMessage: myStatusMessage,
+                        emptyPlaceholderTitle: "EKIDENチームに未参加です",
+                        emptyPlaceholderDetail: "チームに参加すると、ここでメンバーとチャットできます。"
+                    )
+                    .tag(TeamChatChannel.ekiden)
+
+                    TeamChatContentView(
+                        teamId: distanceTeamId,
+                        isSampleTeam: isSampleDistance,
+                        teamMessages: $teamMessagesDistance,
+                        myName: myName,
+                        myCondition: myCondition,
+                        myStatusMessage: myStatusMessage,
+                        emptyPlaceholderTitle: "Distance用チームが未設定です",
+                        emptyPlaceholderDetail: "アカウントに Distance 用のチーム（Firestore: users.distanceTeamId）が登録されると、専用チャットが使えます。"
+                    )
+                    .tag(TeamChatChannel.distance)
+                }
+                .tabViewStyle(.page(indexDisplayMode: .never))
+            }
+            .background(Color.white.ignoresSafeArea())
+            .navigationTitle("")
+            .navigationBarTitleDisplayMode(.inline)
+            .navigationBarBackButtonHidden(true)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button(action: { dismiss() }) {
+                        Image(systemName: "chevron.left")
+                            .font(.system(size: 16, weight: .semibold))
+                            .foregroundColor(Color.tasukiAccent)
+                    }
+                }
+                ToolbarItem(placement: .principal) {
+                    Text("チームチャット")
+                        .font(.system(size: 19, weight: .bold))
+                        .foregroundColor(Color.tasukiPrimary)
+                }
+            }
+        }
+    }
+
+    private var teamChatChannelBar: some View {
+        HStack(spacing: 0) {
+            ForEach([TeamChatChannel.ekiden, .distance], id: \.self) { channel in
+                Button {
+                    withAnimation(.easeInOut(duration: 0.22)) {
+                        selectedChannel = channel
+                    }
+                } label: {
+                    VStack(spacing: 10) {
+                        Text(channel == .ekiden ? "EKIDEN" : "Distance")
+                            .font(.system(size: 18, weight: .bold))
+                            .foregroundColor(selectedChannel == channel ? Color.tasukiPrimary : Color.tasukiMutedText.opacity(0.7))
+                        Rectangle()
+                            .fill(selectedChannel == channel ? Color.tasukiAccentOrange : Color.clear)
+                            .frame(height: 4)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(.horizontal, 20)
+        .padding(.top, 10)
+        .padding(.bottom, 4)
+        .overlay(alignment: .bottom) {
+            Rectangle()
+                .fill(Color.tasukiMutedText.opacity(0.2))
+                .frame(height: 1)
+        }
+        .background(Color.white)
+    }
+}
+
+/// 1チーム分のチャット本文（Firestore `teams/{teamId}/teamChat` またはモック配列）
+private struct TeamChatContentView: View {
     let teamId: String
-    /// サンプルチームのときはローカルの Binding のみ使用。本番チームでは Firestore teams/{teamId}/teamChat を使用
     var isSampleTeam: Bool = false
     @Binding var teamMessages: [TeamMessage]
     let myName: String
     let myCondition: Condition
     let myStatusMessage: String
-    
+    var emptyPlaceholderTitle: String = "チームに未参加です"
+    var emptyPlaceholderDetail: String = ""
+
     @State private var messageText: String = ""
     @FocusState private var isTextFieldFocused: Bool
-    @Environment(\.dismiss) var dismiss
-    
-    /// 本番チーム用: Firestore から取得したメッセージ（HomeView の会話とは別コレクション）
+
     @State private var firestoreMessages: [TeamMessage] = []
     @State private var chatListener: ListenerRegistration?
-    
+
     private var displayedMessages: [TeamMessage] {
         isSampleTeam ? teamMessages : firestoreMessages
     }
-    
+
+    private var isChatUnavailable: Bool {
+        !isSampleTeam && teamId.isEmpty
+    }
+
     var body: some View {
-        NavigationStack {
-            ZStack {
-                Color.white
-                    .ignoresSafeArea()
-                
+        Group {
+            if isChatUnavailable {
+                VStack(spacing: 12) {
+                    Spacer(minLength: 24)
+                    Text(emptyPlaceholderTitle)
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundColor(Color.tasukiPrimary)
+                        .multilineTextAlignment(.center)
+                    if !emptyPlaceholderDetail.isEmpty {
+                        Text(emptyPlaceholderDetail)
+                            .font(.system(size: 13))
+                            .foregroundColor(Color.tasukiMutedText)
+                            .multilineTextAlignment(.center)
+                            .padding(.horizontal, 28)
+                    }
+                    Spacer()
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(Color.white)
+            } else {
                 VStack(spacing: 0) {
                     ScrollViewReader { proxy in
                         ScrollView {
@@ -2396,7 +3057,7 @@ struct TeamChatSheetView: View {
                             .padding(.horizontal, 16)
                             .padding(.vertical, 16)
                         }
-                        .onChange(of: displayedMessages.count) { _ in
+                        .onChange(of: displayedMessages.count) { _, _ in
                             if let lastMessage = displayedMessages.last {
                                 withAnimation {
                                     proxy.scrollTo(lastMessage.id, anchor: .bottom)
@@ -2404,7 +3065,7 @@ struct TeamChatSheetView: View {
                             }
                         }
                     }
-                    
+
                     ScrollView(.horizontal, showsIndicators: false) {
                         HStack(spacing: 12) {
                             ForEach(CompanionChatQuickPhrases.all, id: \.self) { phrase in
@@ -2428,7 +3089,7 @@ struct TeamChatSheetView: View {
                         .padding(.vertical, 8)
                     }
                     .background(Color.white)
-                    
+
                     HStack(spacing: 12) {
                         TextField("メッセージを入力", text: $messageText, axis: .vertical)
                             .textFieldStyle(.plain)
@@ -2442,7 +3103,7 @@ struct TeamChatSheetView: View {
                             )
                             .focused($isTextFieldFocused)
                             .lineLimit(1...4)
-                        
+
                         Button(action: {
                             sendMessage()
                         }) {
@@ -2461,37 +3122,29 @@ struct TeamChatSheetView: View {
                     .padding(.vertical, 12)
                     .background(Color.white)
                 }
-            }
-            .navigationTitle("")
-            .navigationBarTitleDisplayMode(.inline)
-            .navigationBarBackButtonHidden(true)
-            .toolbar {
-                ToolbarItem(placement: .navigationBarLeading) {
-                    Button(action: { dismiss() }) {
-                        Image(systemName: "chevron.left")
-                            .font(.system(size: 16, weight: .semibold))
-                            .foregroundColor(Color.tasukiAccent)
-                    }
-                }
-                ToolbarItem(placement: .principal) {
-                    Text("チームチャット")
-                        .font(.system(size: 19, weight: .bold))
-                        .foregroundColor(Color.tasukiPrimary)
-                }
+                .background(Color.white)
             }
         }
         .onAppear {
-            if !isSampleTeam && !teamId.isEmpty {
-                startTeamChatListener()
-            }
+            restartListenerIfNeeded()
+        }
+        .onChange(of: teamId) { _, _ in
+            restartListenerIfNeeded()
         }
         .onDisappear {
             chatListener?.remove()
             chatListener = nil
         }
     }
-    
-    /// 本番チーム用: teams/{teamId}/teamChat を監視（HomeView メッセージとは別）
+
+    private func restartListenerIfNeeded() {
+        chatListener?.remove()
+        chatListener = nil
+        firestoreMessages = []
+        guard !isSampleTeam, !teamId.isEmpty else { return }
+        startTeamChatListener()
+    }
+
     private func startTeamChatListener() {
         chatListener?.remove()
         let db = Firestore.firestore()
@@ -2514,7 +3167,7 @@ struct TeamChatSheetView: View {
                 }
             }
     }
-    
+
     private func minimalPartnerUser(name: String) -> PartnerUser {
         PartnerUser(
             name: name,
@@ -2541,7 +3194,7 @@ struct TeamChatSheetView: View {
             connectionStyle: .both
         )
     }
-    
+
     @ViewBuilder
     private func messageBubbleView(message: TeamMessage) -> some View {
         if message.isSystem {
@@ -2555,7 +3208,7 @@ struct TeamChatSheetView: View {
             .padding(.vertical, 8)
         } else {
             let isFromMe = message.user.name == myName
-            
+
             HStack(alignment: .top, spacing: 8) {
                 if !isFromMe {
                     if let avatarImage = message.user.avatarImage {
@@ -2570,14 +3223,14 @@ struct TeamChatSheetView: View {
                             )
                     }
                 }
-                
+
                 VStack(alignment: isFromMe ? .trailing : .leading, spacing: 4) {
                     if !isFromMe {
                         Text(message.user.name)
                             .font(.system(size: 12, weight: .semibold))
                             .foregroundColor(Color.tasukiPrimary.opacity(0.7))
                     }
-                    
+
                     Text(message.content)
                         .font(.system(size: 16, weight: .regular))
                         .foregroundColor(isFromMe ? .white : .black)
@@ -2589,23 +3242,24 @@ struct TeamChatSheetView: View {
                         )
                 }
                 .frame(maxWidth: UIScreen.main.bounds.width * 0.7, alignment: isFromMe ? .trailing : .leading)
-                
+
                 if isFromMe {
                     Spacer()
                 }
             }
         }
     }
-    
+
     private func sendQuickPhrase(_ phrase: String) {
         messageText = phrase
         sendMessage()
     }
-    
+
     private func sendMessage() {
         let content = messageText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !content.isEmpty else { return }
-        
+        guard !isChatUnavailable else { return }
+
         if isSampleTeam {
             let myUser = PartnerUser(
                 name: myName,
@@ -2634,7 +3288,6 @@ struct TeamChatSheetView: View {
             let newMessage = TeamMessage(user: myUser, content: content, timestamp: Date(), isSystem: false)
             teamMessages.append(newMessage)
         } else {
-            // 本番チーム: Firestore に保存（HomeView のメッセージとは連携しない）
             let senderId = Auth.auth().currentUser?.uid ?? "anonymous"
             let db = Firestore.firestore()
             db.collection("teams").document(teamId).collection("teamChat").addDocument(data: [
@@ -2714,6 +3367,7 @@ struct ConditionUpdateSheet: View {
 
 #Preview("デフォルト（モック）") {
     TeamView(useMockTeamFlow: true)
+        .environmentObject(MainTabRouter())
 }
 
 #if DEBUG
@@ -2726,6 +3380,7 @@ struct TeamViewOutsideEkidenPeriodPreview: View {
                 debugLeaveAllowedOverride: true,
                 debugPreviewTeamId: "example_owner"
             )
+            .environmentObject(MainTabRouter())
         }
     }
 }
@@ -2739,6 +3394,7 @@ struct TeamViewInsideEkidenPeriodPreview: View {
                 debugLeaveAllowedOverride: false,
                 debugPreviewTeamId: "example_owner"
             )
+            .environmentObject(MainTabRouter())
         }
     }
 }

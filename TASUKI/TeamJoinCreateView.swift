@@ -233,7 +233,10 @@ struct TeamJoinCreateView: View {
             // 作成成功 -> users/<uid>.teamId を設定
             let teamId = newTeamRef.documentID
             let userRef = db.collection("users").document(firebaseUser.uid)
-            userRef.setData(["teamId": teamId], merge: true) { err in
+            let userTeamField: [String: Any] = ekidenJoinMode == .realEkiden
+                ? ["teamId": teamId]
+                : ["distanceTeamId": teamId]
+            userRef.setData(userTeamField, merge: true) { err in
                 if let err = err {
                     self.errorMessage = "ユーザー情報更新に失敗しました: \(err.localizedDescription)"
                     self.isProcessing = false
@@ -527,7 +530,10 @@ struct TeamJoinCreateView: View {
                     self.onComplete?(nil)
                 } else {
                     let userRef = db.collection("users").document(firebaseUser.uid)
-                    try await userRef.setData(["teamId": teamId], merge: true)
+                    let userTeamField: [String: Any] = ekidenJoinMode == .realEkiden
+                        ? ["teamId": teamId]
+                        : ["distanceTeamId": teamId]
+                    try await userRef.setData(userTeamField, merge: true)
                     try await teamRef.updateData(["members": FieldValue.arrayUnion([firebaseUser.uid])])
                     TeamLeavePolicy.clearLeaveBlock(teamId: teamId, isMock: false)
                     self.isProcessing = false

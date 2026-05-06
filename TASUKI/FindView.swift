@@ -373,6 +373,7 @@ struct FindView: View {
                     .ignoresSafeArea()
                 
                 VStack(spacing: 12) {
+                    TasukiBrandedHeroHeader(title: "FIND")
                     // 1. メインモード切り替え
                     Picker("Mode", selection: $selectedMode) {
                         Text("Runners").tag("Runners")
@@ -380,7 +381,7 @@ struct FindView: View {
                     }
                     .pickerStyle(.segmented)
                     .padding(.horizontal, 20)
-                    .padding(.top, 12)
+                    .padding(.top, 4)
                     
                     // 2. 検索バーエリア（タップでフィルターシートを開く。検索窓はシート内にあり）
                     Button(action: { showFilterSheet = true }) {
@@ -488,11 +489,6 @@ struct FindView: View {
             .navigationTitle("")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .principal) {
-                    Text("Find")
-                        .font(.system(size: 19, weight: .bold))
-                        .foregroundColor(Color.tasukiPrimary)
-                }
                 ToolbarItem(placement: .navigationBarTrailing) {
                     if selectedMode == "Runners" {
                         Menu {
