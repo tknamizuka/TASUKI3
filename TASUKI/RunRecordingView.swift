@@ -245,16 +245,16 @@ struct RunRecordingView: View {
             let safeBottom = geo.safeAreaInsets.bottom
             let bottomControlsHeight: CGFloat = 64 + safeBottom
             let contentH = max(120, totalH - bottomControlsHeight)
-            let minF = recordingSheetMinFraction
+            let minF = effectiveRecordingSheetMinFraction(contentHeight: contentH)
             let maxF = recordingSheetMaxFraction
             let frac = min(max(recordingSheetFraction, minF), maxF)
             let sheetH = contentH * frac
 
             VStack(spacing: 0) {
                 ZStack(alignment: .bottom) {
-                    trackingMapBackgroundLayer(height: contentH, width: geo.size.width)
+                    trackingMapBackgroundLayer(height: contentH, width: geo.size.width, contentHeight: contentH)
 
-                    recordingTrackingSheet(totalHeight: contentH, topSafeInset: geo.safeAreaInsets.top)
+                    recordingTrackingSheet(totalHeight: contentH, topSafeInset: geo.safeAreaInsets.top, contentHeight: contentH)
                         .frame(height: sheetH)
                         .frame(maxWidth: .infinity, alignment: .bottom)
                         .clipped()
@@ -323,18 +323,29 @@ struct RunRecordingView: View {
         }
     }
 
-    /// 折りたたみ（画像2: 下部シート・マップ多め）
-    private let recordingSheetMinFraction: CGFloat = 0.30
+    /// 折りたたみ時コンパクト UI（ハンドル＋黄帯）の目標最小高さ（実際の比率は `recordingSheetCollapsedFractionUpperBound` で頭打ち）
+    private let recordingCompactSheetMinimumHeight: CGFloat = 102
+    /// 折りたたみでシートが記録エリアを占める比率の上限（これよりマップを広く見せる）
+    private let recordingSheetCollapsedFractionUpperBound: CGFloat = 0.20
+    /// 極端に低い比率だけは避ける（運動中シートが潰れすぎないための下限）
+    private let recordingSheetMinFractionFloor: CGFloat = 0.08
     /// デフォルト展開（画像1: 記録が主役・上端にマップが細く見える）
     private let recordingSheetMaxFraction: CGFloat = 0.94
 
+    private func effectiveRecordingSheetMinFraction(contentHeight: CGFloat) -> CGFloat {
+        let intrinsic = recordingCompactSheetMinimumHeight / max(contentHeight, 120)
+        let capped = min(intrinsic, recordingSheetCollapsedFractionUpperBound)
+        return max(recordingSheetMinFractionFloor, capped)
+    }
+
     /// 二段階 UI の切り替え境界（スナップの中央値と一致）
-    private var recordingSheetCollapsedThreshold: CGFloat {
-        (recordingSheetMinFraction + recordingSheetMaxFraction) / 2
+    private func recordingSheetCollapsedThreshold(contentHeight: CGFloat) -> CGFloat {
+        let minF = effectiveRecordingSheetMinFraction(contentHeight: contentHeight)
+        return (minF + recordingSheetMaxFraction) / 2
     }
 
     /// 走行中: 記録シートの下に敷く全幅マップ（常に同じ領域に配置し、シートで覆う／見せる）。
-    private func trackingMapBackgroundLayer(height: CGFloat, width: CGFloat) -> some View {
+    private func trackingMapBackgroundLayer(height: CGFloat, width: CGFloat, contentHeight: CGFloat) -> some View {
         ZStack(alignment: .topTrailing) {
             Map(position: $trackingMapCamera, interactionModes: [.pan, .zoom, .rotate]) {
                 if routeCoordinates.count >= 2 {
@@ -358,7 +369,7 @@ struct RunRecordingView: View {
                 }
             }
             .frame(width: width, height: height)
-            .allowsHitTesting(recordingSheetFraction < recordingSheetCollapsedThreshold)
+            .allowsHitTesting(recordingSheetFraction < recordingSheetCollapsedThreshold(contentHeight: contentHeight))
 
             if tracker.lastKnownCoordinate != nil {
                 Label("GPS", systemImage: "location.fill")
@@ -372,12 +383,12 @@ struct RunRecordingView: View {
         }
         .frame(width: width, height: height)
         .clipped()
-        .simultaneousGesture(recordingSheetResizeGesture(totalHeight: height))
+        .simultaneousGesture(recordingSheetResizeGesture(contentHeight: height))
     }
 
-    private func recordingTrackingSheet(totalHeight: CGFloat, topSafeInset: CGFloat) -> some View {
+    private func recordingTrackingSheet(totalHeight: CGFloat, topSafeInset: CGFloat, contentHeight: CGFloat) -> some View {
         /// スナップが二値のため、中央より下なら折りたたみ UI（マップ最大化側）
-        let collapsed = recordingSheetFraction < recordingSheetCollapsedThreshold
+        let collapsed = recordingSheetFraction < recordingSheetCollapsedThreshold(contentHeight: contentHeight)
         let hintTopPadding = max(topSafeInset, 12)
         return Group {
             if collapsed {
@@ -407,22 +418,24 @@ struct RunRecordingView: View {
             )
         )
         .shadow(color: Color.black.opacity(0.18), radius: 18, y: -6)
-        .highPriorityGesture(recordingSheetResizeGesture(totalHeight: totalHeight))
+        .highPriorityGesture(recordingSheetResizeGesture(contentHeight: totalHeight))
     }
 
     private func recordingSheetDragHandleRow(compact: Bool) -> some View {
-        VStack(spacing: 8) {
+        VStack(spacing: compact ? 6 : 8) {
             Capsule()
                 .fill(Color.tasukiPrimary.opacity(0.28))
                 .frame(width: 42, height: 5)
             Text(compact ? "上にスワイプして記録を全画面に" : "下にスワイプしてマップを表示")
-                .font(.system(size: 11, weight: .semibold))
+                .font(.system(size: compact ? 10 : 11, weight: .semibold))
                 .foregroundColor(Color.tasukiMutedText)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 12)
+                .lineLimit(compact ? 1 : nil)
+                .minimumScaleFactor(compact ? 0.78 : 1)
         }
-        .padding(.top, compact ? 10 : 0)
-        .padding(.bottom, compact ? 8 : 14)
+        .padding(.top, compact ? 6 : 0)
+        .padding(.bottom, compact ? 4 : 14)
         .frame(maxWidth: .infinity)
     }
 
@@ -435,7 +448,7 @@ struct RunRecordingView: View {
                     .tracking(1.2)
                     .foregroundColor(Color.tasukiPrimary.opacity(0.65))
                 Text(formatDuration(elapsedSeconds))
-                    .font(.system(size: 28, weight: .bold))
+                    .font(.system(size: 23, weight: .bold))
                     .foregroundColor(Color.tasukiPrimary)
                     .monospacedDigit()
                     .lineLimit(1)
@@ -444,14 +457,14 @@ struct RunRecordingView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             Rectangle()
                 .fill(Color.tasukiPrimary.opacity(0.2))
-                .frame(width: 1, height: 36)
+                .frame(width: 1, height: 30)
             VStack(alignment: .leading, spacing: 4) {
                 Text("平均ペース")
                     .font(.system(size: 11, weight: .bold))
                     .tracking(1.2)
                     .foregroundColor(Color.tasukiPrimary.opacity(0.65))
                 Text(currentPaceText)
-                    .font(.system(size: 28, weight: .bold))
+                    .font(.system(size: 23, weight: .bold))
                     .foregroundColor(Color.tasukiPrimary)
                     .monospacedDigit()
                     .lineLimit(1)
@@ -459,8 +472,8 @@ struct RunRecordingView: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .padding(.horizontal, 20)
-        .padding(.vertical, 12)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 7)
         .background(Color.tasukiBrandYellow)
     }
 
@@ -514,7 +527,7 @@ struct RunRecordingView: View {
         .background(Color.tasukiBrandYellow)
     }
 
-    private func recordingSheetResizeGesture(totalHeight: CGFloat) -> some Gesture {
+    private func recordingSheetResizeGesture(contentHeight: CGFloat) -> some Gesture {
         DragGesture(minimumDistance: 10, coordinateSpace: .local)
             .onChanged { value in
                 let dx = abs(value.translation.width)
@@ -524,23 +537,49 @@ struct RunRecordingView: View {
                     recordingSheetDragStartFraction = recordingSheetFraction
                 }
                 guard let start = recordingSheetDragStartFraction else { return }
-                let delta = dy / max(totalHeight, 120)
+                let delta = dy / max(contentHeight, 120)
                 let next = start - delta
-                recordingSheetFraction = min(max(next, recordingSheetMinFraction), recordingSheetMaxFraction)
+                let minF = effectiveRecordingSheetMinFraction(contentHeight: contentHeight)
+                recordingSheetFraction = min(max(next, minF), recordingSheetMaxFraction)
             }
-            .onEnded { _ in
+            .onEnded { value in
                 recordingSheetDragStartFraction = nil
-                withAnimation(.spring(response: 0.42, dampingFraction: 0.88)) {
-                    recordingSheetFraction = snapRecordingSheetFraction(recordingSheetFraction)
+                withAnimation(.spring(response: 0.38, dampingFraction: 0.92)) {
+                    recordingSheetFraction = snapRecordingSheetFraction(
+                        recordingSheetFraction,
+                        contentHeight: contentHeight,
+                        predictedEndTranslation: value.predictedEndTranslation,
+                        totalTranslation: value.translation
+                    )
                 }
             }
     }
 
-    /// 記録の全画面とマップ最大化の二段階のみ
-    private func snapRecordingSheetFraction(_ f: CGFloat) -> CGFloat {
-        let clamped = min(max(f, recordingSheetMinFraction), recordingSheetMaxFraction)
-        let mid = (recordingSheetMinFraction + recordingSheetMaxFraction) / 2
-        return clamped >= mid ? recordingSheetMaxFraction : recordingSheetMinFraction
+    /// シート比率は常に「最小＝マップ優先」か「最大＝記録」の二択のみ（中間には止めない）。
+    private func snapRecordingSheetFraction(
+        _ f: CGFloat,
+        contentHeight: CGFloat,
+        predictedEndTranslation: CGSize,
+        totalTranslation: CGSize
+    ) -> CGFloat {
+        let minF = effectiveRecordingSheetMinFraction(contentHeight: contentHeight)
+        let maxF = recordingSheetMaxFraction
+        let ty = totalTranslation.height
+        let py = predictedEndTranslation.height
+
+        // 下スワイプ → マップ優先（シート最小）
+        if ty > 6 || py > 20 {
+            return minF
+        }
+        // 上スワイプ → 記録優先（シート最大）
+        if ty < -6 || py < -20 {
+            return maxF
+        }
+
+        // 動きが小さいときも min / max のどちらかへ寄せる
+        let clamped = min(max(f, minF), maxF)
+        let mid = (minF + maxF) / 2
+        return clamped >= mid ? maxF : minF
     }
 
     private func syncTrackingMapCamera() {
