@@ -730,7 +730,10 @@ final class ChallengeService {
         for challenge in challenges where challenge.isCompleted {
             let key = "tasuki.challenge.rewarded.\(challenge.id).\(monthKey)"
             guard !defaults.bool(forKey: key) else { continue }
-            PointService.shared.addPointsToCurrentUser(amount: challenge.rewardPoints)
+            PointService.shared.addPointsToCurrentUser(
+                amount: challenge.rewardPoints,
+                actionId: "challenge:\(challenge.id):\(monthKey)"
+            )
             defaults.set(true, forKey: key)
             syncChallengeCompletionIfPossible(challenge: challenge, monthKey: monthKey)
             RealityMiningManager.shared.trackEvent(
@@ -761,7 +764,7 @@ final class ChallengeService {
             completion(fallback)
             return
         }
-        db.collection("users")
+        db.collection("public_profiles")
             .order(by: "monthlyPoints", descending: true)
             .limit(to: 20)
             .getDocuments { snapshot, _ in

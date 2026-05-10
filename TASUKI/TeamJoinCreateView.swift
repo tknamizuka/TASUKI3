@@ -1,6 +1,7 @@
 import SwiftUI
 import FirebaseAuth
 import FirebaseFirestore
+import FirebaseFunctions
 
 struct TeamJoinCreateView: View {
     private let maxTeamMembers = 10
@@ -19,6 +20,10 @@ struct TeamJoinCreateView: View {
     @State private var createdInviteCode: String? = nil
     @State private var searchResults: [TeamCandidate] = []
     @State private var showResultsSheet: Bool = false
+
+    private var functions: Functions {
+        Functions.functions(region: "asia-northeast1")
+    }
     
     struct TeamCandidate: Identifiable {
         let id: String
@@ -373,26 +378,30 @@ struct TeamJoinCreateView: View {
         self.errorMessage = nil
         
         if !teamNameInput.trimmingCharacters(in: .whitespaces).isEmpty {
-            // 招待コードで参加
-            db.collection("teams")
-                .whereField("inviteCode", isEqualTo: teamNameInput.trimmingCharacters(in: .whitespaces))
-                .limit(to: 1)
-                .getDocuments { snapshot, error in
-                    if let error = error {
-                        self.errorMessage = "検索に失敗しました: \(error.localizedDescription)"
-                        self.isProcessing = false
-                        return
-                    }
-                    
-                    if let doc = snapshot?.documents.first {
-                        let teamId = doc.documentID
-                        joinTeam(teamId: teamId, byInvite: true)
-                        return
-                    }
-                    
-                    // 招待コード一致なし -> 続けて名前検索にフォールバック
-                    self.performNamePrefixSearch(db: db)
+            let inviteCode = teamNameInput.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+            functions.httpsCallable("lookupTeamByInviteCode").call([
+                "inviteCode": inviteCode
+            ]) { result, error in
+                if let error = error {
+                    self.errorMessage = "招待コード照会に失敗しました: \(error.localizedDescription)"
+                    self.isProcessing = false
+                    return
                 }
+                guard
+                    let payload = result?.data as? [String: Any],
+                    let found = payload["found"] as? Bool
+                else {
+                    self.errorMessage = "招待コード照会の結果が不正です。"
+                    self.isProcessing = false
+                    return
+                }
+                if found, let teamId = payload["teamId"] as? String, !teamId.isEmpty {
+                    joinTeam(teamId: teamId, byInvite: true)
+                    return
+                }
+                // 招待コード一致なし -> 続けて名前検索にフォールバック
+                self.performNamePrefixSearch(db: db)
+            }
         } else {
             // 名前検索
             performNamePrefixSearch(db: db)
@@ -547,7 +556,7 @@ struct TeamJoinCreateView: View {
         }
     }
     
-    private func randomInviteCode(length: Int = 6) -> String {
+    private func randomInviteCode(length: Int = 10) -> String {
         let letters = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
         return String((0..<length).map{ _ in letters.randomElement()! })
     }

@@ -281,7 +281,7 @@ struct RankingView: View {
         guard Auth.auth().currentUser != nil else { return }
         let db = Firestore.firestore()
 
-        db.collection("users")
+        db.collection("public_profiles")
             .order(by: "totalPoints", descending: true)
             .limit(to: 100)
             .getDocuments { snapshot, _ in

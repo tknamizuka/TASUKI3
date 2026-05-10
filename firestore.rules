@@ -37,16 +37,42 @@ service cloud.firestore {
         request.auth.uid in doc.data.participantIds;
     }
 
+    // --- Users (private): 本人のみ読取・作成。更新は危険フィールド禁止＋条件付きオーナー操作 ---
+    function usersServerOnlyKeys() {
+      return [
+        'coachCertified', 'coachProfileName', 'coachTier',
+        'totalPoints', 'monthlyPoints', 'isCoach', 'adminRole'
+      ];
+    }
+
+    function usersSelfUpdateAllowed(userId) {
+      let diff = request.resource.data.diff(resource.data).affectedKeys();
+      return isSelf(userId) &&
+        !diff.hasAny(usersServerOnlyKeys());
+    }
+
+    function teamOwnerSetsApplicantTeamId(userId) {
+      return signedIn() && userId != request.auth.uid &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['teamId']) &&
+        request.resource.data.teamId is string &&
+        isTeamOwner(request.resource.data.teamId);
+    }
+
+    function teamOwnerClearsApplicantLeaveHistory(userId) {
+      return signedIn() && userId != request.auth.uid &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['teamLeaveHistory']) &&
+        resource.data.keys().hasAll(['teamId']) &&
+        request.resource.data.teamId == resource.data.teamId &&
+        isTeamOwner(resource.data.teamId);
+    }
+
     match /users/{userId} {
-      allow read: if signedIn();
-      allow create: if isSelf(userId);
-      allow update: if isSelf(userId) ||
-        (
-          signedIn() &&
-          request.resource.data.diff(resource.data).affectedKeys().hasOnly(["teamId"]) &&
-          request.resource.data.teamId is string &&
-          isTeamOwner(request.resource.data.teamId)
-        );
+      allow read: if isSelf(userId);
+      allow create: if isSelf(userId) &&
+        !request.resource.data.keys().hasAny(usersServerOnlyKeys());
+      allow update: if usersSelfUpdateAllowed(userId) ||
+        teamOwnerSetsApplicantTeamId(userId) ||
+        teamOwnerClearsApplicantLeaveHistory(userId);
       allow delete: if false;
 
       match /reality_events/{eventId} {
@@ -71,10 +97,58 @@ service cloud.firestore {
       }
     }
 
+    // --- Public profiles: 認証ユーザーのみ読取。本人のみ編集（ポイント等はサーバー専用） ---
+    function publicProfileServerOnlyKeys() {
+      return ['totalPoints', 'monthlyPoints', 'coachCertified', 'coachProfileName'];
+    }
+
+    function publicProfileForbiddenKeys() {
+      return ['latitude', 'longitude', 'distanceFromUserMock', 'monthlyGpsActivityCount'];
+    }
+
+    function publicProfileSelfWriteAllowed(userId) {
+      // diff ベースでチェック: 変更したフィールドのみを検査（既存の禁止キーは無視）
+      let diff = request.resource.data.diff(resource.data).affectedKeys();
+      return isSelf(userId) &&
+        !diff.hasAny(publicProfileServerOnlyKeys()) &&
+        !diff.hasAny(publicProfileForbiddenKeys());
+    }
+
+    match /public_profiles/{userId} {
+      allow read: if signedIn();
+      allow create: if isSelf(userId) &&
+        !request.resource.data.keys().hasAny(publicProfileServerOnlyKeys()) &&
+        !request.resource.data.keys().hasAny(publicProfileForbiddenKeys());
+      allow update: if publicProfileSelfWriteAllowed(userId);
+      allow delete: if false;
+    }
+
+    // --- teams: 定員チェック付き自己参加/退出 ---
+    function teamMembersSelfJoinOrLeave() {
+      let diffKeys = request.resource.data.diff(resource.data).affectedKeys();
+      let before = resource.data.members is list ? resource.data.members : [];
+      let after = request.resource.data.members is list ? request.resource.data.members : [];
+      let bSize = before.size();
+      let aSize = after.size();
+      let maxMembers = resource.data.maxMembers is int ? resource.data.maxMembers : 10;
+      return diffKeys.hasOnly(['members']) &&
+        (
+          // 自己追加: 定員チェック付き
+          (aSize == bSize + 1 &&
+            request.auth.uid in after &&
+            !(request.auth.uid in before) &&
+            aSize <= maxMembers) ||
+          // 自己退出
+          (aSize == bSize - 1 &&
+            request.auth.uid in before &&
+            !(request.auth.uid in after))
+        );
+    }
+
     match /teams/{teamId} {
       allow read: if signedIn();
       allow create: if signedIn() && request.resource.data.ownerUid == request.auth.uid;
-      allow update: if signedIn();
+      allow update: if isTeamOwner(teamId) || (signedIn() && teamMembersSelfJoinOrLeave());
       allow delete: if isTeamOwner(teamId);
 
       match /joinRequests/{requestId} {
@@ -92,30 +166,132 @@ service cloud.firestore {
         allow write: if isTeamOwner(teamId);
       }
 
-      // 沿道応援（Cloud Functions の postSpectatorCheer のみが書き込み）
       match /spectator_cheers/{cheerId} {
         allow read: if isTeamMember(teamId);
         allow create, update, delete: if false;
       }
+
+      match /spectator_cheer_daily/{docId} {
+        allow read, write: if isTeamMember(teamId);
+      }
     }
 
-    // Callable によるレート制限のみ。クライアントからはアクセス不可
     match /spectator_cheer_limits/{docId} {
       allow read, write: if false;
     }
 
     match /ekiden_events/{eventId} {
       allow read: if signedIn();
-      // チーム総合順位（クライアントは読み取りのみ）
       match /rankings/{entryId} {
         allow read: if signedIn();
         allow write: if false;
       }
-      // 区間賞（観覧用に未ログイン読取も許可する場合は true に変更可能）
       match /leg_rankings/{legId} {
         allow read: if true;
         allow write: if false;
       }
+    }
+
+    // --- ekiden_entries: 駅伝エントリー ---
+    function ekidenEntryTeamId(entryId) {
+      return get(/databases/$(database)/documents/ekiden_entries/$(entryId)).data.teamId;
+    }
+
+    function isEkidenEntryTeamMember(entryId) {
+      return isTeamMember(ekidenEntryTeamId(entryId));
+    }
+
+    function isEkidenEntryTeamOwner(entryId) {
+      return isTeamOwner(ekidenEntryTeamId(entryId));
+    }
+
+    // エントリー更新で許可するフィールド（クライアントが操作できる進捗管理フィールド）
+    function ekidenEntryMemberAllowedKeys() {
+      return ['currentLegIndex', 'tasukiState', 'updatedAt',
+               'officialResultDisqualified', 'ownerUid'];
+    }
+
+    match /ekiden_entries/{entryId} {
+      allow read: if signedIn();
+      allow create: if signedIn() &&
+        request.resource.data.teamId is string &&
+        isTeamMember(request.resource.data.teamId);
+      allow update: if signedIn() && (
+        isEkidenEntryTeamOwner(entryId) ||
+        (isEkidenEntryTeamMember(entryId) &&
+         request.resource.data.diff(resource.data).affectedKeys()
+           .hasOnly(ekidenEntryMemberAllowedKeys()))
+      );
+      allow delete: if false;
+
+      // 区間記録: 認証済みは閲覧可。書き込みはチームメンバーのみ
+      match /legs/{legIndex} {
+        allow read: if signedIn();
+        allow create: if isEkidenEntryTeamMember(entryId);
+        // 更新: チームオーナー（担当者変更等）または区間担当者（提出・次区間活性化）
+        allow update: if isEkidenEntryTeamOwner(entryId) ||
+          (isEkidenEntryTeamMember(entryId) && (
+            // 担当者が自分の区間を提出
+            (resource.data.status == 'ready' &&
+              (!(resource.data.keys().hasAll(['assignedUid'])) ||
+               resource.data.assignedUid == request.auth.uid)) ||
+            // 次区間の活性化（awaitingTasuki → ready）のみ
+            (resource.data.status == 'awaitingTasuki' &&
+              request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status']) &&
+              request.resource.data.status == 'ready')
+          ));
+        allow delete: if false;
+      }
+
+      // 提出記録: チームメンバーのみ読取。作成のみ可（変更・削除不可）
+      match /submissions/{submissionId} {
+        allow read: if isEkidenEntryTeamMember(entryId);
+        allow create: if isEkidenEntryTeamMember(entryId);
+        allow update, delete: if false;
+      }
+    }
+
+    // --- conversations: 許可フィールドを制限 ---
+    function conversationSafeUpdateKeys() {
+      return ['lastMessageAt', 'lastReadAt', 'updatedAt'];
+    }
+
+    function conversationHostAppendsParticipantsOnly() {
+      let before = resource.data.participantIds is list ? resource.data.participantIds : [];
+      let after = request.resource.data.participantIds is list ? request.resource.data.participantIds : [];
+      return resource.data.practiceId is string &&
+        before.size() > 0 &&
+        request.auth.uid == before[0] &&
+        after.size() == before.size() + 1 &&
+        request.resource.data.participantIds[0] == before[0];
+    }
+
+    function conversationAllowedUpdate(conversationId) {
+      let diff = request.resource.data.diff(resource.data).affectedKeys();
+      return isConversationParticipant(conversationId) && (
+        // 安全なメタデータ更新のみ
+        diff.hasOnly(conversationSafeUpdateKeys()) ||
+        // 練習会チャットのみ: 作成者（participantIds[0]）による追加のみ
+        (diff.hasOnly(['participantIds']) &&
+          request.resource.data.participantIds is list &&
+          conversationHostAppendsParticipantsOnly())
+      );
+    }
+
+    function messageCreateAllowed(conversationId) {
+      return isConversationParticipant(conversationId) &&
+        request.resource.data.keys().hasAll(['text', 'senderId', 'timestamp']) &&
+        request.resource.data.text is string &&
+        request.resource.data.text.size() > 0 &&
+        request.resource.data.text.size() <= 4000 &&
+        request.resource.data.senderId is string &&
+        request.resource.data.senderId == request.auth.uid &&
+        request.resource.data.timestamp is timestamp &&
+        (
+          !request.resource.data.keys().hasAny(['replyPreviewText']) ||
+          (request.resource.data.replyPreviewText is string &&
+            request.resource.data.replyPreviewText.size() <= 500)
+        );
     }
 
     match /conversations/{conversationId} {
@@ -123,35 +299,148 @@ service cloud.firestore {
       allow create: if signedIn() &&
         request.resource.data.participantIds != null &&
         request.auth.uid in request.resource.data.participantIds;
-      allow update: if isConversationParticipant(conversationId);
+      allow update: if conversationAllowedUpdate(conversationId);
       allow delete: if false;
 
+      // メッセージ: 参加者のみ閲覧・送信。送信後は変更・削除不可。最大 4000 文字
       match /messages/{messageId} {
-        allow read, write: if isConversationParticipant(conversationId);
+        allow read: if isConversationParticipant(conversationId);
+        allow create: if messageCreateAllowed(conversationId);
+        allow update, delete: if false;
       }
+    }
+
+    match /reports/{reportId} {
+      allow create: if signedIn() &&
+        request.resource.data.reporterUid == request.auth.uid &&
+        request.resource.data.kind is string &&
+        request.resource.data.createdAt is timestamp &&
+        (
+          !request.resource.data.keys().hasAny(['detail']) ||
+          (request.resource.data.detail is string && request.resource.data.detail.size() <= 1000)
+        ) &&
+        (
+          !request.resource.data.keys().hasAny(['reason']) ||
+          (request.resource.data.reason is string && request.resource.data.reason.size() <= 1000)
+        );
+      allow read, update, delete: if false;
+    }
+
+    function isMatchRequestParticipant() {
+      return signedIn() && (
+        resource.data.toUid == request.auth.uid ||
+        resource.data.fromUid == request.auth.uid
+      );
+    }
+
+    function matchRequestUpdatableKeys() {
+      return [
+        'status', 'isNew', 'message', 'updatedAt',
+        'counterLocation', 'counterProposedStart',
+        'counterIsWeeklyRecurring', 'counterRecurrenceWeekday'
+      ];
+    }
+
+    match /match_requests/{requestId} {
+      allow read: if isMatchRequestParticipant();
+      allow create: if signedIn() &&
+        request.resource.data.fromUid == request.auth.uid &&
+        request.resource.data.toUid is string &&
+        request.resource.data.status == 'open';
+      allow update: if isMatchRequestParticipant() &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(matchRequestUpdatableKeys());
+      allow delete: if false;
+    }
+
+    // --- races: ホストのみ管理 + 参加者の starting→running 遷移を許可 ---
+    function isNumber(v) {
+      return v is int || v is float;
+    }
+
+    function raceRunningTransition() {
+      let diff = request.resource.data.diff(resource.data).affectedKeys();
+      return signedIn() &&
+        diff.hasOnly(['status']) &&
+        resource.data.status == 'starting' &&
+        request.resource.data.status == 'running';
+    }
+
+    function raceParticipantCreateAllowed(participantId) {
+      return signedIn() &&
+        request.auth.uid == participantId &&
+        request.resource.data.keys().hasAll(['name', 'rank', 'joinedAt']) &&
+        request.resource.data.name is string &&
+        request.resource.data.rank is string &&
+        request.resource.data.joinedAt is timestamp &&
+        (
+          !request.resource.data.keys().hasAny(['currentDistanceKm']) ||
+          isNumber(request.resource.data.currentDistanceKm)
+        ) &&
+        !request.resource.data.keys().hasAny(['finishTimeSeconds']);
+    }
+
+    function raceParticipantUpdateAllowed(participantId) {
+      let diff = request.resource.data.diff(resource.data).affectedKeys();
+      return signedIn() &&
+        request.auth.uid == participantId &&
+        !diff.hasAny(['name', 'rank', 'joinedAt']) &&
+        diff.hasOnly(['currentDistanceKm', 'finishTimeSeconds']) &&
+        (
+          !diff.hasAny(['currentDistanceKm']) ||
+          (isNumber(resource.data.currentDistanceKm) &&
+            isNumber(request.resource.data.currentDistanceKm) &&
+            request.resource.data.currentDistanceKm >= resource.data.currentDistanceKm)
+        ) &&
+        (
+          !diff.hasAny(['finishTimeSeconds']) ||
+          (!(resource.data.finishTimeSeconds is int || resource.data.finishTimeSeconds is float) &&
+            isNumber(request.resource.data.finishTimeSeconds) &&
+            request.resource.data.finishTimeSeconds > 0)
+        );
     }
 
     match /races/{raceId} {
       allow read: if signedIn();
       allow create: if signedIn() && request.resource.data.hostUserId == request.auth.uid;
-      allow update: if signedIn();
+      allow update: if (signedIn() && resource.data.hostUserId == request.auth.uid) ||
+        raceRunningTransition();
       allow delete: if false;
 
       match /participants/{participantId} {
         allow read: if signedIn();
-        allow write: if signedIn();
+        allow create: if raceParticipantCreateAllowed(participantId);
+        allow update: if raceParticipantUpdateAllowed(participantId);
+        allow delete: if false;
       }
+
+      match /awards/{awardId} {
+        allow read: if signedIn();
+        allow write: if false;
+      }
+    }
+
+    function timeTrialRoomParticipantCountOnly() {
+      let diffKeys = request.resource.data.diff(resource.data).affectedKeys();
+      return diffKeys.hasOnly(['participantCount']) &&
+        request.resource.data.participantCount is int &&
+        resource.data.participantCount is int &&
+        request.resource.data.participantCount == resource.data.participantCount + 1;
     }
 
     match /time_trial_rooms/{roomId} {
       allow read: if signedIn();
       allow create: if signedIn();
-      allow update: if signedIn();
+      allow update: if false;
       allow delete: if false;
 
       match /participants/{participantId} {
         allow read: if signedIn();
-        allow write: if signedIn();
+        allow write: if false;
+      }
+
+      match /awards/{awardId} {
+        allow read: if signedIn();
+        allow write: if false;
       }
     }
   }

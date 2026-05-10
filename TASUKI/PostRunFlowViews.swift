@@ -173,7 +173,10 @@ private struct PostRunActivitySaveView: View {
             postRunMood: nil
         )
         let earnedPoints = max(20, Int(activity.distanceKm * 12))
-        PointService.shared.addPointsToCurrentUser(amount: earnedPoints)
+        PointService.shared.addPointsToCurrentUser(
+            amount: earnedPoints,
+            actionId: "run_activity:\(activity.id.uuidString)"
+        )
         onSaved(activity)
     }
 

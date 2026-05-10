@@ -52,19 +52,28 @@ final class UserManager: ObservableObject {
         if let profileImageUrl = user.profileImageUrl {
             data["profileImageUrl"] = profileImageUrl
         }
-        
-        db.collection("users")
-            .document(firebaseUser.uid)
-            .setData(data, merge: true) { [weak self] error in
-                if let error = error {
-                    completion(.failure(error))
-                } else {
-                    DispatchQueue.main.async {
-                        self?.hasProfile = true
-                    }
-                    completion(.success(()))
+
+        let uid = firebaseUser.uid
+        let userRef = db.collection("users").document(uid)
+        let publicRef = db.collection("public_profiles").document(uid)
+        var publicData = data
+        publicData.removeValue(forKey: "latitude")
+        publicData.removeValue(forKey: "longitude")
+        publicData.removeValue(forKey: "distanceFromUserMock")
+
+        let batch = db.batch()
+        batch.setData(data, forDocument: userRef, merge: true)
+        batch.setData(publicData, forDocument: publicRef, merge: true)
+        batch.commit { [weak self] error in
+            if let error = error {
+                completion(.failure(error))
+            } else {
+                DispatchQueue.main.async {
+                    self?.hasProfile = true
                 }
+                completion(.success(()))
             }
+        }
     }
     
     /// Firestore にプロフィールが存在するか確認
@@ -138,13 +147,13 @@ final class UserManager: ObservableObject {
         }
     }
 
-    /// Find タブ用: `users` コレクションから他ユーザーのプロフィールを取得（自分の UID は除外）
+    /// Find タブ用: `public_profiles` から他ユーザーの公開プロフィールを取得（自分の UID は除外）
     func fetchDiscoverUsers(limit: Int = 80, completion: @escaping (Result<[User], Error>) -> Void) {
         guard let myUid = Auth.auth().currentUser?.uid else {
             completion(.success([]))
             return
         }
-        db.collection("users")
+        db.collection("public_profiles")
             .limit(to: max(1, min(limit, 100)))
             .getDocuments { snapshot, error in
                 if let error = error {

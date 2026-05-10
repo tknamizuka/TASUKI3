@@ -228,9 +228,10 @@ final class ConversationManager: UnreadCountProviderBase {
     
     /// 自分宛のマッチングリクエスト一覧（ユーザーからの申請のみ。練習会・主催者からの招待はここに出さない）
     func fetchMyMatchRequests(completion: @escaping (Result<[MatchRequestSummary], Error>) -> Void) {
-        // TODO: Firestore の match_requests 等と MatchInvitationStore を同期する
-        DispatchQueue.main.async {
-            completion(.success(MatchInvitationStore.shared.inbox))
+        MatchInvitationStore.shared.syncFromRemoteIfPossible {
+            DispatchQueue.main.async {
+                completion(.success(MatchInvitationStore.shared.inbox))
+            }
         }
     }
     

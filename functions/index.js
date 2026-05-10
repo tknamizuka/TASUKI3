@@ -22,6 +22,14 @@ function yyyymmdd(date) {
   return `${y}${m}${d}`;
 }
 
+function yyyymmddhh(date) {
+  const y = date.getUTCFullYear();
+  const m = String(date.getUTCMonth() + 1).padStart(2, "0");
+  const d = String(date.getUTCDate()).padStart(2, "0");
+  const h = String(date.getUTCHours()).padStart(2, "0");
+  return `${y}${m}${d}${h}`;
+}
+
 function startOfUtcDay(date) {
   return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate(), 0, 0, 0));
 }
@@ -60,6 +68,14 @@ function topHourByHistogram(hist) {
 
 function clamp01(value) {
   return Math.max(0, Math.min(1, value));
+}
+
+function normalizeActionId(raw) {
+  const id = typeof raw === "string" ? raw.trim() : "";
+  if (!id) return "";
+  if (id.length > 96) return "";
+  if (!/^[A-Za-z0-9:_-]+$/.test(id)) return "";
+  return id;
 }
 
 function median(numbers) {
@@ -118,6 +134,13 @@ async function awardRacePointsForParticipant({
     }, {merge: true});
 
     tx.set(userRef, {
+      totalPoints: admin.firestore.FieldValue.increment(amount),
+      monthlyPoints: admin.firestore.FieldValue.increment(amount),
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    }, {merge: true});
+
+    const publicRef = db.collection("public_profiles").doc(participantId);
+    tx.set(publicRef, {
       totalPoints: admin.firestore.FieldValue.increment(amount),
       monthlyPoints: admin.firestore.FieldValue.increment(amount),
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -221,6 +244,13 @@ async function awardTimeTrialPointsForParticipant({
     }, {merge: true});
 
     tx.set(userRef, {
+      totalPoints: admin.firestore.FieldValue.increment(amount),
+      monthlyPoints: admin.firestore.FieldValue.increment(amount),
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    }, {merge: true});
+
+    const publicRef = db.collection("public_profiles").doc(participantId);
+    tx.set(publicRef, {
       totalPoints: admin.firestore.FieldValue.increment(amount),
       monthlyPoints: admin.firestore.FieldValue.increment(amount),
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -806,6 +836,315 @@ async function checkSpectatorCheerRateLimit(limitKey) {
     }, {merge: true});
   });
 }
+
+const GRANT_POINTS_MAX = 5000;
+const GRANT_TEAM_POINTS_MAX = 100000;
+const DAILY_ACTIVITY_POINTS_LIMIT = 10000;
+const DAILY_TEAM_POINTS_LIMIT = 50000;
+
+/**
+ * アプリ内アクティビティ用ポイント付与（本人のみ・ルールで直接加算不可の代替）
+ */
+exports.grantActivityPoints = onCall(
+    {
+      region: "asia-northeast1",
+      memory: "256MiB",
+    },
+    async (request) => {
+      if (!request.auth) {
+        throw new HttpsError("unauthenticated", "ログインが必要です");
+      }
+      const uid = request.auth.uid;
+      const amount = Number(request.data?.amount);
+      const actionId = normalizeActionId(request.data?.actionId);
+      if (!Number.isFinite(amount) || amount <= 0 || amount > GRANT_POINTS_MAX) {
+        throw new HttpsError("invalid-argument", "付与ポイントが不正です");
+      }
+      if (!actionId) {
+        throw new HttpsError("invalid-argument", "actionId が不正です");
+      }
+      const userRef = db.collection("users").doc(uid);
+      const publicRef = db.collection("public_profiles").doc(uid);
+      const actionRef = db.collection("users").doc(uid)
+          .collection("point_action_ids").doc(actionId);
+      const dateKey = yyyymmdd(new Date());
+      const dailyRef = db.collection("users").doc(uid)
+          .collection("point_daily").doc(dateKey);
+      await db.runTransaction(async (tx) => {
+        const actionSnap = await tx.get(actionRef);
+        if (actionSnap.exists) {
+          return;
+        }
+        const dailySnap = await tx.get(dailyRef);
+        const daily = dailySnap.exists ? Number(dailySnap.data()?.grantedTotal || 0) : 0;
+        if (!Number.isFinite(daily) || daily + amount > DAILY_ACTIVITY_POINTS_LIMIT) {
+          throw new HttpsError("resource-exhausted", "本日のポイント付与上限に達しました");
+        }
+        tx.set(userRef, {
+          totalPoints: admin.firestore.FieldValue.increment(amount),
+          monthlyPoints: admin.firestore.FieldValue.increment(amount),
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        }, {merge: true});
+        tx.set(publicRef, {
+          totalPoints: admin.firestore.FieldValue.increment(amount),
+          monthlyPoints: admin.firestore.FieldValue.increment(amount),
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        }, {merge: true});
+        tx.set(dailyRef, {
+          grantedTotal: admin.firestore.FieldValue.increment(amount),
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        }, {merge: true});
+        tx.set(actionRef, {
+          amount,
+          dateKey,
+          createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        }, {merge: true});
+      });
+      return {success: true};
+    },
+);
+
+/**
+ * チームポイント加算（メンバー本人による付与要求）
+ */
+exports.grantTeamActivityPoints = onCall(
+    {
+      region: "asia-northeast1",
+      memory: "256MiB",
+    },
+    async (request) => {
+      if (!request.auth) {
+        throw new HttpsError("unauthenticated", "ログインが必要です");
+      }
+      const uid = request.auth.uid;
+      const teamId = typeof request.data?.teamId === "string" ? request.data.teamId.trim() : "";
+      const totalAmount = Number(request.data?.totalAmount);
+      const monthlyAmount = Number(request.data?.monthlyAmount);
+      const actionId = normalizeActionId(request.data?.actionId);
+      if (!teamId) {
+        throw new HttpsError("invalid-argument", "teamId が必要です");
+      }
+      if (!actionId) {
+        throw new HttpsError("invalid-argument", "actionId が不正です");
+      }
+      if (!Number.isFinite(totalAmount) || !Number.isFinite(monthlyAmount)) {
+        throw new HttpsError("invalid-argument", "加算値が不正です");
+      }
+      if (totalAmount <= 0 && monthlyAmount <= 0) {
+        throw new HttpsError("invalid-argument", "加算値が不正です");
+      }
+      if (totalAmount > GRANT_TEAM_POINTS_MAX || monthlyAmount > GRANT_TEAM_POINTS_MAX ||
+          totalAmount < 0 || monthlyAmount < 0) {
+        throw new HttpsError("invalid-argument", "加算値が大きすぎます");
+      }
+      const teamSnap = await db.collection("teams").doc(teamId).get();
+      if (!teamSnap.exists) {
+        throw new HttpsError("not-found", "チームが見つかりません");
+      }
+      const teamData = teamSnap.data() || {};
+      const ownerUid = teamData.ownerUid;
+      const members = Array.isArray(teamData.members) ? teamData.members : [];
+      const allowed = ownerUid === uid || members.includes(uid);
+      if (!allowed) {
+        throw new HttpsError("permission-denied", "このチームのメンバーではありません");
+      }
+      const teamRef = db.collection("teams").doc(teamId);
+      const dateKey = yyyymmdd(new Date());
+      const dailyRef = teamRef.collection("team_point_daily").doc(dateKey);
+      const actionRef = teamRef.collection("team_point_action_ids").doc(`${uid}_${actionId}`);
+      await db.runTransaction(async (tx) => {
+        const actionSnap = await tx.get(actionRef);
+        if (actionSnap.exists) {
+          return;
+        }
+        const dailySnap = await tx.get(dailyRef);
+        const daily = dailySnap.exists ? Number(dailySnap.data()?.grantedTotal || 0) : 0;
+        const incrementAmount = totalAmount + monthlyAmount;
+        if (!Number.isFinite(daily) || daily + incrementAmount > DAILY_TEAM_POINTS_LIMIT) {
+          throw new HttpsError("resource-exhausted", "本日のチームポイント付与上限に達しました");
+        }
+        tx.set(teamRef, {
+          teamTotalPoints: admin.firestore.FieldValue.increment(totalAmount),
+          teamMonthlyPoints: admin.firestore.FieldValue.increment(monthlyAmount),
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        }, {merge: true});
+        tx.set(dailyRef, {
+          grantedTotal: admin.firestore.FieldValue.increment(incrementAmount),
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        }, {merge: true});
+        tx.set(actionRef, {
+          uid,
+          actionId,
+          totalAmount,
+          monthlyAmount,
+          dateKey,
+          createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        }, {merge: true});
+      });
+      return {success: true};
+    },
+);
+
+exports.joinTimeTrialRoom = onCall(
+    {
+      region: "asia-northeast1",
+      memory: "256MiB",
+    },
+    async (request) => {
+      if (!request.auth) {
+        throw new HttpsError("unauthenticated", "ログインが必要です");
+      }
+      const uid = request.auth.uid;
+      const roomId = typeof request.data?.roomId === "string" ? request.data.roomId.trim() : "";
+      const name = typeof request.data?.name === "string" ? request.data.name.trim() : "";
+      const rank = typeof request.data?.rank === "string" ? request.data.rank.trim() : "";
+      if (!roomId) {
+        throw new HttpsError("invalid-argument", "roomId が必要です");
+      }
+      if (!name) {
+        throw new HttpsError("invalid-argument", "name が必要です");
+      }
+
+      const roomRef = db.collection("time_trial_rooms").doc(roomId);
+      const participantRef = roomRef.collection("participants").doc(uid);
+      await db.runTransaction(async (tx) => {
+        const roomSnap = await tx.get(roomRef);
+        if (!roomSnap.exists) {
+          throw new HttpsError("not-found", "部屋が見つかりません");
+        }
+        const roomData = roomSnap.data() || {};
+        const now = new Date();
+        const periodEnd = roomData.periodEnd?.toDate?.();
+        if (periodEnd instanceof Date && now > periodEnd) {
+          throw new HttpsError("failed-precondition", "この部屋は募集期間外です");
+        }
+        if (roomData.settledAt) {
+          throw new HttpsError("failed-precondition", "この部屋はすでに集計済みです");
+        }
+        const participantSnap = await tx.get(participantRef);
+        if (participantSnap.exists) {
+          return;
+        }
+        const currentCount = Number(roomData.participantCount || 0);
+        if (!Number.isFinite(currentCount) || currentCount >= 20) {
+          throw new HttpsError("resource-exhausted", "この部屋は満員です");
+        }
+        tx.set(participantRef, {
+          name,
+          rank,
+          joinedAt: admin.firestore.FieldValue.serverTimestamp(),
+        }, {merge: true});
+        tx.set(roomRef, {
+          participantCount: admin.firestore.FieldValue.increment(1),
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        }, {merge: true});
+      });
+      return {success: true};
+    },
+);
+
+exports.submitTimeTrialResult = onCall(
+    {
+      region: "asia-northeast1",
+      memory: "256MiB",
+    },
+    async (request) => {
+      if (!request.auth) {
+        throw new HttpsError("unauthenticated", "ログインが必要です");
+      }
+      const uid = request.auth.uid;
+      const roomId = typeof request.data?.roomId === "string" ? request.data.roomId.trim() : "";
+      const timeSeconds = Number(request.data?.timeSeconds);
+      if (!roomId || !Number.isFinite(timeSeconds) || timeSeconds <= 0) {
+        throw new HttpsError("invalid-argument", "roomId と timeSeconds が不正です");
+      }
+      const roomRef = db.collection("time_trial_rooms").doc(roomId);
+      const participantRef = roomRef.collection("participants").doc(uid);
+      await db.runTransaction(async (tx) => {
+        const roomSnap = await tx.get(roomRef);
+        if (!roomSnap.exists) {
+          throw new HttpsError("not-found", "部屋が見つかりません");
+        }
+        const roomData = roomSnap.data() || {};
+        if (roomData.settledAt) {
+          throw new HttpsError("failed-precondition", "この部屋はすでに集計済みです");
+        }
+        const periodEnd = roomData.periodEnd?.toDate?.();
+        if (periodEnd instanceof Date && new Date() > periodEnd) {
+          throw new HttpsError("failed-precondition", "この部屋は提出期間外です");
+        }
+        const participantSnap = await tx.get(participantRef);
+        if (!participantSnap.exists) {
+          throw new HttpsError("failed-precondition", "先に部屋へ参加してください");
+        }
+        const pData = participantSnap.data() || {};
+        if (typeof pData.submittedTimeSeconds === "number" && pData.submittedTimeSeconds > 0) {
+          throw new HttpsError("already-exists", "タイムは提出済みです");
+        }
+        tx.set(participantRef, {
+          submittedTimeSeconds: timeSeconds,
+          submittedAt: admin.firestore.FieldValue.serverTimestamp(),
+        }, {merge: true});
+      });
+      return {success: true};
+    },
+);
+
+const INVITE_LOOKUP_MAX_PER_HOUR = 30;
+
+async function enforceInviteLookupRateLimit(uid) {
+  const hourKey = yyyymmddhh(new Date());
+  const ref = db.collection("invite_lookup_limits").doc(`${uid}_${hourKey}`);
+  await db.runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    const current = snap.exists ? Number(snap.data()?.count || 0) : 0;
+    if (!Number.isFinite(current) || current >= INVITE_LOOKUP_MAX_PER_HOUR) {
+      throw new HttpsError("resource-exhausted", "招待コードの照会上限に達しました。時間をおいて再試行してください");
+    }
+    tx.set(ref, {
+      uid,
+      hourKey,
+      count: current + 1,
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    }, {merge: true});
+  });
+}
+
+exports.lookupTeamByInviteCode = onCall(
+    {
+      region: "asia-northeast1",
+      memory: "256MiB",
+    },
+    async (request) => {
+      if (!request.auth) {
+        throw new HttpsError("unauthenticated", "ログインが必要です");
+      }
+      const uid = request.auth.uid;
+      const inviteCode = typeof request.data?.inviteCode === "string" ?
+        request.data.inviteCode.trim().toUpperCase() : "";
+      if (!inviteCode || inviteCode.length < 6 || inviteCode.length > 16) {
+        throw new HttpsError("invalid-argument", "招待コードが不正です");
+      }
+      await enforceInviteLookupRateLimit(uid);
+
+      const snap = await db.collection("teams")
+          .where("inviteCode", "==", inviteCode)
+          .limit(1)
+          .get();
+      if (snap.empty) {
+        return {found: false};
+      }
+      const doc = snap.docs[0];
+      const data = doc.data() || {};
+      return {
+        found: true,
+        teamId: doc.id,
+        name: data.name || "Unnamed",
+        requiresApproval: Boolean(data.requiresApproval),
+        ekidenMode: data.ekidenMode || "real_ekiden",
+      };
+    },
+);
 
 /**
  * 沿道・観客からの応援（Callable）。Firestore 直書きは禁止し本関数経由のみ。

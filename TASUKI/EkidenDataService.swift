@@ -637,7 +637,7 @@ final class EkidenDataService {
             var memberNames: [String: String] = [:]
             let uids = legs.compactMap { $0.assignedUid }
             for uid in Set(uids) {
-                if let userDoc = try? await db.collection("users").document(uid).getDocument(),
+                if let userDoc = try? await db.collection("public_profiles").document(uid).getDocument(),
                    let data = userDoc.data(),
                    let name = data["name"] as? String {
                     memberNames[uid] = name
@@ -829,6 +829,13 @@ final class EkidenDataService {
                       let legData = legSnap.data(),
                       (legData["status"] as? String) == EkidenLegStatus.ready.rawValue else {
                     let err = NSError(domain: "EkidenDataService", code: -1, userInfo: [NSLocalizedDescriptionKey: "提出可能な状態ではありません"])
+                    errorPtr?.pointee = err
+                    return nil
+                }
+                // 担当者が設定されている場合、実行者と一致することを確認
+                if let assignedUid = legData["assignedUid"] as? String, !assignedUid.isEmpty,
+                   assignedUid != submittedByUid {
+                    let err = NSError(domain: "EkidenDataService", code: -1, userInfo: [NSLocalizedDescriptionKey: "この区間の担当者ではありません"])
                     errorPtr?.pointee = err
                     return nil
                 }
@@ -1141,10 +1148,12 @@ final class EkidenDataService {
                 var memberNames: [String: String] = [:]
                 let uids = Set(legs.compactMap { $0.assignedUid })
                 for uid in uids {
-                    if let userDoc = try? await db.collection("users").document(uid).getDocument(),
+                    if let userDoc = try? await db.collection("public_profiles").document(uid).getDocument(),
                        let data = userDoc.data(),
                        let name = data["name"] as? String {
                         memberNames[uid] = name
+                    } else {
+                        memberNames[uid] = uid
                     }
                 }
 

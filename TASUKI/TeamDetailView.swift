@@ -324,7 +324,7 @@ struct TeamDetailView: View {
             // 簡易的に各UIDからユーザー名を読み取る
             var infos: [String] = []
             for uid in memberUIDs {
-                if let userDoc = try? await db.collection("users").document(uid).getDocument(), let udata = userDoc.data() {
+                if let userDoc = try? await db.collection("public_profiles").document(uid).getDocument(), let udata = userDoc.data() {
                     let name = udata["name"] as? String ?? uid
                     infos.append(name)
                 } else {

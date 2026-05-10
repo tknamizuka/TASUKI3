@@ -1,21 +1,23 @@
 import Foundation
 import FirebaseFirestore
 import FirebaseAuth
+import FirebaseFunctions
 
-/// TASUKI 内の「ポイント」を管理するシンプルなサービス。
-/// 現時点ではローカル（UserDefaults）でのみ管理し、バックエンドとは同期しない。
+/// TASUKI 内の「ポイント」を管理する。
+/// ローカル（UserDefaults）で UI を即時反映し、Firestore への反映は Cloud Functions（grantActivityPoints / grantTeamActivityPoints）経由。
 final class PointService {
     static let shared = PointService()
     
     private lazy var db = Firestore.firestore()
-    
+    private lazy var functions = Functions.functions(region: "asia-northeast1")
+
     private init() {}
     
     // MARK: - Public API
     
     /// タイムトライアルなどで獲得したポイントを現在ユーザーに付与する。
     /// - Parameter amount: 付与するポイント（0 以下なら何もしない）
-    func addPointsToCurrentUser(amount: Int) {
+    func addPointsToCurrentUser(amount: Int, actionId: String? = nil) {
         guard amount > 0 else { return }
         
         let defaults = UserDefaults.standard
@@ -39,7 +41,11 @@ final class PointService {
         defaults.set(total, forKey: "myTotalPoints")
         defaults.set(monthly, forKey: "myMonthlyPoints")
 
-        syncCurrentUserPointsToFirestore(totalIncrement: amount, monthlyIncrement: amount)
+        syncCurrentUserPointsToFirestore(
+            totalIncrement: amount,
+            monthlyIncrement: amount,
+            actionId: actionId ?? makeActionId(prefix: "activity")
+        )
     }
     
     /// 現在の累計ポイントを取得するヘルパー（UI 用）
@@ -98,14 +104,19 @@ final class PointService {
     }
     
     /// チームにポイントを付与する（サンプルチームは UserDefaults、本番は Firestore）
-    func addTeamPoints(teamId: String, totalAmount: Int, monthlyAmount: Int) {
+    func addTeamPoints(teamId: String, totalAmount: Int, monthlyAmount: Int, actionId: String? = nil) {
         guard totalAmount > 0 || monthlyAmount > 0 else { return }
         
         let isSampleTeam = teamId.hasPrefix("example_")
         if isSampleTeam {
             addTeamPointsLocal(teamId: teamId, totalAmount: totalAmount, monthlyAmount: monthlyAmount)
         } else {
-            addTeamPointsFirestore(teamId: teamId, totalAmount: totalAmount, monthlyAmount: monthlyAmount)
+            addTeamPointsFirestore(
+                teamId: teamId,
+                totalAmount: totalAmount,
+                monthlyAmount: monthlyAmount,
+                actionId: actionId ?? makeActionId(prefix: "team")
+            )
         }
     }
     
@@ -172,21 +183,31 @@ final class PointService {
         defaults.set(monthly, forKey: prefix + "monthlyPoints")
     }
     
-    private func addTeamPointsFirestore(teamId: String, totalAmount: Int, monthlyAmount: Int) {
-        let ref = db.collection("teams").document(teamId)
-        ref.updateData([
-            "teamTotalPoints": FieldValue.increment(Int64(totalAmount)),
-            "teamMonthlyPoints": FieldValue.increment(Int64(monthlyAmount))
-        ]) { _ in }
+    private func addTeamPointsFirestore(teamId: String, totalAmount: Int, monthlyAmount: Int, actionId: String) {
+        functions.httpsCallable("grantTeamActivityPoints").call([
+            "teamId": teamId,
+            "totalAmount": totalAmount,
+            "monthlyAmount": monthlyAmount,
+            "actionId": actionId
+        ]) { _, error in
+            if let error = error {
+                print("grantTeamActivityPoints failed: \(error.localizedDescription)")
+            }
+        }
     }
-    
-    private func syncCurrentUserPointsToFirestore(totalIncrement: Int, monthlyIncrement: Int) {
-        guard let uid = Auth.auth().currentUser?.uid else { return }
-        db.collection("users").document(uid).setData([
-            "totalPoints": FieldValue.increment(Int64(totalIncrement)),
-            "monthlyPoints": FieldValue.increment(Int64(monthlyIncrement)),
-            "updatedAt": Timestamp(date: Date())
-        ], merge: true)
+
+    private func syncCurrentUserPointsToFirestore(totalIncrement: Int, monthlyIncrement: Int, actionId: String) {
+        guard totalIncrement > 0, Auth.auth().currentUser != nil else { return }
+        // monthly は現状アプリ側で total と同じ刻み。サーバー側でも同一値で加算する。
+        let amount = totalIncrement
+        functions.httpsCallable("grantActivityPoints").call([
+            "amount": amount,
+            "actionId": actionId
+        ]) { _, error in
+            if let error = error {
+                print("grantActivityPoints failed: \(error.localizedDescription)")
+            }
+        }
     }
     
     /// "yyyyMM" 形式の月キー
@@ -195,6 +216,10 @@ final class PointService {
         df.locale = Locale(identifier: "ja_JP")
         df.dateFormat = "yyyyMM"
         return df.string(from: Date())
+    }
+
+    private func makeActionId(prefix: String) -> String {
+        "\(prefix):\(UUID().uuidString.replacingOccurrences(of: "-", with: ""))"
     }
 }
 

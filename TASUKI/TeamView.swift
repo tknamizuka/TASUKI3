@@ -1310,7 +1310,7 @@ struct TeamView: View {
             var rows: [OwnerSuccessorCandidate] = []
             for m in others {
                 let displayName: String
-                if let ud = try? await db.collection("users").document(m).getDocument(),
+                if let ud = try? await db.collection("public_profiles").document(m).getDocument(),
                    let d = ud.data(),
                    let n = d["name"] as? String,
                    !n.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {

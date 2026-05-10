@@ -303,12 +303,13 @@ struct FlowLayout: Layout {
     }
 }
 
-// MARK: - Agent debug ingest (session f3091f)
+// MARK: - Agent debug ingest (session f3091f) — DEBUG のみ（Release でローカル HTTP を送出しない）
 enum AgentDebugLog {
     static let sessionId = "f3091f"
-    private static let ingestURL = URL(string: "http://127.0.0.1:7824/ingest/d7f1622c-ff7c-497a-bb9c-bba8292b28cf")!
 
     static func log(location: String, message: String, hypothesisId: String, data: [String: String] = [:]) {
+        #if DEBUG
+        let ingestURL = URL(string: "http://127.0.0.1:7824/ingest/d7f1622c-ff7c-497a-bb9c-bba8292b28cf")!
         let ts = Int64(Date().timeIntervalSince1970 * 1000)
         let payload: [String: Any] = [
             "sessionId": sessionId,
@@ -327,15 +328,17 @@ enum AgentDebugLog {
         req.setValue(sessionId, forHTTPHeaderField: "X-Debug-Session-Id")
         req.httpBody = json
         URLSession.shared.dataTask(with: req).resume()
+        #endif
     }
 }
 
 // MARK: - Debug session 65844b (NDJSON ingest — simulator-friendly)
 enum DebugSession658Log {
     static let sessionId = "65844b"
-    private static let ingestURL = URL(string: "http://127.0.0.1:7824/ingest/d7f1622c-ff7c-497a-bb9c-bba8292b28cf")!
 
     static func log(location: String, message: String, hypothesisId: String, data: [String: String] = [:], runId: String = "pre-fix") {
+        #if DEBUG
+        let ingestURL = URL(string: "http://127.0.0.1:7824/ingest/d7f1622c-ff7c-497a-bb9c-bba8292b28cf")!
         let ts = Int64(Date().timeIntervalSince1970 * 1000)
         let payload: [String: Any] = [
             "sessionId": sessionId,
@@ -355,5 +358,6 @@ enum DebugSession658Log {
         req.setValue(sessionId, forHTTPHeaderField: "X-Debug-Session-Id")
         req.httpBody = json
         URLSession.shared.dataTask(with: req).resume()
+        #endif
     }
 }
