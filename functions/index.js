@@ -123,6 +123,13 @@ async function awardRacePointsForParticipant({
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     }, {merge: true});
 
+    const publicRef = db.collection("public_profiles").doc(participantId);
+    tx.set(publicRef, {
+      totalPoints: admin.firestore.FieldValue.increment(amount),
+      monthlyPoints: admin.firestore.FieldValue.increment(amount),
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    }, {merge: true});
+
     const userSnap = await tx.get(userRef);
     const teamId = userSnap.data()?.teamId;
     if (typeof teamId === "string" && teamId.length > 0) {
@@ -221,6 +228,13 @@ async function awardTimeTrialPointsForParticipant({
     }, {merge: true});
 
     tx.set(userRef, {
+      totalPoints: admin.firestore.FieldValue.increment(amount),
+      monthlyPoints: admin.firestore.FieldValue.increment(amount),
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    }, {merge: true});
+
+    const publicRef = db.collection("public_profiles").doc(participantId);
+    tx.set(publicRef, {
       totalPoints: admin.firestore.FieldValue.increment(amount),
       monthlyPoints: admin.firestore.FieldValue.increment(amount),
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -485,6 +499,10 @@ exports.submitEkidenLeg = onCall(
           typeof isUnderTarget !== "boolean") {
         throw new HttpsError("invalid-argument", "actualDistanceKm, elapsedSeconds, isUnderTarget が必須です");
       }
+      if (!Number.isFinite(actualDistanceKm) || !Number.isFinite(elapsedSeconds) ||
+          actualDistanceKm < 0 || elapsedSeconds <= 0) {
+        throw new HttpsError("invalid-argument", "提出距離または時間が不正です");
+      }
 
       const entryRef = db.collection("ekiden_entries").doc(entryId);
       const entrySnap = await entryRef.get();
@@ -523,20 +541,44 @@ exports.submitEkidenLeg = onCall(
       if (assignedUid && assignedUid !== uid) {
         throw new HttpsError("permission-denied", "この区間の担当者ではありません");
       }
+      if (runActivityId) {
+        const duplicate = await entryRef.collection("submissions")
+            .where("runActivityId", "==", runActivityId)
+            .limit(1)
+            .get();
+        if (!duplicate.empty) {
+          throw new HttpsError("already-exists", "同じ記録は提出済みです");
+        }
+      }
 
       const legsRef = entryRef.collection("legs");
       const submissionRef = entryRef.collection("submissions").doc();
       const nextLegRef = legsRef.doc(String(legIndex + 1));
 
       const ts = admin.firestore.Timestamp.fromDate(now);
+      const targetKm = Number(legData.targetKm || 0);
+      const existingDistance = Number(legData.actualDistanceKm || 0);
+      const existingElapsed = Number(legData.elapsedSeconds || 0);
+      const accumulatedDistance = Math.min(
+          Math.max(0, existingDistance + actualDistanceKm),
+          Math.max(0, targetKm),
+      );
+      const accumulatedElapsed = Math.max(0, existingElapsed + elapsedSeconds);
+      const reachedTarget = accumulatedDistance >= targetKm - 1e-9;
       const legUpdate = {
-        status: EKIDEN_LEG_STATUS.SUBMITTED,
-        submittedAt: ts,
-        actualDistanceKm,
-        elapsedSeconds,
-        isUnderTarget,
+        status: reachedTarget ? EKIDEN_LEG_STATUS.SUBMITTED : EKIDEN_LEG_STATUS.READY,
+        actualDistanceKm: accumulatedDistance,
+        elapsedSeconds: accumulatedElapsed,
+        isUnderTarget: !reachedTarget,
       };
-      if (typeof splitAtTargetSeconds === "number") legUpdate.splitAtTargetSeconds = splitAtTargetSeconds;
+      if (reachedTarget) {
+        legUpdate.submittedAt = ts;
+        legUpdate.splitAtTargetSeconds = typeof splitAtTargetSeconds === "number" ?
+          existingElapsed + splitAtTargetSeconds : accumulatedElapsed;
+      } else {
+        legUpdate.submittedAt = admin.firestore.FieldValue.delete();
+        legUpdate.splitAtTargetSeconds = admin.firestore.FieldValue.delete();
+      }
 
       const subData = {
         legIndex,
@@ -553,19 +595,23 @@ exports.submitEkidenLeg = onCall(
       await db.runTransaction(async (tx) => {
         tx.update(legRef, legUpdate);
 
-        const nextSnap = await tx.get(nextLegRef);
-        if (nextSnap.exists) {
-          tx.update(nextLegRef, {status: EKIDEN_LEG_STATUS.READY});
-        }
+        if (reachedTarget) {
+          const nextSnap = await tx.get(nextLegRef);
+          if (nextSnap.exists) {
+            tx.update(nextLegRef, {status: EKIDEN_LEG_STATUS.READY});
+          }
 
-        const nextIndex = legIndex + 1;
-        const totalLegCount = Math.max(Number(eventData.legCount || 0), 1);
-        const tasukiState = nextIndex < totalLegCount ? "ready" : "finished";
-        tx.update(entryRef, {
-          currentLegIndex: Math.min(nextIndex, totalLegCount - 1),
-          tasukiState,
-          updatedAt: ts,
-        });
+          const nextIndex = legIndex + 1;
+          const totalLegCount = Math.max(Number(eventData.legCount || 0), 1);
+          const tasukiState = nextIndex < totalLegCount ? "ready" : "finished";
+          tx.update(entryRef, {
+            currentLegIndex: Math.min(nextIndex, totalLegCount - 1),
+            tasukiState,
+            updatedAt: ts,
+          });
+        } else {
+          tx.update(entryRef, {updatedAt: ts});
+        }
 
         tx.set(submissionRef, subData);
       });
@@ -806,6 +852,255 @@ async function checkSpectatorCheerRateLimit(limitKey) {
     }, {merge: true});
   });
 }
+
+/**
+ * ライブレースのゴール提出。順位・ポイント計算に使う完走タイムは
+ * クライアント申告値ではなく、サーバー時刻と race.startTime から算出する。
+ */
+exports.submitRaceFinish = onCall(
+    {
+      region: "asia-northeast1",
+      memory: "256MiB",
+    },
+    async (request) => {
+      if (!request.auth) {
+        throw new HttpsError("unauthenticated", "ログインが必要です");
+      }
+      const uid = request.auth.uid;
+      const raceId = typeof request.data?.raceId === "string" ? request.data.raceId.trim() : "";
+      if (!raceId) {
+        throw new HttpsError("invalid-argument", "raceId が必要です");
+      }
+
+      const raceRef = db.collection("races").doc(raceId);
+      const participantRef = raceRef.collection("participants").doc(uid);
+      const now = new Date();
+      const finishTs = admin.firestore.Timestamp.fromDate(now);
+
+      await db.runTransaction(async (tx) => {
+        const raceSnap = await tx.get(raceRef);
+        if (!raceSnap.exists) {
+          throw new HttpsError("not-found", "レースが見つかりません");
+        }
+        const race = raceSnap.data();
+        if (race.status !== "running") {
+          throw new HttpsError("failed-precondition", "レース中のみゴールできます");
+        }
+        const startTime = race.startTime?.toDate?.();
+        if (!startTime) {
+          throw new HttpsError("failed-precondition", "レース開始時刻がありません");
+        }
+
+        const participantSnap = await tx.get(participantRef);
+        if (!participantSnap.exists) {
+          throw new HttpsError("permission-denied", "レース参加者ではありません");
+        }
+        if (typeof participantSnap.data().finishTimeSeconds === "number") {
+          throw new HttpsError("already-exists", "ゴール記録は提出済みです");
+        }
+
+        const finishTimeSeconds = Math.max(0, (now.getTime() - startTime.getTime()) / 1000);
+        tx.update(participantRef, {
+          finishTimeSeconds,
+          finishedAt: finishTs,
+        });
+      });
+
+      return {success: true};
+    },
+);
+
+/**
+ * タイムトライアルの記録提出。直接 Firestore 更新はルールで禁止し、
+ * 期間内・参加済み・未提出・物理的に極端すぎない値だけ受け付ける。
+ */
+exports.submitTimeTrialResult = onCall(
+    {
+      region: "asia-northeast1",
+      memory: "256MiB",
+    },
+    async (request) => {
+      if (!request.auth) {
+        throw new HttpsError("unauthenticated", "ログインが必要です");
+      }
+      const uid = request.auth.uid;
+      const roomId = typeof request.data?.roomId === "string" ? request.data.roomId.trim() : "";
+      const timeSeconds = Number(request.data?.timeSeconds);
+      if (!roomId || !Number.isFinite(timeSeconds) || timeSeconds <= 0) {
+        throw new HttpsError("invalid-argument", "roomId と timeSeconds が必要です");
+      }
+
+      const roomRef = db.collection("time_trial_rooms").doc(roomId);
+      const participantRef = roomRef.collection("participants").doc(uid);
+      const now = new Date();
+      const submittedAt = admin.firestore.Timestamp.fromDate(now);
+
+      await db.runTransaction(async (tx) => {
+        const roomSnap = await tx.get(roomRef);
+        if (!roomSnap.exists) {
+          throw new HttpsError("not-found", "タイムトライアル部屋が見つかりません");
+        }
+        const room = roomSnap.data();
+        const periodStart = room.periodStart?.toDate?.() ?? new Date(0);
+        const periodEnd = room.periodEnd?.toDate?.() ?? new Date(9999, 11, 31);
+        if (now < periodStart || now > periodEnd) {
+          throw new HttpsError("failed-precondition", "提出期間外です");
+        }
+        const distanceKm = Number(room.distanceKm || 0);
+        const minimumSeconds = Math.max(distanceKm * 120, 1); // 2:00/km より速い記録は拒否
+        if (timeSeconds < minimumSeconds) {
+          throw new HttpsError("invalid-argument", "提出タイムが不正です");
+        }
+
+        const participantSnap = await tx.get(participantRef);
+        if (!participantSnap.exists) {
+          throw new HttpsError("permission-denied", "参加者ではありません");
+        }
+        if (typeof participantSnap.data().submittedTimeSeconds === "number") {
+          throw new HttpsError("already-exists", "記録は提出済みです");
+        }
+        tx.update(participantRef, {
+          submittedTimeSeconds: timeSeconds,
+          submittedAt,
+        });
+      });
+
+      return {success: true};
+    },
+);
+
+/**
+ * タイムトライアル参加。参加者作成と participantCount 加算を同一トランザクションで行う。
+ */
+exports.joinTimeTrialRoom = onCall(
+    {
+      region: "asia-northeast1",
+      memory: "256MiB",
+    },
+    async (request) => {
+      if (!request.auth) {
+        throw new HttpsError("unauthenticated", "ログインが必要です");
+      }
+      const uid = request.auth.uid;
+      const roomId = typeof request.data?.roomId === "string" ? request.data.roomId.trim() : "";
+      const name = typeof request.data?.name === "string" ? request.data.name.trim().slice(0, 80) : "Runner";
+      const rank = typeof request.data?.rank === "string" ? request.data.rank.trim().slice(0, 20) : "";
+      if (!roomId) {
+        throw new HttpsError("invalid-argument", "roomId が必要です");
+      }
+
+      const roomRef = db.collection("time_trial_rooms").doc(roomId);
+      const participantRef = roomRef.collection("participants").doc(uid);
+      await db.runTransaction(async (tx) => {
+        const roomSnap = await tx.get(roomRef);
+        if (!roomSnap.exists) {
+          throw new HttpsError("not-found", "タイムトライアル部屋が見つかりません");
+        }
+        const room = roomSnap.data();
+        const periodEnd = room.periodEnd?.toDate?.() ?? new Date(0);
+        if (new Date() > periodEnd) {
+          throw new HttpsError("failed-precondition", "受付終了済みの部屋です");
+        }
+        const participantSnap = await tx.get(participantRef);
+        const isNewParticipant = !participantSnap.exists;
+        if (isNewParticipant && Number(room.participantCount || 0) >= 20) {
+          throw new HttpsError("resource-exhausted", "この部屋は満員です");
+        }
+        tx.set(participantRef, {
+          name,
+          rank,
+          joinedAt: admin.firestore.FieldValue.serverTimestamp(),
+        }, {merge: true});
+        if (isNewParticipant) {
+          tx.update(roomRef, {
+            participantCount: admin.firestore.FieldValue.increment(1),
+          });
+        }
+      });
+
+      return {success: true};
+    },
+);
+
+/**
+ * アプリ内アクティビティ用ポイント付与。
+ * クライアント申告による直接加算はランキング/報酬の整合性を壊すため停止する。
+ * レース・タイムトライアル等のポイントはサーバー側確定処理からのみ加算する。
+ */
+exports.grantActivityPoints = onCall(
+    {
+      region: "asia-northeast1",
+      memory: "256MiB",
+    },
+    async (request) => {
+      if (!request.auth) {
+        throw new HttpsError("unauthenticated", "ログインが必要です");
+      }
+      throw new HttpsError("failed-precondition", "クライアント申告ポイント付与は停止されています");
+    },
+);
+
+/**
+ * チームポイント加算（メンバー本人による付与要求）
+ */
+exports.grantTeamActivityPoints = onCall(
+    {
+      region: "asia-northeast1",
+      memory: "256MiB",
+    },
+    async (request) => {
+      if (!request.auth) {
+        throw new HttpsError("unauthenticated", "ログインが必要です");
+      }
+      throw new HttpsError("failed-precondition", "クライアント申告チームポイント付与は停止されています");
+    },
+);
+
+/**
+ * 練習会チャットの参加者追加。通常の 1:1 会話への第三者注入を避けるため、
+ * practiceId を持つ会話かつ既存参加者からの要求だけを受け付ける。
+ */
+exports.addPracticeChatParticipant = onCall(
+    {
+      region: "asia-northeast1",
+      memory: "256MiB",
+    },
+    async (request) => {
+      if (!request.auth) {
+        throw new HttpsError("unauthenticated", "ログインが必要です");
+      }
+      const uid = request.auth.uid;
+      const conversationId = typeof request.data?.conversationId === "string" ?
+        request.data.conversationId.trim() : "";
+      const userId = typeof request.data?.userId === "string" ?
+        request.data.userId.trim() : "";
+      if (!conversationId || !userId) {
+        throw new HttpsError("invalid-argument", "conversationId と userId が必要です");
+      }
+
+      const ref = db.collection("conversations").doc(conversationId);
+      await db.runTransaction(async (tx) => {
+        const snap = await tx.get(ref);
+        if (!snap.exists) {
+          throw new HttpsError("not-found", "会話が見つかりません");
+        }
+        const data = snap.data();
+        const participants = Array.isArray(data.participantIds) ? data.participantIds : [];
+        if (!data.practiceId || !participants.includes(uid)) {
+          throw new HttpsError("permission-denied", "この練習会チャットを更新できません");
+        }
+        if (participants.includes(userId)) {
+          return;
+        }
+        tx.update(ref, {
+          participantIds: admin.firestore.FieldValue.arrayUnion(userId),
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+      });
+
+      return {success: true};
+    },
+);
 
 /**
  * 沿道・観客からの応援（Callable）。Firestore 直書きは禁止し本関数経由のみ。

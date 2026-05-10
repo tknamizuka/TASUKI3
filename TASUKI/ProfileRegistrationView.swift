@@ -178,7 +178,7 @@ struct ProfileRegistrationView: View {
                     onComplete?()
                 }
             } message: {
-                Text("プロフィールを登録せずにアプリを利用します。一部機能が制限される場合があります。")
+                Text("検索で他のランナーに表示されず、パートナー申請・チーム参加・ランキング反映など一部の機能が使えません。記録機能はあとからプロフィール登録して続けられます。")
             }
             .onAppear {
                 if let r = RunningDataSource(rawValue: runningDataSourceRaw), r != .all {
@@ -234,7 +234,7 @@ struct ProfileRegistrationView: View {
         case 1:
             return privacyPolicyAgreed
         case 2:
-            return profileImage != nil
+            return true
         case 3:
             return !username.trimmingCharacters(in: .whitespaces).isEmpty
         case 4:
@@ -284,7 +284,11 @@ struct ProfileRegistrationView: View {
             case 1:
                 privacyAgreementStep
             case 2:
-                questionTitle("プロフィール写真を選択してください")
+                questionTitle("プロフィール写真を設定しますか？")
+                Text("あとからマイページで追加できます。")
+                    .font(.footnote)
+                    .foregroundColor(Color.tasukiMutedText)
+                    .multilineTextAlignment(.center)
                 profilePhotoPicker
             case 3:
                 questionTitle("お名前を教えてください")
@@ -801,10 +805,6 @@ struct ProfileRegistrationView: View {
     }
 
     private func saveProfile() {
-        guard let profileImage = profileImage else {
-            saveErrorMessage = "プロフィール写真を選択してください。"
-            return
-        }
         persistSelectedDevices()
         
         isSaving = true
@@ -841,17 +841,19 @@ struct ProfileRegistrationView: View {
             }
             
             var imageUrl: String? = nil
-            await withTaskGroup(of: String?.self) { group in
-                group.addTask {
-                    try? await StorageManager.shared.uploadProfileImage(profileImage, uid: firebaseUser.uid)
+            if let profileImage {
+                await withTaskGroup(of: String?.self) { group in
+                    group.addTask {
+                        try? await StorageManager.shared.uploadProfileImage(profileImage, uid: firebaseUser.uid)
+                    }
+                    group.addTask {
+                        try? await Task.sleep(nanoseconds: 15_000_000_000)
+                        return nil
+                    }
+                    let first = await group.next() ?? nil
+                    group.cancelAll()
+                    imageUrl = first ?? nil
                 }
-                group.addTask {
-                    try? await Task.sleep(nanoseconds: 15_000_000_000)
-                    return nil
-                }
-                let first = await group.next() ?? nil
-                group.cancelAll()
-                imageUrl = first ?? nil
             }
             
             let gender = selectedGender ?? "無回答"

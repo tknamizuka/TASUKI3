@@ -761,7 +761,7 @@ final class ChallengeService {
             completion(fallback)
             return
         }
-        db.collection("users")
+        db.collection("public_profiles")
             .order(by: "monthlyPoints", descending: true)
             .limit(to: 20)
             .getDocuments { snapshot, _ in

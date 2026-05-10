@@ -2,6 +2,21 @@
 
 Reality mining の日次集計ジョブをここで実行します。
 
+## Callable（クライアントから HTTPS Callable）
+
+- `grantActivityPoints` — アプリ内アクティビティ用ポイント付与（本人のみ・Firestore 直接加算の代替）
+- `grantTeamActivityPoints` — チームポイント加算（チームメンバーのみ）
+- `postSpectatorCheer` — 沿道応援（既存）
+- `submitEkidenLeg` — 駅伝区間提出（既存）
+
+## ルール回帰テスト
+
+```bash
+cd functions
+npm install
+npm run test:rules
+```
+
 ## 追加済みジョブ
 
 - `aggregateBehaviorFeaturesDaily`

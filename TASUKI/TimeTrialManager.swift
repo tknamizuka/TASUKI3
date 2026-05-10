@@ -9,10 +9,12 @@ import Foundation
 import Combine
 import FirebaseAuth
 import FirebaseFirestore
+import FirebaseFunctions
 
 final class TimeTrialManager: ObservableObject {
     static let shared = TimeTrialManager()
     private lazy var db = Firestore.firestore()
+    private lazy var functions = Functions.functions(region: "asia-northeast1")
     
     @Published var currentRoom: TimeTrialRoom?
     @Published var participants: [TimeTrialParticipant] = []
@@ -127,13 +129,11 @@ final class TimeTrialManager: ObservableObject {
     }
     
     private func joinRoom(roomId: String, userId: String, name: String, rank: String?, completion: @escaping (Result<String, Error>) -> Void) {
-        let ref = db.collection("time_trial_rooms").document(roomId).collection("participants").document(userId)
-        let data: [String: Any] = [
+        functions.httpsCallable("joinTimeTrialRoom").call([
+            "roomId": roomId,
             "name": name,
-            "rank": rank ?? "",
-            "joinedAt": Timestamp(date: Date())
-        ]
-        ref.setData(data, merge: true) { [weak self] error in
+            "rank": rank ?? ""
+        ]) { [weak self] _, error in
             if let error = error {
                 self?.trackTimeTrialEvent(
                     "time_trial_join_failed",
@@ -142,15 +142,9 @@ final class TimeTrialManager: ObservableObject {
                 completion(.failure(error))
                 return
             }
-            self?.incrementParticipantCount(roomId: roomId)
             self?.trackTimeTrialEvent("time_trial_joined", properties: ["room_id": roomId, "rank": rank ?? ""])
             completion(.success(roomId))
         }
-    }
-    
-    private func incrementParticipantCount(roomId: String) {
-        db.collection("time_trial_rooms").document(roomId)
-            .updateData(["participantCount": FieldValue.increment(Int64(1))]) { _ in }
     }
     
     // MARK: - Submit Time（期間中1回のみ）
@@ -171,16 +165,14 @@ final class TimeTrialManager: ObservableObject {
             DispatchQueue.main.async { completion(.success(())) }
             return
         }
-        guard let uid = currentUserId else {
+        guard currentUserId != nil else {
             completion(.failure(NSError(domain: "TimeTrialManager", code: -1, userInfo: [NSLocalizedDescriptionKey: "未ログイン"])))
             return
         }
-        let ref = db.collection("time_trial_rooms").document(roomId).collection("participants").document(uid)
-        let now = Timestamp(date: Date())
-        ref.updateData([
-            "submittedTimeSeconds": timeSeconds,
-            "submittedAt": now
-        ]) { error in
+        functions.httpsCallable("submitTimeTrialResult").call([
+            "roomId": roomId,
+            "timeSeconds": timeSeconds
+        ]) { _, error in
             if let error = error {
                 self.trackTimeTrialEvent(
                     "time_trial_submit_failed",

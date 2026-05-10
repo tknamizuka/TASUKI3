@@ -6,6 +6,8 @@
 //
 
 import SwiftUI
+import FirebaseAuth
+import FirebaseFirestore
 
 // MARK: - Partner View
 struct PartnerView: View {
@@ -262,6 +264,9 @@ struct PartnerView: View {
             totalPoints: 500
         )
     ]
+    @State private var remoteUsers: [PartnerUser] = []
+    @State private var isLoadingRemoteUsers = false
+    @State private var remoteLoadError: String?
     
     // 検索とフィルター用のState
     @State private var searchMode: String = "Real"  // "Real" or "Online"
@@ -292,7 +297,7 @@ struct PartnerView: View {
     
     // フィルタリングされたユーザーリスト
     private var filteredUsers: [PartnerUser] {
-        var filtered = mockUsers
+        var filtered = remoteUsers
         
         // Real Runモード: 同性限定フィルタ（強制）
         if searchMode == "Real" {
@@ -448,11 +453,27 @@ struct PartnerView: View {
                 
                 ScrollView(showsIndicators: false) {
                     VStack(spacing: 12) {
+                        if isLoadingRemoteUsers {
+                            ProgressView("ユーザーを読み込んでいます…")
+                                .padding(.top, 40)
+                        } else if let remoteLoadError {
+                            Text(remoteLoadError)
+                                .font(.system(size: 14))
+                                .foregroundColor(Color.tasukiMutedText)
+                                .multilineTextAlignment(.center)
+                                .padding(.top, 40)
+                        } else if filteredUsers.isEmpty {
+                            Text("条件に合うユーザーがまだいません。")
+                                .font(.system(size: 14))
+                                .foregroundColor(Color.tasukiMutedText)
+                                .padding(.top, 40)
+                        } else {
                             ForEach(filteredUsers) { user in
                             NavigationLink(destination: PartnerDetailView(user: user.toUser())) {
                                 userCardView(user: user)
                             }
                             .buttonStyle(.plain)
+                            }
                         }
                     }
                     .padding(.horizontal, 16)
@@ -498,7 +519,82 @@ struct PartnerView: View {
                     }
                 )
             }
+            .task {
+                await loadRemoteUsers()
+            }
         }
+    }
+
+    @MainActor
+    private func loadRemoteUsers() async {
+        guard Auth.auth().currentUser != nil else {
+            remoteUsers = []
+            remoteLoadError = "ログイン後にパートナー候補を表示します。"
+            return
+        }
+        isLoadingRemoteUsers = true
+        remoteLoadError = nil
+        defer { isLoadingRemoteUsers = false }
+        do {
+            let snapshot = try await Firestore.firestore()
+                .collection("public_profiles")
+                .limit(to: 50)
+                .getDocuments()
+            let currentUid = Auth.auth().currentUser?.uid
+            remoteUsers = snapshot.documents.compactMap { doc in
+                guard doc.documentID != currentUid else { return nil }
+                return partnerUser(from: doc.data())
+            }
+        } catch {
+            remoteUsers = []
+            remoteLoadError = "ユーザーの読み込みに失敗しました。時間をおいて再試行してください。"
+        }
+    }
+
+    private func partnerUser(from data: [String: Any]) -> PartnerUser {
+        let rankRaw = data["rank"] as? String ?? "Rank E"
+        let rank = rankRaw.replacingOccurrences(of: "Rank ", with: "")
+        let genderLabel = data["gender"] as? String ?? ""
+        let gender: Gender = {
+            switch genderLabel {
+            case "男性", "male": return .male
+            case "女性", "female": return .female
+            default: return .other
+            }
+        }()
+        let area = data["area"] as? String ?? ""
+        let runningSpots = area
+            .split { $0 == "、" || $0 == "," }
+            .map { String($0).trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+        let scheduleRaw = data["schedule"] as? String ?? RunningSchedule.flexible.rawValue
+        let schedule = RunningSchedule(rawValue: scheduleRaw) ?? .flexible
+        return PartnerUser(
+            id: UUID(uuidString: data["id"] as? String ?? "") ?? UUID(),
+            name: data["name"] as? String ?? "Runner",
+            rank: rank,
+            avatarImage: "person.circle.fill",
+            isOnline: false,
+            bestCategory: .full,
+            bestTime: data["personalBest"] as? String ?? "",
+            age: data["age"] as? Int ?? 0,
+            runningSchedule: schedule,
+            purpose: data["purpose"] as? String ?? "",
+            nextRace: data["nextRace"] as? String,
+            targetTime: data["targetTime"] as? String,
+            runningSpots: runningSpots,
+            prefecture: data["prefecture"] as? String ?? "",
+            gender: gender,
+            condition: .good,
+            statusMessage: data["bio"] as? String ?? "",
+            ageGroup: getAgeGroup(data["age"] as? Int ?? 0),
+            runningGoal: data["purpose"] as? String ?? "",
+            personalBest: data["personalBest"] as? String,
+            activeTime: schedule.rawValue,
+            easyPace: data["avgPace"] as? String ?? "",
+            connectionStyle: .both,
+            totalPoints: data["totalPoints"] as? Int ?? 0
+        )
     }
     
     // MARK: - User Card View

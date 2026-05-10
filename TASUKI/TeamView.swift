@@ -381,9 +381,7 @@ struct TeamView: View {
                                 useMockFlow: isSampleTeamFlow
                             )
                         } else {
-                            EkidenJoinModeSelectionView { selected in
-                                hubEkidenJoinMode = selected
-                            }
+                            teamEntryHubSelectionView
                         }
                     }
                     .navigationTitle("")
@@ -454,6 +452,12 @@ struct TeamView: View {
             teamModeSwitcher
                 .padding(.horizontal, 20)
                 .padding(.top, 12)
+            if selectedMode != .challenge {
+                teamEventActionCard
+                    .padding(.horizontal, 20)
+                    .padding(.top, 10)
+                    .padding(.bottom, 6)
+            }
             selectedModeContent
         }
         .navigationTitle("")
@@ -666,6 +670,122 @@ struct TeamView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+    }
+
+    private var teamEntryHubSelectionView: some View {
+        VStack(spacing: 0) {
+            teamEntryGuideCard
+                .padding(.horizontal, 20)
+                .padding(.top, 16)
+                .padding(.bottom, 8)
+            EkidenJoinModeSelectionView { selected in
+                hubEkidenJoinMode = selected
+            }
+        }
+        .background(Color.tasukiDarkBackground.ignoresSafeArea())
+    }
+
+    private var teamEntryGuideCard: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("チームでできること")
+                .font(.system(size: 18, weight: .bold))
+                .foregroundColor(Color.tasukiPrimary)
+            entryGuideRow(icon: "person.3.fill", title: "参加する", subtitle: "既存チームに入る、または新しく作成します。")
+            entryGuideRow(icon: "binoculars.fill", title: "観戦する", subtitle: "開催中のEKIDENがある場合はチームの進行を見られます。")
+            entryGuideRow(icon: "gearshape.fill", title: "管理する", subtitle: "参加後はメンバー、チャット、区間担当をここで操作できます。")
+        }
+        .padding(16)
+        .background(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(Color.tasukiDarkCardSecondary)
+        )
+    }
+
+    private func entryGuideRow(icon: String, title: String, subtitle: String) -> some View {
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: icon)
+                .font(.system(size: 17, weight: .semibold))
+                .foregroundColor(Color.tasukiPrimary)
+                .frame(width: 24)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title)
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundColor(Color.tasukiPrimary)
+                Text(subtitle)
+                    .font(.system(size: 12))
+                    .foregroundColor(Color.tasukiMutedText)
+            }
+        }
+    }
+
+    private var teamEventActionCard: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(selectedMode == .ekiden ? "EKIDEN 状態" : "Distance 状態")
+                        .font(.system(size: 13, weight: .bold))
+                        .foregroundColor(Color.tasukiPrimary)
+                    Text(teamEventActionSubtitle)
+                        .font(.system(size: 12))
+                        .foregroundColor(Color.tasukiMutedText)
+                }
+                Spacer()
+            }
+            HStack(spacing: 10) {
+                Button {
+                    teamChatOpenChannel = selectedMode == .distanceChallenge ? .distance : .ekiden
+                    showTeamChatSheet = true
+                } label: {
+                    Label("チャット", systemImage: "message.fill")
+                        .font(.system(size: 13, weight: .semibold))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 10)
+                }
+                .buttonStyle(.plain)
+                .foregroundColor(Color.tasukiOnBrandYellow)
+                .background(RoundedRectangle(cornerRadius: 10).fill(Color.tasukiPrimaryButtonFill))
+
+                Button {
+                    if let teamId = currentModeTeamIdForRefresh {
+                        Task { await loadEkidenState(teamId: teamId) }
+                    }
+                } label: {
+                    Label("更新", systemImage: "arrow.clockwise")
+                        .font(.system(size: 13, weight: .semibold))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 10)
+                }
+                .buttonStyle(.plain)
+                .foregroundColor(Color.tasukiPrimary)
+                .background(RoundedRectangle(cornerRadius: 10).fill(Color.tasukiDarkCard))
+            }
+        }
+        .padding(14)
+        .background(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(Color.tasukiDarkCardSecondary)
+        )
+    }
+
+    private var currentModeTeamIdForRefresh: String? {
+        switch selectedMode {
+        case .ekiden:
+            return ekidenChatTeamId.isEmpty ? nil : ekidenChatTeamId
+        case .distanceChallenge:
+            return distanceChatTeamId.isEmpty ? nil : distanceChatTeamId
+        case .challenge:
+            return nil
+        }
+    }
+
+    private var teamEventActionSubtitle: String {
+        guard let state = ekidenStateForSelectedMode else {
+            return "チーム状態を読み込み中です。必要に応じて更新できます。"
+        }
+        if state.isWithinEventWindow {
+            return "イベント開催中です。チャットや区間操作にすぐ移動できます。"
+        }
+        return "イベント期間外です。次の参加準備やメンバー管理を進められます。"
     }
 
     private func moveToNextMode() {
@@ -1310,7 +1430,7 @@ struct TeamView: View {
             var rows: [OwnerSuccessorCandidate] = []
             for m in others {
                 let displayName: String
-                if let ud = try? await db.collection("users").document(m).getDocument(),
+                if let ud = try? await db.collection("public_profiles").document(m).getDocument(),
                    let d = ud.data(),
                    let n = d["name"] as? String,
                    !n.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {

@@ -16,16 +16,16 @@ struct MainTabView: View {
     @EnvironmentObject private var tabBarVisibility: TabBarVisibility
     
     private let tabItems: [(icon: String, label: String)] = [
-        ("house.fill", "Home"),
-        ("figure.run", "Run"),
+        ("house.fill", "ホーム"),
+        ("figure.run", "記録"),
         ("person.3.fill", "EKIDEN"),
-        ("magnifyingglass", "Find"),
-        ("person.fill", "Me")
+        ("magnifyingglass", "探す"),
+        ("person.fill", "マイページ")
     ]
 
-    /// `TASUKI_demo` と同じ: Home タブ以外はモード画面として扱い、下部メニューを隠す。`TabBarVisibility` でネスト画面がさらに隠す。
+    /// 主要タブ間の移動を迷わないよう、ルート画面では下部メニューを常時表示する。
     private var shouldShowMenuBar: Bool {
-        mainTabRouter.selectedTab == 0 && !tabBarVisibility.isHidden
+        !tabBarVisibility.isHidden
     }
 
     var body: some View {
@@ -53,7 +53,7 @@ struct MainTabView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .environmentObject(mainTabRouter)
         .overlay(alignment: .topLeading) {
-            if mainTabRouter.selectedTab != 0, !mainTabRouter.suppressBackToHomeOverlay {
+            if mainTabRouter.selectedTab != 0, tabBarVisibility.isHidden, !mainTabRouter.suppressBackToHomeOverlay {
                 backToHomeButton
             }
         }
@@ -77,10 +77,11 @@ struct MainTabView: View {
                 )
             }
         }
-        .fullScreenCover(isPresented: $showReengagementSheet) {
+        .sheet(isPresented: $showReengagementSheet) {
             ReengagementSheetView(daysAway: reengagementGapDays) {
                 showReengagementSheet = false
             }
+            .presentationDetents([.medium, .large])
         }
         .onChange(of: mainTabRouter.selectedTab) { newValue in
             if newValue != 0 {
@@ -124,7 +125,7 @@ struct MainTabView: View {
             HStack(spacing: 4) {
                 Image(systemName: "chevron.left")
                     .font(.system(size: 15, weight: .bold))
-                Text("Home")
+                Text("ホーム")
                     .font(.system(size: 13, weight: .semibold))
             }
             .foregroundColor(.black)

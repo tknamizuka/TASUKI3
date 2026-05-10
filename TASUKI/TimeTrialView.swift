@@ -20,6 +20,7 @@ struct TimeTrialEntryView: View {
     @State private var isMatching = false
     @State private var matchedRoomId: String?
     @State private var matchError: String?
+    @State private var pendingDistance: TimeTrialDistance?
     
     var body: some View {
         NavigationStack {
@@ -48,12 +49,11 @@ struct TimeTrialEntryView: View {
                         VStack(spacing: 0) {
                             ForEach(TimeTrialDistance.allCases) { dist in
                                 Button(action: {
-                                    selectedDistance = dist
-                                    startMatching()
+                                    pendingDistance = dist
                                 }) {
                                     TasukiFlatHubRow(
                                         title: timeTrialHubTitle(dist),
-                                        subtitle: "週1回・タイムで順位 · タップでマッチング",
+                                        subtitle: "週1回・タイムで順位 · 確認して参加",
                                         systemImage: "stopwatch.fill"
                                     )
                                 }
@@ -100,6 +100,26 @@ struct TimeTrialEntryView: View {
             }
         }
         .onAppear { matchError = nil }
+        .confirmationDialog(
+            "この距離でタイムトライアルに参加しますか？",
+            isPresented: Binding(
+                get: { pendingDistance != nil },
+                set: { if !$0 { pendingDistance = nil } }
+            ),
+            titleVisibility: .visible
+        ) {
+            Button("参加する") {
+                guard let distance = pendingDistance else { return }
+                selectedDistance = distance
+                pendingDistance = nil
+                startMatching()
+            }
+            Button("キャンセル", role: .cancel) {
+                pendingDistance = nil
+            }
+        } message: {
+            Text("参加後は同ランクの部屋へ移動します。")
+        }
     }
     
     private func timeTrialHubTitle(_ dist: TimeTrialDistance) -> String {

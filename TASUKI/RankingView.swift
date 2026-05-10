@@ -25,6 +25,8 @@ struct RankingView: View {
     @State private var filter: RankingFilter = .overall
     @State private var remoteUsers: [User] = []
     @State private var remoteTeams: [SampleTeam] = []
+    @State private var isLoadingRanking = true
+    @State private var rankingErrorMessage: String?
     
     @AppStorage("myRank") private var myRank: String = "Rank B"
     @AppStorage("myName") private var myName: String = "Hiro"
@@ -34,25 +36,47 @@ struct RankingView: View {
     private var myPrefecture: String { "東京都" }
     
     private var personalSource: [User] {
-        if !remoteUsers.isEmpty {
-            return remoteUsers
-        }
-        var users = [mockUser] + mockUsers
+        var users = remoteUsers
         let myPoints = PointService.shared.currentTotalPoints()
-        if myPoints > 0 {
-            var me = mockUser
-            me.totalPoints = myPoints
-            me.monthlyPoints = PointService.shared.currentMonthlyPoints()
-            users[0] = me
+        if myPoints > 0 && !users.contains(where: { $0.name == myName }) {
+            let me = User(
+                id: mockUser.id,
+                name: myName,
+                profileImage: mockUser.profileImage,
+                profileImageUrl: mockUser.profileImageUrl,
+                bio: mockUser.bio,
+                rank: myRank,
+                age: mockUser.age,
+                gender: mockUser.gender,
+                purpose: mockUser.purpose,
+                prefecture: mockUser.prefecture,
+                area: mockUser.area,
+                pace: mockUser.pace,
+                runningFrequency: mockUser.runningFrequency,
+                personalBest: mockUser.personalBest,
+                schedule: mockUser.schedule,
+                nextRace: mockUser.nextRace,
+                targetTime: mockUser.targetTime,
+                monthlyDistance: mockUser.monthlyDistance,
+                monthlyTarget: mockUser.monthlyTarget,
+                avgPace: mockUser.avgPace,
+                totalPoints: myPoints,
+                monthlyPoints: PointService.shared.currentMonthlyPoints(),
+                matchRate: mockUser.matchRate,
+                lastLogin: mockUser.lastLogin,
+                spotName: mockUser.spotName,
+                latitude: mockUser.latitude,
+                longitude: mockUser.longitude,
+                distanceFromUserMock: mockUser.distanceFromUserMock,
+                monthlyGpsActivityCount: mockUser.monthlyGpsActivityCount
+            )
+            users.append(me)
         }
         return users
     }
     
     private var teamSource: [SampleTeam] {
-        if !remoteTeams.isEmpty {
-            return remoteTeams
-        }
-        var teams = SampleTeam.samples
+        var teams = remoteTeams
         if !myTeamId.isEmpty {
             let total = PointService.shared.teamTotalPoints(teamId: myTeamId)
             let monthly = PointService.shared.teamMonthlyPoints(teamId: myTeamId)
@@ -64,7 +88,7 @@ struct RankingView: View {
                 totalPoints: total,
                 monthlyPoints: monthly
             )
-            if !teams.contains(where: { $0.id == myTeamId }) {
+            if (total > 0 || monthly > 0), !teams.contains(where: { $0.id == myTeamId }) {
                 teams.append(myTeam)
             }
         }
@@ -101,7 +125,11 @@ struct RankingView: View {
             
             Divider()
             
-            if mode == .personal {
+            if isLoadingRanking {
+                rankingStateView(title: "ランキングを読み込んでいます", subtitle: "最新のポイントを取得しています。", actionTitle: nil)
+            } else if let rankingErrorMessage {
+                rankingStateView(title: "読み込みに失敗しました", subtitle: rankingErrorMessage, actionTitle: "再読み込み")
+            } else if mode == .personal {
                 personalRankingList
             } else {
                 teamRankingList
@@ -144,8 +172,12 @@ struct RankingView: View {
         }
     }
     
+    @ViewBuilder
     private var personalRankingList: some View {
-        List(Array(filteredPersonalUsers.enumerated()), id: \.element.id) { index, user in
+        if filteredPersonalUsers.isEmpty {
+            rankingStateView(title: "ランキングはまだありません", subtitle: "ポイントが反映されるとここに表示されます。", actionTitle: nil)
+        } else {
+            List(Array(filteredPersonalUsers.enumerated()), id: \.element.id) { index, user in
             let isMe = user.name == myName || (index == 0 && PointService.shared.currentTotalPoints() > 0)
             HStack(spacing: 12) {
                 Text("\(index + 1)")
@@ -202,8 +234,9 @@ struct RankingView: View {
             }
             .padding(.vertical, 4)
             .listRowBackground(isMe ? Color.tasukiAccent.opacity(0.12) : Color.clear)
+            }
+            .listStyle(.plain)
         }
-        .listStyle(.plain)
     }
     
     // MARK: - チームランキング（サンプル）
@@ -231,8 +264,12 @@ struct RankingView: View {
         }
     }
     
+    @ViewBuilder
     private var teamRankingList: some View {
-        List(Array(filteredTeams.enumerated()), id: \.element.id) { index, team in
+        if filteredTeams.isEmpty {
+            rankingStateView(title: "チームランキングはまだありません", subtitle: "チームポイントが反映されるとここに表示されます。", actionTitle: nil)
+        } else {
+            List(Array(filteredTeams.enumerated()), id: \.element.id) { index, team in
             let isMyTeam = team.id == myTeamId
             HStack(spacing: 12) {
                 Text("\(index + 1)")
@@ -273,18 +310,35 @@ struct RankingView: View {
             }
             .padding(.vertical, 4)
             .listRowBackground(isMyTeam ? Color.tasukiAccent.opacity(0.12) : Color.clear)
+            }
+            .listStyle(.plain)
         }
-        .listStyle(.plain)
     }
 
     private func fetchRemoteRankingIfPossible() {
-        guard Auth.auth().currentUser != nil else { return }
+        guard Auth.auth().currentUser != nil else {
+            isLoadingRanking = false
+            rankingErrorMessage = "ログイン後にランキングを表示できます。"
+            return
+        }
+        isLoadingRanking = true
+        rankingErrorMessage = nil
         let db = Firestore.firestore()
+        let group = DispatchGroup()
+        var firstError: Error?
+        var fetchedUsers: [User] = []
+        var fetchedTeams: [SampleTeam] = []
 
-        db.collection("users")
+        group.enter()
+        db.collection("public_profiles")
             .order(by: "totalPoints", descending: true)
             .limit(to: 100)
-            .getDocuments { snapshot, _ in
+            .getDocuments { snapshot, error in
+                defer { group.leave() }
+                if let error {
+                    firstError = error
+                    return
+                }
                 guard let docs = snapshot?.documents else { return }
                 let mapped: [User] = docs.map { doc in
                     let data = doc.data()
@@ -325,15 +379,19 @@ struct RankingView: View {
                         monthlyGpsActivityCount: nil
                     )
                 }
-                DispatchQueue.main.async {
-                    remoteUsers = mapped
-                }
+                fetchedUsers = mapped
             }
 
+        group.enter()
         db.collection("teams")
             .order(by: "teamTotalPoints", descending: true)
             .limit(to: 50)
-            .getDocuments { snapshot, _ in
+            .getDocuments { snapshot, error in
+                defer { group.leave() }
+                if let error {
+                    firstError = error
+                    return
+                }
                 guard let docs = snapshot?.documents else { return }
                 let mapped: [SampleTeam] = docs.map { doc in
                     let data = doc.data()
@@ -346,10 +404,43 @@ struct RankingView: View {
                         monthlyPoints: data["teamMonthlyPoints"] as? Int ?? 0
                     )
                 }
-                DispatchQueue.main.async {
-                    remoteTeams = mapped
-                }
+                fetchedTeams = mapped
             }
+        group.notify(queue: .main) {
+            isLoadingRanking = false
+            remoteUsers = fetchedUsers
+            remoteTeams = fetchedTeams
+            if let firstError {
+                rankingErrorMessage = firstError.localizedDescription
+            }
+        }
+    }
+
+    private func rankingStateView(title: String, subtitle: String, actionTitle: String?) -> some View {
+        VStack(spacing: 10) {
+            Text(title)
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundColor(Color.tasukiPrimary)
+            Text(subtitle)
+                .font(.system(size: 13))
+                .foregroundColor(Color.tasukiMutedText)
+                .multilineTextAlignment(.center)
+            if let actionTitle {
+                Button(actionTitle) {
+                    fetchRemoteRankingIfPossible()
+                }
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundColor(Color.tasukiPrimary)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding(24)
+    }
+}
+
+private extension View {
+    func eraseToAnyView() -> AnyView {
+        AnyView(self)
     }
 }
 

@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 /// 他ユーザーを表示するときのプロフィール本文（`MyProfileView` と同じセクション・項目構成）。
 /// `activityChartPoints` が空のときは週次グラフをプレースホルダー表示（Find モックなどで非空を渡すとグラフを表示）。
@@ -16,7 +17,7 @@ struct UserPublicProfileScrollContent: View {
     }
 
     private var monthlyDistDisplay: String {
-        "\(Int(user.monthlyDistance))km / \(Int(user.monthlyTarget))km"
+        user.editingMonthlyDistLabel.isEmpty ? "—" : user.editingMonthlyDistLabel
     }
 
     /// 週次チャートありのときは右端（今週）のモック距離を表示。
@@ -32,22 +33,28 @@ struct UserPublicProfileScrollContent: View {
         h.combine(user.name)
         h.combine(user.monthlyGpsActivityCount)
         let n = (abs(h.finalize()) % 5) + 2
-        return "\(n)"
+        return "\(n) 回"
     }
 
     private var areaDisplay: String {
         let p = user.prefecture.trimmingCharacters(in: .whitespacesAndNewlines)
         let a = user.area.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !p.isEmpty && !a.isEmpty { return "\(p), \(a)" }
-        if !a.isEmpty { return a }
         if !p.isEmpty { return p }
+        if !a.isEmpty { return a }
         return "—"
     }
 
     private var runningSpotTags: [String] {
-        user.spotName.components(separatedBy: ",")
+        user.area
+            .replacingOccurrences(of: "、", with: ",")
+            .components(separatedBy: ",")
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
+    }
+
+    private func valueOrDash(_ value: String) -> String {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? "—" : trimmed
     }
 
     var body: some View {
@@ -60,10 +67,8 @@ struct UserPublicProfileScrollContent: View {
                 .padding(.bottom, 28)
             profileSection
                 .padding(.bottom, 28)
-            if !user.bio.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                aboutSection
-                    .padding(.bottom, 28)
-            }
+            aboutSection
+                .padding(.bottom, 28)
         }
     }
 
@@ -89,32 +94,6 @@ struct UserPublicProfileScrollContent: View {
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundColor(.black)
 
-            switch heroAccessory {
-            case .partnerOnline:
-                Text("\(user.age)歳 · \(user.gender)")
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundColor(.black)
-            case .findMatchRate(let rate):
-                Text("\(user.age)歳 · \(user.gender)")
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundColor(.black)
-                HStack(spacing: 6) {
-                    Image(systemName: "sparkles")
-                        .font(.caption)
-                    Text("マッチ度: \(rate)%")
-                        .font(.system(size: 13, weight: .semibold))
-                }
-                .foregroundColor(.black)
-                .padding(.horizontal, 14)
-                .padding(.vertical, 8)
-                .background(
-                    RoundedRectangle(cornerRadius: 20)
-                        .fill(Color.black.opacity(0.06))
-                )
-            case .none:
-                EmptyView()
-            }
-
             HStack(spacing: 5) {
                 Text("保有ポイント")
                     .font(.system(size: 12, weight: .medium))
@@ -124,14 +103,17 @@ struct UserPublicProfileScrollContent: View {
                     .foregroundColor(.black)
             }
 
-            if case .partnerOnline = heroAccessory {
-                HStack(spacing: 6) {
-                    Circle()
-                        .fill(user.isOnline ? Color.green : Color.gray)
-                        .frame(width: 8, height: 8)
-                    Text(user.isOnline ? "オンライン" : "オフライン")
-                        .font(.system(size: 12, weight: .regular))
-                        .foregroundColor(.black.opacity(0.7))
+            HStack(spacing: 8) {
+                Text(user.id.uuidString)
+                    .font(.system(size: 12))
+                    .foregroundColor(.black)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Button {
+                    UIPasteboard.general.string = user.id.uuidString
+                } label: {
+                    Image(systemName: "doc.on.doc")
+                        .foregroundColor(.black)
                 }
             }
         }
@@ -177,7 +159,7 @@ struct UserPublicProfileScrollContent: View {
             sectionEyebrow("RUNNING STATS")
 
             HStack(spacing: 12) {
-                statItem(title: "Avg Pace (月)", value: user.avgPace)
+                statItem(title: "Avg Pace (月)", value: valueOrDash(user.avgPace))
                 statItem(title: "Monthly Dist", value: monthlyDistDisplay)
             }
         }
@@ -208,10 +190,8 @@ struct UserPublicProfileScrollContent: View {
             }
 
             VStack(spacing: 0) {
-                if !user.personalBest.isEmpty {
-                    infoRow(icon: "trophy.fill", title: "Personal Best", value: user.personalBest)
-                }
-                infoRow(icon: "calendar", title: "Schedule", value: user.schedule)
+                infoRow(icon: "trophy.fill", title: "Personal Best", value: valueOrDash(user.personalBest))
+                infoRow(icon: "calendar", title: "Schedule", value: valueOrDash(user.schedule))
                 if !user.nextRace.isEmpty {
                     infoRow(icon: "flag.fill", title: "Next Race", value: user.nextRace)
                 }
@@ -226,7 +206,7 @@ struct UserPublicProfileScrollContent: View {
     private var aboutSection: some View {
         VStack(alignment: .leading, spacing: 8) {
             sectionEyebrow("ABOUT ME")
-            Text(user.bio)
+            Text(valueOrDash(user.bio))
                 .font(.system(size: 15))
                 .foregroundColor(.black)
                 .frame(maxWidth: .infinity, alignment: .leading)

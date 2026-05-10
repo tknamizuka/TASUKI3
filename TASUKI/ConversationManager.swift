@@ -9,6 +9,7 @@ import Foundation
 import Combine
 import FirebaseAuth
 import FirebaseFirestore
+import FirebaseFunctions
 
 /// 未読数表示用の共通ベース（@EnvironmentObject は具象型が必要なためクラスで定義）
 class UnreadCountProviderBase: ObservableObject {
@@ -22,6 +23,7 @@ final class ConversationManager: UnreadCountProviderBase {
         FirebaseBootstrap.configureIfNeeded()
         return Firestore.firestore()
     }()
+    private lazy var functions = Functions.functions(region: "asia-northeast1")
     
     private override init() { super.init() }
     
@@ -136,8 +138,10 @@ final class ConversationManager: UnreadCountProviderBase {
                 completion?(nil)
                 return
             }
-            ids.append(userId)
-            ref.updateData(["participantIds": ids]) { err in
+            self.functions.httpsCallable("addPracticeChatParticipant").call([
+                "conversationId": conversationId,
+                "userId": userId
+            ]) { _, err in
                 if let err = err {
                     self.trackConversationEvent(
                         "practice_chat_participant_add_failed",

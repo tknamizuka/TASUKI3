@@ -34,6 +34,7 @@ struct FindView: View {
     @State private var showRecruitmentSheet = false
     @State private var showPracticeCreateConfirm = false
     @State private var showFilterSheet = false  // 詳細フィルターシートの表示状態
+    @State private var showAllRunnerRecommendations = false
     
     // ソート機能
     @State private var sortOption: SortOption = .recommend
@@ -70,22 +71,24 @@ struct FindView: View {
     @State private var practiceFilterCapacity: String = "指定なし"
     
     @EnvironmentObject private var userManager: UserManager
-    /// Firestore `users` の他ユーザー（空なら `mockUsers` / `findDiscoverFallbackPartners` にフォールバック）
+    /// Firestore `public_profiles` の他ユーザー。本番では空状態をそのまま表示し、モックへフォールバックしない。
     @State private var discoveredUsers: [User] = []
+    @State private var isLoadingDiscoverUsers = false
+    @State private var discoverErrorMessage: String?
     
     @State private var recruitments: [PracticeRecruitment] = mockRecruitments
     
     // User型のマッチング用データ（`discoverUserPool` を `refreshMatchingUsers` で加工）
     @State private var matchingUsers: [User] = []
     
-    /// Firestore に候補がいれば優先。無ければ `Models.mockUsers`（リッチプロフィール済み）
+    /// Firestore の候補のみを表示する。
     private var discoverUserPool: [User] {
-        discoveredUsers.isEmpty ? mockUsers : discoveredUsers
+        discoveredUsers
     }
 
     /// Partner カードも User と同一データソース
     private var partnerDiscoverPool: [PartnerUser] {
-        discoveredUsers.isEmpty ? findDiscoverFallbackPartners : discoveredUsers.map { $0.toPartnerUser() }
+        discoveredUsers.map { $0.toPartnerUser() }
     }
     
     private var mySpotLabelForMatch: String {
@@ -144,7 +147,7 @@ struct FindView: View {
     /// Runners: 未検索・ランク指定なしのときはおすすめ上位5件のみ
     private var displayedRunnerUsers: [User] {
         guard selectedMode == "Runners" else { return [] }
-        if searchText.isEmpty && selectedRunnerRanks.isEmpty {
+        if searchText.isEmpty && selectedRunnerRanks.isEmpty && !showAllRunnerRecommendations {
             return Array(userListFiltered.prefix(5))
         }
         return userListFiltered
@@ -165,11 +168,15 @@ struct FindView: View {
     /// Firestore から他ユーザーを読み込み、マッチング一覧を更新する。
     @MainActor
     private func loadDiscoverUsersFromFirestore() async {
+        isLoadingDiscoverUsers = true
+        discoverErrorMessage = nil
+        defer { isLoadingDiscoverUsers = false }
         do {
             let list = try await userManager.fetchDiscoverUsers(limit: 80)
             discoveredUsers = list
         } catch {
             discoveredUsers = []
+            discoverErrorMessage = "ユーザー候補を読み込めませんでした。通信環境を確認して再試行してください。"
         }
         refreshMatchingUsers()
     }
@@ -410,7 +417,23 @@ struct FindView: View {
                     ScrollView(showsIndicators: false) {
                         LazyVStack(spacing: 12) {
                             if selectedMode == "Runners" {
-                                if displayedRunnerUsers.isEmpty {
+                                if isLoadingDiscoverUsers {
+                                    stateMessageView(
+                                        title: "ユーザー候補を読み込んでいます",
+                                        subtitle: "公開プロフィールを取得しています。",
+                                        actionTitle: nil,
+                                        action: nil
+                                    )
+                                } else if let discoverErrorMessage {
+                                    stateMessageView(
+                                        title: "読み込みに失敗しました",
+                                        subtitle: discoverErrorMessage,
+                                        actionTitle: "再読み込み",
+                                        action: {
+                                            Task { await loadDiscoverUsersFromFirestore() }
+                                        }
+                                    )
+                                } else if displayedRunnerUsers.isEmpty {
                                     Text("該当するユーザーがいません")
                                         .font(.system(size: 14))
                                         .foregroundColor(Color.tasukiMutedText)
@@ -425,6 +448,17 @@ struct FindView: View {
                                             )
                                         }
                                         .buttonStyle(.plain)
+                                    }
+                                    if searchText.isEmpty &&
+                                        selectedRunnerRanks.isEmpty &&
+                                        !showAllRunnerRecommendations &&
+                                        userListFiltered.count > displayedRunnerUsers.count {
+                                        Button("もっと見る") {
+                                            showAllRunnerRecommendations = true
+                                        }
+                                        .font(.system(size: 14, weight: .semibold))
+                                        .foregroundColor(Color.tasukiPrimary)
+                                        .padding(.vertical, 12)
                                     }
                                 }
                             } else {
@@ -686,6 +720,32 @@ struct FindView: View {
                 )
             }
         }
+    }
+
+    private func stateMessageView(
+        title: String,
+        subtitle: String,
+        actionTitle: String?,
+        action: (() -> Void)?
+    ) -> some View {
+        VStack(spacing: 10) {
+            Text(title)
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundColor(Color.tasukiPrimary)
+            Text(subtitle)
+                .font(.system(size: 13))
+                .foregroundColor(Color.tasukiMutedText)
+                .multilineTextAlignment(.center)
+            if let actionTitle, let action {
+                Button(actionTitle, action: action)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundColor(Color.tasukiPrimary)
+                    .padding(.top, 4)
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 28)
+        .padding(.horizontal, 20)
     }
     
     private func sectionHeaderFind(_ title: String) -> some View {

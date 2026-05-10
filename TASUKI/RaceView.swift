@@ -19,6 +19,7 @@ struct RaceEntryView: View {
     @State private var isMatching = false
     @State private var matchedRaceId: String?
     @State private var matchError: String?
+    @State private var pendingCategory: LiveRaceCategory?
     
     var body: some View {
         NavigationStack {
@@ -47,12 +48,11 @@ struct RaceEntryView: View {
                         VStack(spacing: 0) {
                             ForEach(LiveRaceCategory.allCases) { cat in
                                 Button(action: {
-                                    selectedCategory = cat
-                                    startMatching()
+                                    pendingCategory = cat
                                 }) {
                                     TasukiFlatHubRow(
                                         title: raceHubTitle(cat),
-                                        subtitle: "同時スタートでタイムを競う · タップでマッチング",
+                                        subtitle: "同時スタートでタイムを競う · 確認して参加",
                                         systemImage: "flag.checkered.2.crossed"
                                     )
                                 }
@@ -100,6 +100,26 @@ struct RaceEntryView: View {
         }
         .onAppear {
             matchError = nil
+        }
+        .confirmationDialog(
+            "この距離でマッチングしますか？",
+            isPresented: Binding(
+                get: { pendingCategory != nil },
+                set: { if !$0 { pendingCategory = nil } }
+            ),
+            titleVisibility: .visible
+        ) {
+            Button("マッチング開始") {
+                guard let category = pendingCategory else { return }
+                selectedCategory = category
+                pendingCategory = nil
+                startMatching()
+            }
+            Button("キャンセル", role: .cancel) {
+                pendingCategory = nil
+            }
+        } message: {
+            Text("参加後はロビーへ移動します。")
         }
     }
     

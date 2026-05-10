@@ -222,6 +222,7 @@ struct MessageListView: View {
 
     @State private var conversations: [MessageConversation] = []
     @State private var isLoading = true
+    @State private var loadErrorMessage: String?
     /// シングルトンを `@StateObject` で保持すると未定義動作・起動時クラッシュの原因になるため `ObservedObject` を使う
     @ObservedObject private var conversationManager = ConversationManager.shared
     @ObservedObject private var matchInvitationStore = MatchInvitationStore.shared
@@ -257,7 +258,19 @@ struct MessageListView: View {
                         .ignoresSafeArea()
                     
                     if isLoading {
-                        ProgressView()
+                        VStack(spacing: 10) {
+                            ProgressView()
+                            Text("メッセージを読み込んでいます")
+                                .font(.system(size: 13))
+                                .foregroundColor(Color.tasukiMutedText)
+                        }
+                    } else if let loadErrorMessage {
+                        messageStateView(
+                            title: "読み込みに失敗しました",
+                            subtitle: loadErrorMessage,
+                            actionTitle: "再読み込み",
+                            action: loadConversations
+                        )
                     } else {
                         let practiceChats = conversations
                             .filter { $0.isPractice }
@@ -271,11 +284,7 @@ struct MessageListView: View {
                         switch selectedTab {
                         case .chat:
                             if practiceChats.isEmpty {
-                                VStack {
-                                    Text("練習会のチャットがありません")
-                                        .font(.system(size: 16, weight: .regular))
-                                        .foregroundColor(.black)
-                                }
+                                messageStateView(title: "練習会のチャットがありません", subtitle: "参加中の練習会チャットがここに表示されます。", actionTitle: nil, action: nil)
                             } else {
                                 ScrollViewReader { proxy in
                                     List {
@@ -314,11 +323,7 @@ struct MessageListView: View {
                             }
                         case .message:
                             if userChats.isEmpty {
-                                VStack {
-                                    Text("メッセージがありません")
-                                        .font(.system(size: 16, weight: .regular))
-                                        .foregroundColor(.black)
-                                }
+                                messageStateView(title: "メッセージがありません", subtitle: "パートナーとマッチすると会話を始められます。", actionTitle: nil, action: nil)
                             } else {
                                 ScrollViewReader { proxy in
                                     List {
@@ -356,11 +361,7 @@ struct MessageListView: View {
                             }
                         case .request:
                             if sortedRequests.isEmpty {
-                                VStack {
-                                    Text("リクエストがありません")
-                                        .font(.system(size: 16, weight: .regular))
-                                        .foregroundColor(.black)
-                                }
+                                messageStateView(title: "リクエストがありません", subtitle: "パートナー申請が届くとここに表示されます。", actionTitle: nil, action: nil)
                             } else {
                                 ScrollViewReader { proxy in
                                     List {
@@ -587,16 +588,41 @@ struct MessageListView: View {
     
     private func loadConversations() {
         isLoading = true
+        loadErrorMessage = nil
         conversationManager.fetchMyConversations { result in
             switch result {
             case .success(let list):
                 conversations = list
                 isLoading = false
-            case .failure:
-                // 未ログインや取得失敗時はサンプル表示（ローカル用の仮ID）
-                loadDummyConversations()
+            case .failure(let error):
+                conversations = []
+                loadErrorMessage = error.localizedDescription
+                isLoading = false
             }
         }
+    }
+
+    private func messageStateView(
+        title: String,
+        subtitle: String,
+        actionTitle: String?,
+        action: (() -> Void)?
+    ) -> some View {
+        VStack(spacing: 10) {
+            Text(title)
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundColor(Color.tasukiPrimary)
+            Text(subtitle)
+                .font(.system(size: 13))
+                .foregroundColor(Color.tasukiMutedText)
+                .multilineTextAlignment(.center)
+            if let actionTitle, let action {
+                Button(actionTitle, action: action)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundColor(Color.tasukiPrimary)
+            }
+        }
+        .padding(24)
     }
     
     private func loadDummyConversations() {

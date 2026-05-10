@@ -29,17 +29,22 @@ struct PartnerDetailView: View {
 
             ScrollView(showsIndicators: false) {
                 VStack(spacing: 0) {
-                    UserPublicProfileScrollContent(
-                        user: user,
-                        activityChartPoints: [],
-                        heroAccessory: .partnerOnline
-                    )
+                    TasukiBrandedHeroHeader(title: "PROFILE")
+
+                    VStack(spacing: 0) {
+                        UserPublicProfileScrollContent(
+                            user: user,
+                            activityChartPoints: [],
+                            heroAccessory: .partnerOnline
+                        )
+                    }
+                    .padding(.horizontal, 20)
+                    .padding(.top, 8)
 
                     actionButtonsView
+                        .padding(.horizontal, 20)
                         .padding(.bottom, 36)
                 }
-                .padding(.horizontal, 20)
-                .padding(.top, 10)
                 .padding(.bottom, 8)
             }
         }

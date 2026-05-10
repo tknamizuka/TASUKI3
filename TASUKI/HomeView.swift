@@ -8,12 +8,6 @@
 import SwiftUI
 import Combine
 
-/// HealthKit 取得待ちの間に円グラフへ出すサンプル値（黄→紫の弧の見た目用。取得後は実距離に切り替わる）。
-private enum MonthlyGoalRingSample {
-    static let currentKm = 63.0
-    static let goalKm = 100.0
-}
-
 struct HomeView: View {
     // 目標管理用のデータ（currentDistance は HealthKit から取得）
     @State private var currentDistance: Double
@@ -60,14 +54,14 @@ struct HomeView: View {
         activityStore.monthlyDistanceKm()
     }
 
-    /// 円グラフ表示用の距離（読み込み中はサンプル、それ以外は実データ）
+    /// 円グラフ表示用の距離。読み込み中は実データと誤認しないよう 0 表示にする。
     private var ringShowsSampleWhileLoading: Bool {
         isHealthKitLoading && !usePreviewData && activityMonthlyDistanceKm <= 0
     }
 
     private var ringCurrentKm: Double {
         if ringShowsSampleWhileLoading {
-            return MonthlyGoalRingSample.currentKm
+            return 0
         }
         let fromActivities: Double
         if selectedRunningDataSource.usesHealthKitForQueries {
@@ -80,7 +74,7 @@ struct HomeView: View {
     }
 
     private var ringGoalKm: Double {
-        ringShowsSampleWhileLoading ? MonthlyGoalRingSample.goalKm : goalDistance
+        goalDistance
     }
 
     private var ringProgress: CGFloat {
@@ -166,10 +160,10 @@ struct HomeView: View {
                                         .rotationEffect(.degrees(-90))
 
                                     VStack(spacing: 8) {
-                                        Text("\(ringProgressPercent)%")
+                                        Text(ringShowsSampleWhileLoading ? "—" : "\(ringProgressPercent)%")
                                             .font(.system(size: pctFont, weight: .bold))
                                             .foregroundColor(.black)
-                                        Text(String(format: "%.1f / %.0f km", ringCurrentKm, ringGoalKm))
+                                        Text(ringShowsSampleWhileLoading ? "走行データを取得中" : String(format: "%.1f / %.0f km", ringCurrentKm, ringGoalKm))
                                             .font(.system(size: subFont, weight: .medium))
                                             .foregroundColor(Color.tasukiMutedText)
                                         if ringShowsSampleWhileLoading {

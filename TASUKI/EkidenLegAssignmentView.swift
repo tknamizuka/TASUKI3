@@ -241,7 +241,7 @@ struct EkidenLegAssignmentView: View {
 
             var names: [String: String] = [:]
             for uid in members {
-                if let userDoc = try? await db.collection("users").document(uid).getDocument(),
+                if let userDoc = try? await db.collection("public_profiles").document(uid).getDocument(),
                    let udata = userDoc.data(),
                    let name = udata["name"] as? String {
                     names[uid] = name

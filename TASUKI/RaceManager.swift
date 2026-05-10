@@ -9,11 +9,13 @@ import Foundation
 import Combine
 import FirebaseAuth
 import FirebaseFirestore
+import FirebaseFunctions
 
 final class RaceManager: ObservableObject {
     static let shared = RaceManager()
     /// プレビューでインスタンス生成時に Firestore に触れないよう lazy にしている
     private lazy var db = Firestore.firestore()
+    private lazy var functions = Functions.functions(region: "asia-northeast1")
     
     @Published var currentRace: Race?
     @Published var participants: [RaceParticipant] = []
@@ -335,12 +337,11 @@ final class RaceManager: ObservableObject {
             DispatchQueue.main.async { completion(.success(())) }
             return
         }
-        guard let uid = currentUserId else {
+        guard currentUserId != nil else {
             completion(.failure(NSError(domain: "RaceManager", code: -1, userInfo: [NSLocalizedDescriptionKey: "未ログイン"])))
             return
         }
-        db.collection("races").document(raceId).collection("participants").document(uid)
-            .updateData(["finishTimeSeconds": finishTimeSeconds]) { error in
+        functions.httpsCallable("submitRaceFinish").call(["raceId": raceId]) { _, error in
                 if let error = error {
                     self.trackRaceEvent(
                         "race_finish_submit_failed",

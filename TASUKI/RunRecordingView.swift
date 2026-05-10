@@ -130,6 +130,10 @@ struct RunRecordingView: View {
                                 .padding(.horizontal, 20)
                                 .padding(.bottom, 20)
 
+                            primaryStartRunButton
+                                .padding(.horizontal, 20)
+                                .padding(.bottom, 20)
+
                             Button {
                                 AgentDebugLog.log(
                                     location: "RunRecordingView.coachLink.tap",
@@ -159,10 +163,6 @@ struct RunRecordingView: View {
                                 .padding(.bottom, 20)
 
                             recentActivitiesCard
-                                .padding(.horizontal, 20)
-                                .padding(.bottom, 20)
-
-                            primaryStartRunButton
                                 .padding(.horizontal, 20)
                                 .padding(.bottom, 20)
 

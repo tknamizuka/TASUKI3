@@ -2,13 +2,13 @@ import Foundation
 import FirebaseFirestore
 import FirebaseAuth
 
-/// TASUKI 内の「ポイント」を管理するシンプルなサービス。
-/// 現時点ではローカル（UserDefaults）でのみ管理し、バックエンドとは同期しない。
+/// TASUKI 内の「ポイント」を管理する。
+/// ローカル表示は UserDefaults、ランキング用のサーバーポイントはレース等のサーバー確定処理でのみ加算する。
 final class PointService {
     static let shared = PointService()
     
     private lazy var db = Firestore.firestore()
-    
+
     private init() {}
     
     // MARK: - Public API
@@ -38,8 +38,6 @@ final class PointService {
         defaults.set(monthKey, forKey: "myPointsMonth")
         defaults.set(total, forKey: "myTotalPoints")
         defaults.set(monthly, forKey: "myMonthlyPoints")
-
-        syncCurrentUserPointsToFirestore(totalIncrement: amount, monthlyIncrement: amount)
     }
     
     /// 現在の累計ポイントを取得するヘルパー（UI 用）
@@ -97,15 +95,13 @@ final class PointService {
         }
     }
     
-    /// チームにポイントを付与する（サンプルチームは UserDefaults、本番は Firestore）
+    /// チームにポイントを付与する（サンプルチームのみローカル反映。本番はサーバー確定処理で加算）
     func addTeamPoints(teamId: String, totalAmount: Int, monthlyAmount: Int) {
         guard totalAmount > 0 || monthlyAmount > 0 else { return }
         
         let isSampleTeam = teamId.hasPrefix("example_")
         if isSampleTeam {
             addTeamPointsLocal(teamId: teamId, totalAmount: totalAmount, monthlyAmount: monthlyAmount)
-        } else {
-            addTeamPointsFirestore(teamId: teamId, totalAmount: totalAmount, monthlyAmount: monthlyAmount)
         }
     }
     
@@ -170,23 +166,6 @@ final class PointService {
         defaults.set(monthKey, forKey: prefix + "pointsMonth")
         defaults.set(total, forKey: prefix + "totalPoints")
         defaults.set(monthly, forKey: prefix + "monthlyPoints")
-    }
-    
-    private func addTeamPointsFirestore(teamId: String, totalAmount: Int, monthlyAmount: Int) {
-        let ref = db.collection("teams").document(teamId)
-        ref.updateData([
-            "teamTotalPoints": FieldValue.increment(Int64(totalAmount)),
-            "teamMonthlyPoints": FieldValue.increment(Int64(monthlyAmount))
-        ]) { _ in }
-    }
-    
-    private func syncCurrentUserPointsToFirestore(totalIncrement: Int, monthlyIncrement: Int) {
-        guard let uid = Auth.auth().currentUser?.uid else { return }
-        db.collection("users").document(uid).setData([
-            "totalPoints": FieldValue.increment(Int64(totalIncrement)),
-            "monthlyPoints": FieldValue.increment(Int64(monthlyIncrement)),
-            "updatedAt": Timestamp(date: Date())
-        ], merge: true)
     }
     
     /// "yyyyMM" 形式の月キー

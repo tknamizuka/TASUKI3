@@ -8,6 +8,7 @@
 import Foundation
 import FirebaseFirestore
 import FirebaseAuth
+import FirebaseFunctions
 import CoreLocation
 
 // MARK: - Mock State Holder（サンプルチーム用の可変状態）
@@ -250,6 +251,7 @@ private enum EkidenTeamRankingMapDailyCache {
 final class EkidenDataService {
     static let shared = EkidenDataService()
     private lazy var db = Firestore.firestore()
+    private lazy var functions = Functions.functions(region: "asia-northeast1")
 
     private init() {}
 
@@ -637,7 +639,7 @@ final class EkidenDataService {
             var memberNames: [String: String] = [:]
             let uids = legs.compactMap { $0.assignedUid }
             for uid in Set(uids) {
-                if let userDoc = try? await db.collection("users").document(uid).getDocument(),
+                if let userDoc = try? await db.collection("public_profiles").document(uid).getDocument(),
                    let data = userDoc.data(),
                    let name = data["name"] as? String {
                     memberNames[uid] = name
@@ -818,87 +820,22 @@ final class EkidenDataService {
         runActivityId: String? = nil,
         healthKitFirestorePayload: [String: Any]? = nil
     ) async -> Result<Void, Error> {
-        let now = Date()
-        let legsRef = db.collection("ekiden_entries").document(entryId).collection("legs")
-        let entryRef = db.collection("ekiden_entries").document(entryId)
-
         return await withCheckedContinuation { continuation in
-            db.runTransaction({ transaction, errorPtr in
-                let legDoc = legsRef.document("\(legIndex)")
-                guard let legSnap = try? transaction.getDocument(legDoc),
-                      let legData = legSnap.data(),
-                      (legData["status"] as? String) == EkidenLegStatus.ready.rawValue else {
-                    let err = NSError(domain: "EkidenDataService", code: -1, userInfo: [NSLocalizedDescriptionKey: "提出可能な状態ではありません"])
-                    errorPtr?.pointee = err
-                    return nil
-                }
-                let targetKm = legData["targetKm"] as? Double ?? 0
-                let existingDistance = legData["actualDistanceKm"] as? Double ?? 0
-                let existingElapsed = legData["elapsedSeconds"] as? Double ?? 0
-                let rawDistance = max(0, existingDistance + actualDistanceKm)
-                let accumulatedDistance = min(rawDistance, max(0, targetKm))
-                let accumulatedElapsed = max(0, existingElapsed + elapsedSeconds)
-                let reachedTarget = accumulatedDistance >= targetKm - 1e-9
-
-                var updateData: [String: Any] = [
-                    "status": reachedTarget ? EkidenLegStatus.submitted.rawValue : EkidenLegStatus.ready.rawValue,
-                    "actualDistanceKm": accumulatedDistance,
-                    "elapsedSeconds": accumulatedElapsed,
-                    "isUnderTarget": !reachedTarget
-                ]
-                if reachedTarget {
-                    updateData["submittedAt"] = Timestamp(date: now)
-                    if let s = splitAtTargetSeconds {
-                        updateData["splitAtTargetSeconds"] = existingElapsed + s
-                    } else {
-                        updateData["splitAtTargetSeconds"] = accumulatedElapsed
-                    }
-                } else {
-                    updateData["submittedAt"] = FieldValue.delete()
-                    updateData["splitAtTargetSeconds"] = FieldValue.delete()
-                }
-                transaction.updateData(updateData, forDocument: legDoc)
-
-                let nextIndex = legIndex + 1
-                let nextLegDoc = legsRef.document("\(nextIndex)")
-                if reachedTarget, let nextSnap = try? transaction.getDocument(nextLegDoc), nextSnap.exists {
-                    transaction.updateData(["status": EkidenLegStatus.ready.rawValue], forDocument: nextLegDoc)
-                }
-
-                if reachedTarget {
-                    let hasNextRunner = nextIndex < totalLegCount
-                    let tasukiState = hasNextRunner ? "ready" : "finished"
-                    transaction.updateData([
-                        "currentLegIndex": min(nextIndex, max(totalLegCount - 1, 0)),
-                        "tasukiState": tasukiState,
-                        "updatedAt": Timestamp(date: now)
-                    ], forDocument: entryRef)
-                } else {
-                    transaction.updateData(["updatedAt": Timestamp(date: now)], forDocument: entryRef)
-                }
-
-                let submissionRef = self.db.collection("ekiden_entries").document(entryId)
-                    .collection("submissions").document()
-                var subData: [String: Any] = [
-                    "legIndex": legIndex,
-                    "submittedByUid": submittedByUid,
-                    "submittedAt": Timestamp(date: now),
-                    "source": source,
-                    "actualDistanceKm": actualDistanceKm,
-                    "elapsedSeconds": elapsedSeconds,
-                    "isUnderTarget": isUnderTarget
-                ]
-                if let s = splitAtTargetSeconds { subData["splitAtTargetSeconds"] = s }
-                if let rid = runActivityId { subData["runActivityId"] = rid }
-                if let hk = healthKitFirestorePayload {
-                    for (k, v) in hk {
-                        subData[k] = v
-                    }
-                }
-                transaction.setData(subData, forDocument: submissionRef)
-
-                return true
-            }) { _, error in
+            var payload: [String: Any] = [
+                "entryId": entryId,
+                "legIndex": legIndex,
+                "actualDistanceKm": actualDistanceKm,
+                "elapsedSeconds": elapsedSeconds,
+                "isUnderTarget": isUnderTarget,
+                "source": source
+            ]
+            if let splitAtTargetSeconds {
+                payload["splitAtTargetSeconds"] = splitAtTargetSeconds
+            }
+            if let runActivityId, !runActivityId.isEmpty {
+                payload["runActivityId"] = runActivityId
+            }
+            functions.httpsCallable("submitEkidenLeg").call(payload) { _, error in
                 if let error = error {
                     continuation.resume(returning: .failure(error))
                 } else {
@@ -1141,10 +1078,12 @@ final class EkidenDataService {
                 var memberNames: [String: String] = [:]
                 let uids = Set(legs.compactMap { $0.assignedUid })
                 for uid in uids {
-                    if let userDoc = try? await db.collection("users").document(uid).getDocument(),
+                    if let userDoc = try? await db.collection("public_profiles").document(uid).getDocument(),
                        let data = userDoc.data(),
                        let name = data["name"] as? String {
                         memberNames[uid] = name
+                    } else {
+                        memberNames[uid] = uid
                     }
                 }
 
