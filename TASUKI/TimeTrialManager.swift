@@ -56,7 +56,7 @@ final class TimeTrialManager: ObservableObject {
             completion(.success("sample_\(distance.rawValue)"))
             return
         }
-        guard currentUserId != nil else {
+        guard let uid = currentUserId else {
             completion(.failure(NSError(domain: "TimeTrialManager", code: -1, userInfo: [NSLocalizedDescriptionKey: "未ログイン"])))
             return
         }
