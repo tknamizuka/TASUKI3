@@ -33,12 +33,8 @@ struct ContentView: View {
                         .padding(.horizontal, 24)
                     
                     Spacer()
-                    
-                    // Action Area
-                    actionButtonView
-                        .padding(.horizontal, 24)
-                        .padding(.bottom, 40)
                 }
+                .padding(.bottom, 40)
             }
             // HealthKit の権限要求はユーザーアクションで行う（UX向上）
             .onAppear {
@@ -64,7 +60,7 @@ struct ContentView: View {
                 // TASUKIロゴテキスト（前面）
                 Text("TASUKI")
                     .font(.system(size: 40, weight: .semibold, design: .default))
-                    .foregroundColor(Color(hex: "0F1A2E"))
+                    .foregroundColor(Color.tasukiPrimary)
                     .tracking(2)
             }
             
@@ -127,26 +123,6 @@ struct ContentView: View {
             RoundedRectangle(cornerRadius: 16)
                 .fill(Color.tasukiSurface)
         )
-    }
-    
-    // MARK: - Action Button
-    private var actionButtonView: some View {
-        NavigationLink(destination: PartnerView()) {
-            HStack {
-                Spacer()
-                Text("パートナーを探す")
-                    .font(.system(size: 16, weight: .semibold, design: .default))
-                    .foregroundColor(.tasukiBase)
-                    .tracking(1)
-                Spacer()
-            }
-            .frame(height: 56)
-            .background(
-                RoundedRectangle(cornerRadius: 12)
-                    .fill(Color.tasukiPrimary)
-            )
-        }
-        .buttonStyle(PlainButtonStyle())
     }
     
     // MARK: - Helper

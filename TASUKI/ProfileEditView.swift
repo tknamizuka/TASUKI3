@@ -30,6 +30,7 @@ struct ProfileEditView: View {
     @AppStorage("myBio") private var storedBio: String = "平日は仕事終わりに5-10km走ってます！週末は距離走やりたいです。"
     @AppStorage("realityMiningConsentEnabled") private var realityMiningConsentEnabled: Bool = false
     @AppStorage("runningDataSource") private var runningDataSourceRaw: String = RunningDataSource.all.rawValue
+    @AppStorage("appAppearanceMode") private var storedAppearanceModeRaw: String = AppAppearanceMode.device.rawValue
     
     // 編集用の一時状態
     @State private var name: String = ""
@@ -50,11 +51,17 @@ struct ProfileEditView: View {
     @State private var monthlyDist: String = ""
     
     @State private var bio: String = ""
+    @State private var appearanceModeRaw: String = AppAppearanceMode.device.rawValue
     
     // 初期値スナップショット（変更検知用）
     @State private var initialSnapshot: ProfileSnapshot?
     @State private var showDiscardAlert = false
     @State private var integrationNotice: String?
+
+    #if DEBUG
+    @State private var debugCoachCertified: Bool = false
+    @State private var debugCoachProfileName: String = ""
+    #endif
 
     private var selectedRunningDataSource: RunningDataSource {
         RunningDataSource(rawValue: runningDataSourceRaw) ?? .all
@@ -80,7 +87,8 @@ struct ProfileEditView: View {
             nextRace: nextRace,
             avgPace: avgPace,
             monthlyDist: monthlyDist,
-            bio: bio
+            bio: bio,
+            appearanceModeRaw: appearanceModeRaw
         )
         return current != snapshot
     }
@@ -94,7 +102,7 @@ struct ProfileEditView: View {
                         TextField("ニックネーム", text: $name, prompt: Text("例: けんじ, RunLover"))
                         Text("※本名は公開されません。ニックネームで登録してください。")
                             .font(.caption)
-                            .foregroundColor(Color(hex: "0F1A2E").opacity(0.6))
+                            .foregroundColor(Color.tasukiPrimary.opacity(0.6))
                     }
                     TextField("年齢", text: $age)
                         .keyboardType(.numberPad)
@@ -109,11 +117,11 @@ struct ProfileEditView: View {
                         Text("Rank")
                         Spacer()
                         Text(rank)
-                            .foregroundColor(Color(hex: "0F1A2E").opacity(0.6))
+                            .foregroundColor(Color.tasukiPrimary.opacity(0.6))
                     }
                     Text("※ランクは登録時のタイムに基づいて決まります。変更するにはプロフィール登録し直してください。")
                         .font(.caption)
-                        .foregroundColor(Color(hex: "0F1A2E").opacity(0.5))
+                        .foregroundColor(Color.tasukiPrimary.opacity(0.5))
                 }
                 
                 // Section 2: Running Style
@@ -149,10 +157,18 @@ struct ProfileEditView: View {
                                 .font(.system(size: 15, weight: .semibold))
                             Text("推奨精度向上のために、画面利用やランニング関連イベントを収集します。")
                                 .font(.system(size: 12))
-                                .foregroundColor(Color(hex: "0F1A2E").opacity(0.6))
+                                .foregroundColor(Color.tasukiPrimary.opacity(0.6))
                         }
                     }
                     .tint(Color.tasukiAccent)
+                }
+
+                Section(header: Text("表示")) {
+                    Picker("テーマ", selection: $appearanceModeRaw) {
+                        ForEach(AppAppearanceMode.allCases) { mode in
+                            Text(mode.displayName).tag(mode.rawValue)
+                        }
+                    }
                 }
 
                 Section(header: Text("デバイス連携")) {
@@ -172,7 +188,7 @@ struct ProfileEditView: View {
                     }
                     Text("選択したサービスの記録がAppleヘルスへ同期されている場合、TASUKIで読み取りできます。")
                         .font(.caption)
-                        .foregroundColor(Color(hex: "0F1A2E").opacity(0.6))
+                        .foregroundColor(Color.tasukiPrimary.opacity(0.6))
 
                     ForEach(companionSources) { source in
                         Button {
@@ -209,11 +225,36 @@ struct ProfileEditView: View {
                         Text("ログアウト")
                     }
                 }
+
+                #if DEBUG
+                Section(header: Text("開発者（コーチ認定のシミュレート）")) {
+                    Toggle("コーチ認定済みとして扱う", isOn: $debugCoachCertified)
+                        .onChange(of: debugCoachCertified) { newValue in
+                            UserDefaults.standard.set(newValue, forKey: CoachCertificationManager.debugCoachCertifiedKey)
+                            CoachCertificationManager.shared.refreshDebugCoachOverride()
+                        }
+                    TextField("coachProfileName（カタログキー）", text: $debugCoachProfileName)
+                        .onChange(of: debugCoachProfileName) { newValue in
+                            UserDefaults.standard.set(newValue, forKey: CoachCertificationManager.debugCoachProfileNameKey)
+                            if debugCoachCertified {
+                                CoachCertificationManager.shared.refreshDebugCoachOverride()
+                            }
+                        }
+                    Text("本番では Firestore の users/{uid} に coachCertified / coachProfileName を設定してください。")
+                        .font(.caption)
+                        .foregroundColor(Color.tasukiPrimary.opacity(0.6))
+                }
+                #endif
             }
-            .navigationTitle("プロフィール編集")
+            .navigationTitle("")
             .navigationBarTitleDisplayMode(.inline)
             .navigationBarBackButtonHidden(true)
             .toolbar {
+                ToolbarItem(placement: .principal) {
+                    Text("プロフィール編集")
+                        .font(.system(size: 19, weight: .bold))
+                        .foregroundColor(Color.tasukiPrimary)
+                }
                 ToolbarItem(placement: .navigationBarLeading) {
                     Button(action: {
                         if hasChanges {
@@ -253,6 +294,7 @@ struct ProfileEditView: View {
                     monthlyDist = storedMonthlyDist
                     
                     bio = storedBio
+                    appearanceModeRaw = storedAppearanceModeRaw
                     
                     initialSnapshot = ProfileSnapshot(
                         name: name,
@@ -268,9 +310,14 @@ struct ProfileEditView: View {
                         nextRace: nextRace,
                         avgPace: avgPace,
                         monthlyDist: monthlyDist,
-                        bio: bio
+                        bio: bio,
+                        appearanceModeRaw: appearanceModeRaw
                     )
                 }
+                #if DEBUG
+                debugCoachCertified = UserDefaults.standard.bool(forKey: CoachCertificationManager.debugCoachCertifiedKey)
+                debugCoachProfileName = UserDefaults.standard.string(forKey: CoachCertificationManager.debugCoachProfileNameKey) ?? "廣 佳樹"
+                #endif
             }
             .onChange(of: realityMiningConsentEnabled) { newValue in
                 RealityMiningManager.shared.updateConsent(enabled: newValue)
@@ -303,6 +350,7 @@ private struct ProfileSnapshot: Equatable {
     var avgPace: String
     var monthlyDist: String
     var bio: String
+    var appearanceModeRaw: String
 }
 
 private extension ProfileEditView {
@@ -325,6 +373,7 @@ private extension ProfileEditView {
         storedMonthlyDist = monthlyDist
         
         storedBio = bio
+        storedAppearanceModeRaw = appearanceModeRaw
         
         initialSnapshot = ProfileSnapshot(
             name: name,
@@ -340,7 +389,8 @@ private extension ProfileEditView {
             nextRace: nextRace,
             avgPace: avgPace,
             monthlyDist: monthlyDist,
-            bio: bio
+            bio: bio,
+            appearanceModeRaw: appearanceModeRaw
         )
         
         dismiss()

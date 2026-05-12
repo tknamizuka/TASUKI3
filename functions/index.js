@@ -5,6 +5,7 @@ const {onSchedule} = require("firebase-functions/v2/scheduler");
 const {onDocumentUpdated, onDocumentCreated} = require("firebase-functions/v2/firestore");
 const {onCall, HttpsError} = require("firebase-functions/v2/https");
 const {logger} = require("firebase-functions");
+const crypto = require("crypto");
 
 admin.initializeApp();
 const db = admin.firestore();
@@ -611,6 +612,87 @@ async function recalcEkidenRanking(entryId) {
   }, {merge: true});
 }
 
+const LEG_RANKING_TOP_N = 100;
+
+/**
+ * 同一イベント・同一区間の走者タイムでランキングを再計算し leg_rankings に保存する
+ * @param {string} eventId
+ * @param {number} legIndex
+ */
+async function recalcEkidenLegRankings(eventId, legIndex) {
+  if (typeof legIndex !== "number" || legIndex < 0) return;
+
+  const entriesSnap = await db.collection("ekiden_entries")
+      .where("eventId", "==", eventId)
+      .get();
+
+  const rows = [];
+  for (const entryDoc of entriesSnap.docs) {
+    const entryIdRow = entryDoc.id;
+    const teamIdRow = entryDoc.data().teamId;
+    const legSnap = await entryDoc.ref.collection("legs").doc(String(legIndex)).get();
+    if (!legSnap.exists) continue;
+    const d = legSnap.data();
+    if (d.status !== EKIDEN_LEG_STATUS.SUBMITTED) continue;
+    if (d.isPass === true) continue;
+    const sec = typeof d.splitAtTargetSeconds === "number" ?
+      d.splitAtTargetSeconds : d.elapsedSeconds;
+    if (typeof sec !== "number") continue;
+    const runnerUid = d.assignedUid || d.submittedByUid || "";
+    if (!runnerUid) continue;
+    rows.push({
+      entryId: entryIdRow,
+      teamId: teamIdRow,
+      runnerUid,
+      elapsedSeconds: sec,
+    });
+  }
+
+  rows.sort((a, b) => {
+    if (a.elapsedSeconds !== b.elapsedSeconds) {
+      return a.elapsedSeconds - b.elapsedSeconds;
+    }
+    return a.entryId.localeCompare(b.entryId);
+  });
+
+  const uids = [...new Set(rows.map((r) => r.runnerUid))];
+  const nameByUid = {};
+  const chunkSize = 30;
+  for (let i = 0; i < uids.length; i += chunkSize) {
+    const slice = uids.slice(i, i + chunkSize);
+    const refs = slice.map((uid) => db.collection("users").doc(uid));
+    const snaps = await db.getAll(...refs);
+    for (const s of snaps) {
+      const nm = s.exists && s.data()?.name;
+      nameByUid[s.id] = typeof nm === "string" && nm.length ? nm : s.id;
+    }
+  }
+
+  const ranksByEntryId = {};
+  rows.forEach((r, idx) => {
+    ranksByEntryId[r.entryId] = idx + 1;
+  });
+
+  const top = rows.slice(0, LEG_RANKING_TOP_N).map((r, idx) => ({
+    rank: idx + 1,
+    entryId: r.entryId,
+    teamId: r.teamId,
+    runnerUid: r.runnerUid,
+    elapsedSeconds: r.elapsedSeconds,
+    displayName: nameByUid[r.runnerUid] || r.runnerUid,
+  }));
+
+  const legRankingRef = db.collection("ekiden_events").doc(eventId)
+      .collection("leg_rankings").doc(String(legIndex));
+  await legRankingRef.set({
+    legIndex,
+    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    totalFinishers: rows.length,
+    top,
+    ranksByEntryId,
+  }, {merge: true});
+}
+
 /**
  * 区間完了時にチームチャットへ自動通知
  */
@@ -655,10 +737,17 @@ exports.onEkidenSubmissionCreated = onDocumentCreated(
       const isUnderTarget = subData.isUnderTarget ?? false;
 
       try {
+        const entrySnap = await db.collection("ekiden_entries").doc(entryId).get();
+        const eventId = entrySnap.exists ? entrySnap.data()?.eventId : null;
+
         await recalcEkidenRanking(entryId);
         logger.info("ekiden ranking recalculated", {entryId});
 
-        const entrySnap = await db.collection("ekiden_entries").doc(entryId).get();
+        if (eventId && legIndex >= 0) {
+          await recalcEkidenLegRankings(eventId, legIndex);
+          logger.info("ekiden leg ranking recalculated", {eventId, legIndex});
+        }
+
         if (entrySnap.exists) {
           const teamId = entrySnap.data()?.teamId;
           if (teamId) {
@@ -678,5 +767,122 @@ exports.onEkidenSubmissionCreated = onDocumentCreated(
           error: err instanceof Error ? err.message : String(err),
         });
       }
+    },
+);
+
+const SPECTATOR_CHEER_MAX_PER_HOUR = 20;
+const SPECTATOR_MESSAGE_MAX = 200;
+const SPECTATOR_NICKNAME_MAX = 40;
+
+/**
+ * @param {string} limitKey
+ */
+async function checkSpectatorCheerRateLimit(limitKey) {
+  const ref = db.collection("spectator_cheer_limits").doc(limitKey);
+  const hourMs = 60 * 60 * 1000;
+  await db.runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    const now = Date.now();
+    let count = 0;
+    let windowStartTs = admin.firestore.Timestamp.fromMillis(now);
+    if (snap.exists) {
+      const d = snap.data();
+      const ws = d.windowStart?.toMillis?.() ?? 0;
+      if (now - ws < hourMs) {
+        count = Number(d.count || 0);
+        windowStartTs = d.windowStart;
+      }
+    }
+    if (count >= SPECTATOR_CHEER_MAX_PER_HOUR) {
+      throw new HttpsError(
+          "resource-exhausted",
+          "投稿上限に達しました。1時間後に再度お試しください",
+      );
+    }
+    tx.set(ref, {
+      count: count + 1,
+      windowStart: windowStartTs,
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    }, {merge: true});
+  });
+}
+
+/**
+ * 沿道・観客からの応援（Callable）。Firestore 直書きは禁止し本関数経由のみ。
+ * 未ログインでも clientInstanceId によりレート制限する。
+ */
+exports.postSpectatorCheer = onCall(
+    {
+      region: "asia-northeast1",
+      memory: "256MiB",
+      cors: true,
+    },
+    async (request) => {
+      const data = request.data || {};
+      const eventId = typeof data.eventId === "string" ? data.eventId.trim() : "";
+      const teamId = typeof data.teamId === "string" ? data.teamId.trim() : "";
+      let message = typeof data.message === "string" ? data.message.trim() : "";
+      const nicknameRaw = typeof data.nickname === "string" ? data.nickname.trim() : "";
+      const clientInstanceId = typeof data.clientInstanceId === "string" ?
+        data.clientInstanceId.trim().slice(0, 128) : "";
+
+      if (!eventId || !teamId) {
+        throw new HttpsError("invalid-argument", "eventId と teamId が必要です");
+      }
+      if (message.length < 1) {
+        throw new HttpsError("invalid-argument", "メッセージを入力してください");
+      }
+      if (message.length > SPECTATOR_MESSAGE_MAX) {
+        message = message.slice(0, SPECTATOR_MESSAGE_MAX);
+      }
+      const nickname = nicknameRaw.length ?
+        nicknameRaw.slice(0, SPECTATOR_NICKNAME_MAX) : "沿道から";
+
+      const authUid = request.auth?.uid || "";
+      if (!authUid && !clientInstanceId) {
+        throw new HttpsError(
+            "invalid-argument",
+            "未ログインの場合は clientInstanceId（端末識別用のUUID）が必要です",
+        );
+      }
+
+      const limitRaw = `${eventId}|${teamId}|${authUid || "anon"}|${clientInstanceId || authUid}`;
+      const limitKey = crypto.createHash("sha256").update(limitRaw).digest("hex").slice(0, 48);
+      await checkSpectatorCheerRateLimit(limitKey);
+
+      const eventRef = db.collection("ekiden_events").doc(eventId);
+      const eventSnap = await eventRef.get();
+      if (!eventSnap.exists) {
+        throw new HttpsError("not-found", "イベントが見つかりません");
+      }
+      const ev = eventSnap.data();
+      const now = new Date();
+      const startAt = ev.startAt?.toDate?.() ?? new Date(0);
+      const endAt = ev.endAt?.toDate?.() ?? new Date(9999, 11, 31);
+      if (now < startAt || now > endAt) {
+        throw new HttpsError("failed-precondition", "イベント期間外です");
+      }
+
+      const entrySnap = await db.collection("ekiden_entries")
+          .where("eventId", "==", eventId)
+          .where("teamId", "==", teamId)
+          .limit(1)
+          .get();
+      if (entrySnap.empty) {
+        throw new HttpsError("not-found", "このチームはこのイベントに参加していません");
+      }
+
+      await db.collection("teams").doc(teamId).collection("spectator_cheers").add({
+        eventId,
+        teamId,
+        message,
+        nickname,
+        timestamp: admin.firestore.FieldValue.serverTimestamp(),
+        posterUid: authUid || null,
+        latitude: typeof data.latitude === "number" ? data.latitude : null,
+        longitude: typeof data.longitude === "number" ? data.longitude : null,
+      });
+
+      return {success: true};
     },
 );

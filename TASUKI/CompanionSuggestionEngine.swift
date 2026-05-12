@@ -134,20 +134,17 @@ enum CompanionSuggestionEngine {
     static func suggestion(
         checkIn: Condition?,
         daysSinceLastRun: Int,
+        healthKitDaysSinceLastRun: Int? = nil,
         monthlyGoalKm: Double,
         monthToDateKm: Double
     ) -> CompanionSuggestion {
-        if checkIn == nil {
-            return CompanionSuggestion(
-                plan: .checkInNeeded,
-                title: "今日の体調をひとつ選ぶと、無理のない提案が出ます",
-                reason: "1日1回・すぐ終わります。続けるほうが先です。",
-                primaryCTALabel: "コンディションを記録",
-                secondaryCTALabel: nil
-            )
-        }
+        let mergedDaysSinceLastRun: Int = {
+            guard let hk = healthKitDaysSinceLastRun else { return daysSinceLastRun }
+            return max(daysSinceLastRun, hk)
+        }()
 
-        let condition = checkIn!
+        // ホームではチェックインUIを出さないため、未記録は「普通」相当で提案する
+        let condition = checkIn ?? .good
         let barrier = loadBarrier()
         let prefersSoft = loadLeaderboardComfort() == .prefersSoft
 
@@ -181,7 +178,7 @@ enum CompanionSuggestionEngine {
             return micro
         }
 
-        if daysSinceLastRun >= 7 {
+        if mergedDaysSinceLastRun >= 7 {
             return CompanionSuggestion(
                 plan: .runEasy,
                 title: "久しぶりでも、まずは「戻ってこれた」が成功です",

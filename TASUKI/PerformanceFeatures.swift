@@ -31,6 +31,10 @@ struct RunActivity: Identifiable, Codable {
     let distanceKm: Double
     let route: [CodableCoordinate]
     let source: String
+    /// ユーザーが付けたアクティビティ名（任意）
+    var title: String?
+    /// 走行の感想メモ（任意）
+    var note: String?
     /// 1〜5（主観のきつさ）。記録直後のアンケート任意。
     var perceivedEffort: Int?
     /// 1〜5（走後の気分）。記録直後のアンケート任意。
@@ -44,6 +48,8 @@ struct RunActivity: Identifiable, Codable {
         distanceKm: Double,
         route: [CodableCoordinate],
         source: String,
+        title: String? = nil,
+        note: String? = nil,
         perceivedEffort: Int? = nil,
         postRunMood: Int? = nil
     ) {
@@ -54,6 +60,8 @@ struct RunActivity: Identifiable, Codable {
         self.distanceKm = distanceKm
         self.route = route
         self.source = source
+        self.title = title
+        self.note = note
         self.perceivedEffort = perceivedEffort
         self.postRunMood = postRunMood
     }
@@ -68,6 +76,23 @@ struct RunActivity: Identifiable, Codable {
         let minutes = Int(sec) / 60
         let seconds = Int(sec) % 60
         return String(format: "%d:%02d/km", minutes, seconds)
+    }
+}
+
+/// 週次距離チャート用（`RunActivityStore.weeklyActivityChartPoints` · Me の Activity と Run 記録で同一データ・同一描画に使う）。
+struct WeeklyActivityChartPoint: Identifiable, Equatable {
+    let id: String
+    let weekAnchor: Date
+    let label: String
+    let distanceKm: Double
+
+    init(weekAnchor: Date, label: String, distanceKm: Double, calendar: Calendar) {
+        self.weekAnchor = weekAnchor
+        self.label = label
+        self.distanceKm = distanceKm
+        let y = calendar.component(.yearForWeekOfYear, from: weekAnchor)
+        let w = calendar.component(.weekOfYear, from: weekAnchor)
+        self.id = "\(y)-w\(w)"
     }
 }
 
@@ -96,20 +121,25 @@ final class RunActivityStore: ObservableObject {
         durationSeconds: TimeInterval,
         routeCoordinates: [CLLocationCoordinate2D],
         source: String,
+        endedAt: Date = Date(),
+        title: String? = nil,
+        note: String? = nil,
         perceivedEffort: Int? = nil,
         postRunMood: Int? = nil
     ) -> RunActivity {
         let sanitizedDistance = max(0, distanceKm)
         let sanitizedDuration = max(1, durationSeconds)
-        let endedAt = Date()
-        let startedAt = endedAt.addingTimeInterval(-sanitizedDuration)
+        let end = endedAt
+        let startedAt = end.addingTimeInterval(-sanitizedDuration)
         let activity = RunActivity(
             startedAt: startedAt,
-            endedAt: endedAt,
+            endedAt: end,
             durationSeconds: sanitizedDuration,
             distanceKm: sanitizedDistance,
             route: routeCoordinates.map(CodableCoordinate.init),
             source: source,
+            title: title,
+            note: note,
             perceivedEffort: perceivedEffort,
             postRunMood: postRunMood
         )
@@ -143,6 +173,18 @@ final class RunActivityStore: ObservableObject {
         )
     }
 
+    func updateActivityTitleNote(id: UUID, title: String?, note: String?) {
+        guard let idx = activities.firstIndex(where: { $0.id == id }) else { return }
+        activities[idx].title = title
+        activities[idx].note = note
+        save()
+        uploadActivityIfPossible(activities[idx])
+        RealityMiningManager.shared.trackEvent(
+            name: "run_activity_metadata_updated",
+            properties: [:]
+        )
+    }
+
     func daysSinceLastRun(now: Date = Date()) -> Int {
         guard let last = activities.map(\.startedAt).max() else { return 0 }
         let cal = Calendar.current
@@ -167,10 +209,107 @@ final class RunActivityStore: ObservableObject {
         activitiesInCurrentMonth(now: now).count
     }
 
+    /// 今月の記録から加重平均ペース（秒/km）。有効な記録がない場合は nil（暦月で区切られ、毎月リセットされる）。
+    func monthlyAveragePaceSecondsPerKm(now: Date = Date()) -> Double? {
+        let acts = activitiesInCurrentMonth(now: now)
+        var totalDist = 0.0
+        var totalDur = 0.0
+        for a in acts {
+            totalDist += max(0, a.distanceKm)
+            totalDur += max(0, a.durationSeconds)
+        }
+        guard totalDist > 0.01 else { return nil }
+        return totalDur / totalDist
+    }
+
+    /// 今月の平均ペース表示用（`--:--/km` は記録なし）。
+    func monthlyAveragePaceDisplayLabel(now: Date = Date()) -> String {
+        guard let sec = monthlyAveragePaceSecondsPerKm(now: now) else { return "--:--/km" }
+        let m = Int(sec) / 60
+        let s = Int(sec) % 60
+        return String(format: "%d:%02d/km", m, s)
+    }
+
+    /// 今月のルート座標の重心（マッチング用）。ルート点がない場合は nil。
+    func monthlyRouteCentroid(now: Date = Date()) -> (latitude: Double, longitude: Double)? {
+        let acts = activitiesInCurrentMonth(now: now)
+        var sumLat = 0.0
+        var sumLon = 0.0
+        var n = 0
+        for a in acts {
+            for c in a.route {
+                sumLat += c.latitude
+                sumLon += c.longitude
+                n += 1
+            }
+        }
+        guard n > 0 else { return nil }
+        return (sumLat / Double(n), sumLon / Double(n))
+    }
+
+    /// 今週（`calendar` の `weekOfYear`）に含まれる走行。Me / Run の Activity と「今週の振り返り」で同一データを参照する。
+    func activitiesInCurrentWeek(now: Date = Date(), calendar: Calendar = .current) -> [RunActivity] {
+        guard let weekInterval = calendar.dateInterval(of: .weekOfYear, for: now) else { return [] }
+        return activities.filter { weekInterval.contains($0.startedAt) }
+    }
+
+    func weeklyDistanceKm(now: Date = Date(), calendar: Calendar = .current) -> Double {
+        activitiesInCurrentWeek(now: now, calendar: calendar).reduce(0) { $0 + $1.distanceKm }
+    }
+
     func weeklyRunCount(now: Date = Date()) -> Int {
-        let calendar = Calendar.current
-        guard let weekInterval = calendar.dateInterval(of: .weekOfYear, for: now) else { return 0 }
-        return activities.filter { weekInterval.contains($0.startedAt) }.count
+        activitiesInCurrentWeek(now: now).count
+    }
+
+    /// 直近 `weeks` 週の週次走行距離（右端が今週）。実データがすべて 0 のときのみデモ用フォールバック。
+    func weeklyActivityChartPoints(
+        weeks: Int = 8,
+        now: Date = Date(),
+        calendar: Calendar = .current
+    ) -> [WeeklyActivityChartPoint] {
+        let real = weeklyChartRows(weeks: weeks, now: now, calendar: calendar)
+        if real.contains(where: { $0.distanceKm > 0 }) {
+            return real
+        }
+        let fallbackValues: [Double] = [12.0, 18.5, 10.2, 21.3, 16.4, 22.1, 19.8, 24.0]
+        return (0..<weeks).map { idx in
+            let offset = idx - (weeks - 1)
+            let weekAnchor = calendar.date(byAdding: .weekOfYear, value: offset, to: now) ?? now
+            let normalizedAnchor = calendar.dateInterval(of: .weekOfYear, for: weekAnchor)?.start ?? weekAnchor
+            let value = idx < fallbackValues.count ? fallbackValues[idx] : (fallbackValues.last ?? 0)
+            let label = Self.shortWeekChartLabel(for: normalizedAnchor, calendar: calendar)
+            return WeeklyActivityChartPoint(weekAnchor: normalizedAnchor, label: label, distanceKm: value, calendar: calendar)
+        }
+    }
+
+    private func weeklyChartRows(weeks: Int, now: Date, calendar: Calendar) -> [WeeklyActivityChartPoint] {
+        (0..<weeks).map { idx in
+            let offset = idx - (weeks - 1)
+            let targetDate = calendar.date(byAdding: .weekOfYear, value: offset, to: now) ?? now
+            guard let interval = calendar.dateInterval(of: .weekOfYear, for: targetDate) else {
+                return WeeklyActivityChartPoint(
+                    weekAnchor: targetDate,
+                    label: Self.shortWeekChartLabel(for: targetDate, calendar: calendar),
+                    distanceKm: 0,
+                    calendar: calendar
+                )
+            }
+            let distance = activities
+                .filter { interval.contains($0.startedAt) }
+                .reduce(0) { $0 + $1.distanceKm }
+            return WeeklyActivityChartPoint(
+                weekAnchor: interval.start,
+                label: Self.shortWeekChartLabel(for: interval.start, calendar: calendar),
+                distanceKm: distance,
+                calendar: calendar
+            )
+        }
+    }
+
+    private static func shortWeekChartLabel(for date: Date, calendar: Calendar) -> String {
+        let month = calendar.component(.month, from: date)
+        let day = calendar.component(.day, from: date)
+        return "\(month)/\(day)"
     }
 
     private func load() {
@@ -207,6 +346,8 @@ final class RunActivityStore: ObservableObject {
             "route": route,
             "source": activity.source
         ]
+        if let t = activity.title, !t.isEmpty { payload["title"] = t }
+        if let n = activity.note, !n.isEmpty { payload["note"] = n }
         if let e = activity.perceivedEffort { payload["perceivedEffort"] = e }
         if let m = activity.postRunMood { payload["postRunMood"] = m }
         db.collection("users")
@@ -243,6 +384,8 @@ final class RunActivityStore: ObservableObject {
                         return CodableCoordinate(latitude: lat, longitude: lon)
                     }
                     let source = data["source"] as? String ?? "unknown"
+                    let title = data["title"] as? String
+                    let note = data["note"] as? String
                     let perceivedEffort = data["perceivedEffort"] as? Int
                     let postRunMood = data["postRunMood"] as? Int
                     return RunActivity(
@@ -253,6 +396,8 @@ final class RunActivityStore: ObservableObject {
                         distanceKm: distanceKm,
                         route: route,
                         source: source,
+                        title: title,
+                        note: note,
                         perceivedEffort: perceivedEffort,
                         postRunMood: postRunMood
                     )

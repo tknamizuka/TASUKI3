@@ -187,16 +187,20 @@ final class ConversationManager: UnreadCountProviderBase {
                 let list = (snapshot?.documents ?? []).map { doc in
                     let data = doc.data()
                     let partnerName = data["partnerName"] as? String ?? ""
+                    let partnerUserId = data["partnerUserId"] as? String
+                    let practiceId = data["practiceId"] as? String
                     let lastMessage = data["lastMessage"] as? String ?? ""
                     let lastMessageAt = (data["lastMessageAt"] as? Timestamp)?.dateValue() ?? (data["createdAt"] as? Timestamp)?.dateValue() ?? Date()
+                    let lastMessageSenderId = data["lastMessageSenderId"] as? String
                     let lastReadAt: Date? = {
                         guard let map = data["lastReadAt"] as? [String: Timestamp],
                               let ts = map[myUid] else { return nil }
                         return ts.dateValue()
                     }()
-                    let hasUnread = lastMessageAt > (lastReadAt ?? .distantPast)
+                    let hasUnread = (lastMessageSenderId != nil ? lastMessageSenderId != myUid : true)
+                        && (lastMessageAt > (lastReadAt ?? .distantPast))
                     // practiceId を持つ会話は「練習会チャット」として扱う
-                    let isPractice = (data["practiceId"] as? String) != nil || partnerName.hasPrefix("練習会:")
+                    let isPractice = practiceId != nil || partnerName.hasPrefix("練習会:")
                     return MessageConversation(
                         conversationId: doc.documentID,
                         partnerName: partnerName,
@@ -204,7 +208,9 @@ final class ConversationManager: UnreadCountProviderBase {
                         lastMessage: lastMessage.isEmpty ? "メッセージがありません" : lastMessage,
                         timestamp: lastMessageAt,
                         hasUnread: hasUnread,
-                        isPractice: isPractice
+                        isPractice: isPractice,
+                        partnerUserId: partnerUserId,
+                        practiceId: practiceId
                     )
                 }
                 completion(.success(list))
@@ -233,39 +239,37 @@ final class ConversationManager: UnreadCountProviderBase {
         let now = Date()
         func daysAgo(_ d: Int) -> Date { cal.date(byAdding: .day, value: -d, to: now) ?? now }
         
+        // パートナー受信は PartnerMatchRequestsStore（seed-incoming-*）に任せ、
+        // storeRequestId のないサンプルを混ぜると RequestDetail で OK / 送り返しが出ないため含めない。
         let samples: [MatchRequestSummary] = [
-            MatchRequestSummary(
-                id: "req-partner-1",
-                fromName: "Kenji_Run",
-                type: .partner,
-                message: "一緒に皇居で朝ランしませんか？",
-                createdAt: daysAgo(0),
-                isNew: true
-            ),
             MatchRequestSummary(
                 id: "req-practice-1",
                 fromName: "皇居ラン募集",
                 type: .practice,
                 message: "皇居ラン 2周 ゆっくりペース（6:00/km）への参加リクエストです。",
                 createdAt: daysAgo(1),
-                isNew: true
-            ),
-            MatchRequestSummary(
-                id: "req-partner-2",
-                fromName: "Momo",
-                type: .partner,
-                message: "週末のジョグ仲間を探しています。",
-                createdAt: daysAgo(3),
-                isNew: false
+                isNew: true,
+                proposedPlace: "皇居外苑（千鳥ヶ淵側・集合）",
+                proposedDateLabels: ["土曜 6:30", "日曜 6:00"]
             )
         ]
-        completion(.success(samples))
+        Task { @MainActor in
+            let fromStore = PartnerMatchRequestsStore.shared.matchRequestSummaries()
+            var merged: [String: MatchRequestSummary] = [:]
+            for s in samples { merged[s.id] = s }
+            for s in fromStore { merged[s.id] = s }
+            let list = merged.values.sorted { $0.createdAt > $1.createdAt }
+            completion(.success(list))
+        }
     }
     
     /// 未読会話数を再取得して unreadCount を更新（HomeView のバッジ用）
     override func refreshUnreadCount(completion: (() -> Void)? = nil) {
         guard currentUserId != nil else {
-            DispatchQueue.main.async { self.unreadCount = 0; completion?() }
+            DispatchQueue.main.async {
+                self.unreadCount = PendingNextPracticeReplyStore.shared.count
+                completion?()
+            }
             return
         }
         fetchMyConversations { [weak self] result in
@@ -275,8 +279,9 @@ final class ConversationManager: UnreadCountProviderBase {
                 // マッチングリクエスト数もバッジに含める
                 self?.fetchMyMatchRequests { reqResult in
                     let pending = (try? reqResult.get().filter { $0.isNew }.count) ?? 0
+                    let proposals = PendingNextPracticeReplyStore.shared.count
                     DispatchQueue.main.async {
-                        self?.unreadCount = unreadChats + pending
+                        self?.unreadCount = unreadChats + pending + proposals
                         completion?()
                     }
                 }
@@ -284,8 +289,9 @@ final class ConversationManager: UnreadCountProviderBase {
                 // 会話取得に失敗した場合でも、リクエストだけは表示する
                 self?.fetchMyMatchRequests { reqResult in
                     let pending = (try? reqResult.get().filter { $0.isNew }.count) ?? 0
+                    let proposals = PendingNextPracticeReplyStore.shared.count
                     DispatchQueue.main.async {
-                        self?.unreadCount = pending
+                        self?.unreadCount = pending + proposals
                         completion?()
                     }
                 }
@@ -311,7 +317,16 @@ final class ConversationManager: UnreadCountProviderBase {
         if let replyId = replyToMessageId, !replyId.isEmpty {
             data["replyToMessageId"] = replyId
         }
-        ref.setData(data) { error in
+        let conversationRef = db.collection("conversations").document(conversationId)
+        let batch = db.batch()
+        batch.setData(data, forDocument: ref)
+        batch.setData([
+            "lastMessage": text,
+            "lastMessageAt": now,
+            "lastMessageSenderId": myUid,
+            "lastReadAt.\(myUid)": now
+        ], forDocument: conversationRef, merge: true)
+        batch.commit { error in
             if let error = error {
                 self.trackConversationEvent(
                     "message_send_failed",
@@ -357,6 +372,47 @@ final class ConversationManager: UnreadCountProviderBase {
                 }
                 completion(.success(list))
             }
+    }
+    
+    // MARK: - Reports
+    
+    /// 会話の通報を `reports` コレクションに保存する
+    func submitConversationReport(conversationId: String, partnerName: String, reasonCategory: String, detail: String?, completion: @escaping (Result<Void, Error>) -> Void) {
+        guard let uid = currentUserId else {
+            completion(.failure(NSError(domain: "ConversationManager", code: -1, userInfo: [NSLocalizedDescriptionKey: "未ログイン"])))
+            return
+        }
+        let ref = db.collection("reports").document()
+        let trimmedDetail = detail?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        var data: [String: Any] = [
+            "kind": "conversation",
+            "conversationId": conversationId,
+            "partnerName": partnerName,
+            "reporterUid": uid,
+            "reasonCategory": reasonCategory,
+            "createdAt": Timestamp(date: Date())
+        ]
+        if !trimmedDetail.isEmpty {
+            data["detail"] = trimmedDetail
+        }
+        data["reason"] = trimmedDetail.isEmpty ? reasonCategory : "\(reasonCategory): \(trimmedDetail)"
+        ref.setData(data) { error in
+            DispatchQueue.main.async {
+                if let error = error {
+                    self.trackConversationEvent(
+                        "conversation_report_failed",
+                        properties: ["conversation_id": conversationId, "error_message": error.localizedDescription]
+                    )
+                    completion(.failure(error))
+                } else {
+                    self.trackConversationEvent(
+                        "conversation_reported",
+                        properties: ["conversation_id": conversationId, "reason_category": reasonCategory]
+                    )
+                    completion(.success(()))
+                }
+            }
+        }
     }
 }
 

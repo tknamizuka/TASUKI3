@@ -2,118 +2,159 @@ import SwiftUI
 
 struct ChallengeHubView: View {
     @ObservedObject private var activityStore = RunActivityStore.shared
+    @EnvironmentObject private var tabBarVisibility: TabBarVisibility
+    @State private var didPushTabBarHide = false
     @State private var challenges: [MonthlyChallenge] = []
     @State private var leaderboard: [ChallengeLeaderboardEntry] = []
 
     var body: some View {
-        ScrollView {
-            VStack(spacing: 14) {
-                headerCard
+        ScrollView(showsIndicators: false) {
+            VStack(spacing: 0) {
+                headerSection
+                    .padding(.horizontal, 20)
+                    .padding(.top, 8)
+                    .padding(.bottom, 20)
+
                 challengeList
-                leaderboardCard
+                    .padding(.horizontal, 20)
+
+                leaderboardSection
+                    .padding(.horizontal, 20)
+                    .padding(.top, 24)
+                    .padding(.bottom, 24)
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 12)
         }
         .background(Color.tasukiDarkBackground.ignoresSafeArea())
-        .navigationTitle("Challenges")
+        .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
-        .onAppear(perform: refresh)
+        .toolbar {
+            ToolbarItem(placement: .principal) {
+                Text("Challenges")
+                    .font(.system(size: 19, weight: .bold))
+                    .foregroundColor(Color.tasukiPrimary)
+            }
+        }
+        .onAppear {
+            if !didPushTabBarHide {
+                didPushTabBarHide = true
+                tabBarVisibility.pushHiddenContext()
+            }
+            refresh()
+        }
+        .onDisappear {
+            if didPushTabBarHide {
+                didPushTabBarHide = false
+                tabBarVisibility.popHiddenContext()
+            }
+        }
         .onChange(of: activityStore.activities.count) { _, _ in
             refresh()
         }
     }
 
-    private var headerCard: some View {
-        VStack(alignment: .leading, spacing: 6) {
+    private var headerSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
             Text("MONTHLY CHALLENGE")
-                .font(.caption)
-                .fontWeight(.bold)
-                .tracking(1.5)
+                .font(.system(size: 11, weight: .bold))
+                .tracking(1.2)
                 .foregroundColor(Color.tasukiMutedText)
             Text("記録した走行から自動で進捗を計算します")
                 .font(.system(size: 15, weight: .semibold))
                 .foregroundColor(Color.tasukiPrimary)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .tasukiCard()
     }
 
     private var challengeList: some View {
-        VStack(spacing: 10) {
-            ForEach(challenges) { challenge in
-                VStack(alignment: .leading, spacing: 8) {
-                    HStack(alignment: .firstTextBaseline) {
-                        Text(challenge.title)
-                            .font(.system(size: 16, weight: .bold))
-                            .foregroundColor(Color.tasukiPrimary)
-                        Spacer()
-                        Text("+\(challenge.rewardPoints)pt")
-                            .font(.caption)
-                            .fontWeight(.bold)
-                            .foregroundColor(challenge.isCompleted ? .white : Color.tasukiAccent)
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 4)
-                            .background(
-                                Capsule()
-                                    .fill(challenge.isCompleted ? Color.tasukiAccent : Color.tasukiAccent.opacity(0.12))
-                            )
-                    }
-                    Text(challenge.description)
-                        .font(.footnote)
-                        .foregroundColor(Color.tasukiMutedText)
-                    ProgressView(value: challenge.progress)
-                        .tint(challenge.isCompleted ? Color.green : Color.tasukiAccent)
-                    HStack {
-                        Text("\(formatted(challenge.current)) / \(formatted(challenge.target)) \(challenge.unit)")
-                            .font(.caption)
-                            .foregroundColor(Color.tasukiMutedText)
-                        Spacer()
-                        if challenge.isCompleted {
-                            Text("達成済み")
-                                .font(.caption)
-                                .fontWeight(.semibold)
-                                .foregroundColor(Color.green)
-                        }
-                    }
-                    if !challenge.isCompleted {
-                        Text("未達の日があっても問題ありません。休む判断やペース調整も練習の一部です。")
-                            .font(.caption2)
-                            .foregroundColor(Color.tasukiMutedText.opacity(0.9))
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
+        VStack(spacing: 0) {
+            ForEach(Array(challenges.enumerated()), id: \.element.id) { index, challenge in
+                if index > 0 {
+                    Divider()
+                        .background(Color.tasukiDarkCardSecondary)
+                        .padding(.vertical, 12)
                 }
-                .tasukiCard()
+                challengeBlock(challenge)
             }
         }
     }
 
-    private var leaderboardCard: some View {
-        VStack(alignment: .leading, spacing: 10) {
+    private func challengeBlock(_ challenge: MonthlyChallenge) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .firstTextBaseline) {
+                Text(challenge.title)
+                    .font(.system(size: 16, weight: .bold))
+                    .foregroundColor(Color.black)
+                Spacer()
+                Text("+\(challenge.rewardPoints)pt")
+                    .font(.caption)
+                    .fontWeight(.bold)
+                    .foregroundColor(challenge.isCompleted ? Color.tasukiOnBrandYellow : Color.tasukiAccent)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(
+                        Capsule()
+                            .fill(challenge.isCompleted ? Color.tasukiPrimaryButtonFill : Color.tasukiAccent.opacity(0.12))
+                    )
+            }
+            Text(challenge.description)
+                .font(.footnote)
+                .foregroundColor(Color.tasukiMutedText)
+            ProgressView(value: challenge.progress)
+                .tint(challenge.isCompleted ? Color.green : Color.tasukiAccent)
+            HStack {
+                Text("\(formatted(challenge.current)) / \(formatted(challenge.target)) \(challenge.unit)")
+                    .font(.caption)
+                    .foregroundColor(Color.tasukiMutedText)
+                Spacer()
+                if challenge.isCompleted {
+                    Text("達成済み")
+                        .font(.caption)
+                        .fontWeight(.semibold)
+                        .foregroundColor(Color.green)
+                }
+            }
+        }
+        .padding(.vertical, 4)
+    }
+
+    private var leaderboardSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
             Text("CHALLENGE LEADERBOARD")
-                .font(.system(size: 15, weight: .bold))
-                .foregroundColor(Color.tasukiPrimary)
+                .font(.system(size: 11, weight: .bold))
+                .tracking(1.2)
+                .foregroundColor(Color.tasukiMutedText)
             Text("順位は参考程度に。自分のペースを最優先にしてください。")
                 .font(.caption2)
                 .foregroundColor(Color.tasukiMutedText)
-            ForEach(Array(leaderboard.enumerated()), id: \.element.id) { index, entry in
-                HStack {
-                    Text("\(index + 1)")
-                        .font(.system(size: 14, weight: .bold))
-                        .foregroundColor(Color.tasukiPrimary)
-                        .frame(width: 22, alignment: .trailing)
-                    Text(entry.name)
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundColor(Color.tasukiPrimary)
-                    Spacer()
-                    Text("\(entry.score) pt")
-                        .font(.system(size: 13, weight: .bold))
-                        .foregroundColor(Color.tasukiAccent)
+            VStack(spacing: 0) {
+                ForEach(Array(leaderboard.enumerated()), id: \.element.id) { index, entry in
+                    if index > 0 {
+                        Divider()
+                            .background(Color.tasukiDarkCardSecondary.opacity(0.8))
+                    }
+                    HStack {
+                        Text("\(index + 1)")
+                            .font(.system(size: 14, weight: .bold))
+                            .foregroundColor(Color.tasukiPrimary)
+                            .frame(width: 22, alignment: .trailing)
+                        Text(entry.name)
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundColor(Color.tasukiPrimary)
+                        Spacer()
+                        Text("\(entry.score) pt")
+                            .font(.system(size: 13, weight: .bold))
+                            .foregroundColor(Color.tasukiAccent)
+                    }
+                    .padding(.vertical, 8)
                 }
-                .padding(.vertical, 3)
             }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .background(
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(Color.tasukiDarkCardSecondary)
+            )
         }
-        .tasukiCard()
     }
 
     private func refresh() {
@@ -140,4 +181,5 @@ struct ChallengeHubView: View {
     NavigationStack {
         ChallengeHubView()
     }
+    .environmentObject(TabBarVisibility())
 }

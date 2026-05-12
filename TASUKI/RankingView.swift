@@ -20,6 +20,8 @@ private enum RankingFilter {
 
 /// ランキング画面（サンプルデータベース）
 struct RankingView: View {
+    @EnvironmentObject private var tabBarVisibility: TabBarVisibility
+    @State private var didPushTabBarHide = false
     @State private var mode: RankingMode = .personal
     @State private var period: RankingPeriod = .total
     @State private var filter: RankingFilter = .overall
@@ -107,10 +109,29 @@ struct RankingView: View {
                 teamRankingList
             }
         }
-        .navigationTitle("ランキング")
+        .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
-        .background(Color(uiColor: .systemGroupedBackground))
-        .onAppear(perform: fetchRemoteRankingIfPossible)
+        .toolbar {
+            ToolbarItem(placement: .principal) {
+                Text("ランキング")
+                    .font(.system(size: 19, weight: .bold))
+                    .foregroundColor(Color.tasukiPrimary)
+            }
+        }
+        .background(Color.tasukiDarkBackground)
+        .onAppear {
+            if !didPushTabBarHide {
+                didPushTabBarHide = true
+                tabBarVisibility.pushHiddenContext()
+            }
+            fetchRemoteRankingIfPossible()
+        }
+        .onDisappear {
+            if didPushTabBarHide {
+                didPushTabBarHide = false
+                tabBarVisibility.popHiddenContext()
+            }
+        }
     }
     
     // MARK: - 個人ランキング
@@ -144,13 +165,13 @@ struct RankingView: View {
                 Text("\(index + 1)")
                     .font(.system(size: 22, weight: .bold))
                     .frame(width: 32, alignment: .trailing)
-                    .foregroundColor(Color(hex: "0F1A2E"))
+                    .foregroundColor(Color.tasukiPrimary)
                 
                 VStack(alignment: .leading, spacing: 4) {
                     HStack(spacing: 6) {
                         Text(user.name)
                             .font(.system(size: 16, weight: .semibold))
-                            .foregroundColor(Color(hex: "0F1A2E"))
+                            .foregroundColor(Color.tasukiPrimary)
                         if let tier = PointBadgeHelper.tier(forTotalPoints: user.totalPoints) {
                             HStack(spacing: 3) {
                                 Image(systemName: tier.iconName)
@@ -158,7 +179,7 @@ struct RankingView: View {
                                     .foregroundColor(tier.color)
                                 Text(tier.displayName)
                                     .font(.system(size: 10, weight: .semibold))
-                                    .foregroundColor(Color(hex: "0F1A2E"))
+                                    .foregroundColor(Color.tasukiPrimary)
                             }
                             .padding(.horizontal, 5)
                             .padding(.vertical, 2)
@@ -173,12 +194,12 @@ struct RankingView: View {
                             .padding(.vertical, 2)
                             .background(
                                 RoundedRectangle(cornerRadius: 6)
-                                    .fill(Color(hex: "0F1A2E").opacity(0.06))
+                                    .fill(Color.tasukiPrimary.opacity(0.06))
                             )
                     }
                     Text(user.prefecture)
                         .font(.system(size: 12))
-                        .foregroundColor(.gray)
+                        .foregroundColor(Color.tasukiMutedText)
                 }
                 
                 Spacer()
@@ -187,14 +208,14 @@ struct RankingView: View {
                     let points = (period == .total) ? user.totalPoints : user.monthlyPoints
                     Text("\(points)")
                         .font(.system(size: 18, weight: .bold))
-                        .foregroundColor(Color(hex: "0F1A2E"))
+                        .foregroundColor(Color.tasukiPrimary)
                     Text(period == .total ? "累計pt" : "月間pt")
                         .font(.system(size: 10))
-                        .foregroundColor(.gray)
+                        .foregroundColor(Color.tasukiMutedText)
                 }
             }
             .padding(.vertical, 4)
-            .listRowBackground(isMe ? Color(hex: "2E5CFF").opacity(0.12) : Color.clear)
+            .listRowBackground(isMe ? Color.tasukiAccent.opacity(0.12) : Color.clear)
         }
         .listStyle(.plain)
     }
@@ -231,13 +252,13 @@ struct RankingView: View {
                 Text("\(index + 1)")
                     .font(.system(size: 22, weight: .bold))
                     .frame(width: 32, alignment: .trailing)
-                    .foregroundColor(Color(hex: "0F1A2E"))
+                    .foregroundColor(Color.tasukiPrimary)
                 
                 VStack(alignment: .leading, spacing: 4) {
                     HStack(spacing: 6) {
                         Text(team.name)
                             .font(.system(size: 16, weight: .semibold))
-                            .foregroundColor(Color(hex: "0F1A2E"))
+                            .foregroundColor(Color.tasukiPrimary)
                         Text(team.tier.displayName)
                             .font(.system(size: 11, weight: .semibold))
                             .padding(.horizontal, 6)
@@ -249,7 +270,7 @@ struct RankingView: View {
                     }
                     Text("\(team.prefecture) / \(team.memberCount)名")
                         .font(.system(size: 12))
-                        .foregroundColor(.gray)
+                        .foregroundColor(Color.tasukiMutedText)
                 }
                 
                 Spacer()
@@ -258,14 +279,14 @@ struct RankingView: View {
                     let points = (period == .total) ? team.totalPoints : team.monthlyPoints
                     Text("\(points)")
                         .font(.system(size: 18, weight: .bold))
-                        .foregroundColor(Color(hex: "0F1A2E"))
+                        .foregroundColor(Color.tasukiPrimary)
                     Text(period == .total ? "累計pt" : "月間pt")
                         .font(.system(size: 10))
-                        .foregroundColor(.gray)
+                        .foregroundColor(Color.tasukiMutedText)
                 }
             }
             .padding(.vertical, 4)
-            .listRowBackground(isMyTeam ? Color(hex: "2E5CFF").opacity(0.12) : Color.clear)
+            .listRowBackground(isMyTeam ? Color.tasukiAccent.opacity(0.12) : Color.clear)
         }
         .listStyle(.plain)
     }
@@ -314,7 +335,8 @@ struct RankingView: View {
                         spotName: prefecture,
                         latitude: 0,
                         longitude: 0,
-                        distanceFromUserMock: 0
+                        distanceFromUserMock: 0,
+                        monthlyGpsActivityCount: nil
                     )
                 }
                 DispatchQueue.main.async {

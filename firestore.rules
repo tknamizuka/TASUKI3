@@ -91,6 +91,31 @@ service cloud.firestore {
         allow read: if isTeamMember(teamId);
         allow write: if isTeamOwner(teamId);
       }
+
+      // 沿道応援（Cloud Functions の postSpectatorCheer のみが書き込み）
+      match /spectator_cheers/{cheerId} {
+        allow read: if isTeamMember(teamId);
+        allow create, update, delete: if false;
+      }
+    }
+
+    // Callable によるレート制限のみ。クライアントからはアクセス不可
+    match /spectator_cheer_limits/{docId} {
+      allow read, write: if false;
+    }
+
+    match /ekiden_events/{eventId} {
+      allow read: if signedIn();
+      // チーム総合順位（クライアントは読み取りのみ）
+      match /rankings/{entryId} {
+        allow read: if signedIn();
+        allow write: if false;
+      }
+      // 区間賞（観覧用に未ログイン読取も許可する場合は true に変更可能）
+      match /leg_rankings/{legId} {
+        allow read: if true;
+        allow write: if false;
+      }
     }
 
     match /conversations/{conversationId} {

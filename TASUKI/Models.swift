@@ -57,7 +57,7 @@ enum Condition: String, CaseIterable {
     var colorHex: String {
         switch self {
         case .excellent: return "00C853"  // 緑
-        case .good: return "2E5CFF"       // 青
+        case .good: return "5D2D91"       // ブランド紫（旧ブルー）
         case .tired: return "FF9500"      // オレンジ
         case .sos: return "FF453A"        // 赤
         }
@@ -122,7 +122,11 @@ struct User: Identifiable, Codable {
     var latitude: Double
     var longitude: Double
     var distanceFromUserMock: Double
-    
+    /// 今月の GPS 走行回数（マッチング用。未設定時は nil）
+    var monthlyGpsActivityCount: Int? = nil
+    /// 相手端末へマッチング Push を送るときの宛先（Firebase Auth の UID）。未設定ならサーバ通知は送らない。
+    var firebaseUid: String? = nil
+
     // 計算プロパティ: オンライン判定 (24時間以内)
     var isOnline: Bool {
         return Date().timeIntervalSince(lastLogin) < 24 * 60 * 60
@@ -155,8 +159,8 @@ enum PracticeCategory: String, CaseIterable, Identifiable, Codable {
         case .distance: return "FF9500"   // オレンジ
         case .jog:      return "34C759"   // グリーン
         case .chat:     return "AF52DE"   // パープル
-        case .variation:return "0F1A2E"   // ネイビー
-        case .pace:     return "2E5CFF"   // ブルー
+        case .variation:return "2A0F45"   // ディープパープル
+        case .pace:     return "5D2D91"   // アクセント紫
         case .other:    return "8E8E93"   // グレー
         }
     }
@@ -201,7 +205,7 @@ struct Practice: Identifiable {
 
 // MARK: - Legacy Models (エラー回避用)
 struct PartnerUser: Identifiable {
-    let id = UUID()
+    let id: UUID
     let name: String
     let rank: String
     let avatarImage: String?
@@ -226,6 +230,58 @@ struct PartnerUser: Identifiable {
     let connectionStyle: ConnectionStyle
     /// TASUKI累計ポイント（バッジ表示用、未指定時0）
     var totalPoints: Int = 0
+
+    init(
+        id: UUID = UUID(),
+        name: String,
+        rank: String,
+        avatarImage: String?,
+        isOnline: Bool,
+        bestCategory: RaceCategory,
+        bestTime: String,
+        age: Int,
+        runningSchedule: RunningSchedule,
+        purpose: String,
+        nextRace: String?,
+        targetTime: String?,
+        runningSpots: [String],
+        prefecture: String,
+        gender: Gender,
+        condition: Condition,
+        statusMessage: String,
+        ageGroup: String,
+        runningGoal: String,
+        personalBest: String?,
+        activeTime: String,
+        easyPace: String,
+        connectionStyle: ConnectionStyle,
+        totalPoints: Int = 0
+    ) {
+        self.id = id
+        self.name = name
+        self.rank = rank
+        self.avatarImage = avatarImage
+        self.isOnline = isOnline
+        self.bestCategory = bestCategory
+        self.bestTime = bestTime
+        self.age = age
+        self.runningSchedule = runningSchedule
+        self.purpose = purpose
+        self.nextRace = nextRace
+        self.targetTime = targetTime
+        self.runningSpots = runningSpots
+        self.prefecture = prefecture
+        self.gender = gender
+        self.condition = condition
+        self.statusMessage = statusMessage
+        self.ageGroup = ageGroup
+        self.runningGoal = runningGoal
+        self.personalBest = personalBest
+        self.activeTime = activeTime
+        self.easyPace = easyPace
+        self.connectionStyle = connectionStyle
+        self.totalPoints = totalPoints
+    }
     
     // 互換性のためのプロパティ
     var location: String { prefecture }
@@ -233,6 +289,22 @@ struct PartnerUser: Identifiable {
     var image: String { avatarImage ?? "" }
     var tags: [String] { runningSpots }
     var bio: String { statusMessage }
+
+    /// Partner の単一文字ランク（例 "B"）や User 形式（"Rank B"）を User モデル用に正規化
+    static func normalizedRankForUser(_ rank: String) -> String {
+        let t = rank.trimmingCharacters(in: .whitespacesAndNewlines)
+        if t.lowercased().hasPrefix("rank ") { return t }
+        let letter = String(t.prefix(1)).uppercased()
+        return "Rank \(letter)"
+    }
+
+    private static func genderLabelForUser(_ gender: Gender) -> String {
+        switch gender {
+        case .male: return "男性"
+        case .female: return "女性"
+        case .other: return "無回答"
+        }
+    }
     
     // User型への変換
     func toUser() -> User {
@@ -242,12 +314,12 @@ struct PartnerUser: Identifiable {
             profileImage: self.avatarImage ?? "runner",
             profileImageUrl: nil,
             bio: self.statusMessage,
-            rank: self.rank,
+            rank: Self.normalizedRankForUser(self.rank),
             age: self.age,
-            gender: self.gender.displayName,
+            gender: Self.genderLabelForUser(self.gender),
             purpose: self.purpose,
             prefecture: self.prefecture,
-            area: self.prefecture,
+            area: self.runningSpots.joined(separator: "、"),
             pace: self.easyPace,
             runningFrequency: "",
             personalBest: self.personalBest ?? "",
@@ -261,22 +333,159 @@ struct PartnerUser: Identifiable {
             monthlyPoints: 0,
             matchRate: 0,
             lastLogin: Date(),
-            spotName: self.prefecture,
+            spotName: self.runningSpots.first ?? self.prefecture,
             latitude: 0.0,
             longitude: 0.0,
-            distanceFromUserMock: 0.0
+            distanceFromUserMock: 0.0,
+            monthlyGpsActivityCount: nil,
+            firebaseUid: nil
         )
     }
 }
 
-struct QAItem: Identifiable {
-    let id = UUID()
+extension User {
+    /// Find の Partner カード用（Firestore / モックの `User` と同一プロフィールを共有）
+    func toPartnerUser() -> PartnerUser {
+        let rankLetter = Self.partnerRankLetter(from: rank)
+        let spots = Self.runningSpotArray(area: area, spotName: spotName)
+        let genderEnum = Self.partnerGenderEnum(from: gender)
+        let pbDisplay = personalBest.trimmingCharacters(in: .whitespacesAndNewlines)
+        let bestCat = Self.inferRaceCategory(personalBest: pbDisplay, schedule: schedule)
+        let sched = Self.inferRunningSchedule(schedule)
+        let active = Self.inferActiveTime(schedule)
+        let goalTag = purpose.isEmpty ? "ラン" : purpose
+        let decade = max(0, (age / 10) * 10)
+        let ageGrp = "\(decade)s"
+        let cond: Condition = isOnline ? .good : .tired
+        let conn: ConnectionStyle = .real
+
+        return PartnerUser(
+            id: id,
+            name: name,
+            rank: rankLetter,
+            avatarImage: profileImage,
+            isOnline: isOnline,
+            bestCategory: bestCat,
+            bestTime: pbDisplay.isEmpty ? (targetTime.isEmpty ? "—" : targetTime) : pbDisplay,
+            age: age,
+            runningSchedule: sched,
+            purpose: purpose.isEmpty ? "—" : purpose,
+            nextRace: nextRace.isEmpty ? nil : nextRace,
+            targetTime: targetTime.isEmpty ? nil : targetTime,
+            runningSpots: spots,
+            prefecture: prefecture.isEmpty ? spotName : prefecture,
+            gender: genderEnum,
+            condition: cond,
+            statusMessage: bio.isEmpty ? "\(name)（\(prefecture)）" : bio,
+            ageGroup: ageGrp,
+            runningGoal: goalTag,
+            personalBest: pbDisplay.isEmpty ? nil : pbDisplay,
+            activeTime: active,
+            easyPace: avgPace.isEmpty ? pace : avgPace,
+            connectionStyle: conn,
+            totalPoints: totalPoints
+        )
+    }
+
+    private static func partnerRankLetter(from userRank: String) -> String {
+        let t = userRank.replacingOccurrences(of: "Rank", with: "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return String(t.prefix(1)).uppercased()
+    }
+
+    private static func runningSpotArray(area: String, spotName: String) -> [String] {
+        let raw = area.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? spotName : area
+        if raw.isEmpty { return ["未定"] }
+        let parts = raw.split { $0 == "、" || $0 == "," || $0 == "・" }
+        let mapped = parts.map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
+        return mapped.isEmpty ? [spotName.isEmpty ? "未定" : spotName] : mapped
+    }
+
+    private static func partnerGenderEnum(from label: String) -> Gender {
+        switch label.trimmingCharacters(in: .whitespacesAndNewlines) {
+        case "男性": return .male
+        case "女性": return .female
+        default: return .other
+        }
+    }
+
+    private static func inferRaceCategory(personalBest: String, schedule: String) -> RaceCategory {
+        let pb = personalBest.lowercased()
+        let s = schedule.lowercased()
+        if pb.contains("full") || pb.contains("フル") || (pb.contains("マラソン") && !pb.contains("half") && !pb.contains("ハーフ")) {
+            return .full
+        }
+        if pb.contains("half") || pb.contains("ハーフ") || pb.contains("1:") {
+            return .half
+        }
+        if pb.contains("10km") || pb.contains("10k") || s.contains("10km") {
+            return .tenKm
+        }
+        if pb.contains("5km") || pb.contains("5k") {
+            return .fiveKm
+        }
+        if pb.contains("3km") || pb.contains("3k") {
+            return .threeKm
+        }
+        return .half
+    }
+
+    private static func inferRunningSchedule(_ schedule: String) -> RunningSchedule {
+        let s = schedule
+        if s.contains("平日朝") || (s.contains("平日") && s.contains("朝")) { return .weekdayMorning }
+        if s.contains("平日夜") || (s.contains("平日") && s.contains("夜")) { return .weekdayEvening }
+        if s.contains("午後") || s.contains("下午") { return .weekendAfternoon }
+        if s.contains("土日") || s.contains("週末") || s.contains("土曜") || s.contains("日曜") || s.contains("祝") {
+            return .weekendMorning
+        }
+        return .flexible
+    }
+
+    private static func inferActiveTime(_ schedule: String) -> String {
+        if schedule.contains("朝") || schedule.contains("早朝") || schedule.contains("午前") { return "Morning" }
+        if schedule.contains("夜") { return "Night" }
+        return "Holiday"
+    }
+}
+
+struct QAItem: Identifiable, Codable, Equatable {
+    let id: UUID
     let question: String
     let answer: String?        // コーチの回答（まだの場合はnil）
     let askerName: String      // 質問者名
     let coachName: String?     // コーチ名（回答がある場合の名前）
     let category: String       // カテゴリ（トレーニング / ケア など）
     let postedDate: Date       // 投稿日時
+
+    init(
+        id: UUID = UUID(),
+        question: String,
+        answer: String?,
+        askerName: String,
+        coachName: String?,
+        category: String,
+        postedDate: Date
+    ) {
+        self.id = id
+        self.question = question
+        self.answer = answer
+        self.askerName = askerName
+        self.coachName = coachName
+        self.category = category
+        self.postedDate = postedDate
+    }
+
+    func withAnswer(_ answer: String, coachName: String) -> QAItem {
+        QAItem(
+            id: id,
+            question: question,
+            answer: answer,
+            askerName: askerName,
+            coachName: coachName,
+            category: category,
+            postedDate: postedDate
+        )
+    }
 }
 
 /// CoachView 用サンプル（旧 mockQAItems と同一の質問・回答）。質問者は `myName` デフォルト「Hiro」、回答者は「廣 佳樹」（CoachProfileView と一致）
@@ -410,7 +619,8 @@ let mockUser = User(
     spotName: "皇居",
     latitude: 35.68,
     longitude: 139.75,
-    distanceFromUserMock: 0
+    distanceFromUserMock: 0,
+    monthlyGpsActivityCount: 8
 )
 
 let mockUsers: [User] = [
@@ -442,12 +652,13 @@ let mockUsers: [User] = [
         spotName: "代々木公園",
         latitude: 35.67,
         longitude: 139.70,
-        distanceFromUserMock: 2.5
+        distanceFromUserMock: 2.5,
+        monthlyGpsActivityCount: 6
     ),
     User(
         id: UUID(),
         name: "Kenta",
-        profileImage: "runner",
+        profileImage: User.findMockInitialsProfileImageToken,
         profileImageUrl: nil,
         bio: "ガチ勢です。インターバル練習一緒にやりましょう。",
         rank: "Rank S",
@@ -472,9 +683,261 @@ let mockUsers: [User] = [
         spotName: "駒沢公園",
         latitude: 35.62,
         longitude: 139.66,
-        distanceFromUserMock: 8.0
+        distanceFromUserMock: 8.0,
+        monthlyGpsActivityCount: 14
+    ),
+    User(
+        id: UUID(),
+        name: "あやか",
+        profileImage: User.findMockInitialsProfileImageToken,
+        profileImageUrl: nil,
+        bio: "皇居と神宮外苑を行ったり来たり。ゆるく楽しく！",
+        rank: "Rank B",
+        age: 27,
+        gender: "女性",
+        purpose: "健康維持",
+        prefecture: "東京都",
+        area: "神宮外苑",
+        pace: "5:40 /km",
+        runningFrequency: "週3回",
+        personalBest: "Half 1:48:00",
+        schedule: "平日夜",
+        nextRace: "",
+        targetTime: "",
+        monthlyDistance: 85.0,
+        monthlyTarget: 120.0,
+        avgPace: "5:45 /km",
+        totalPoints: 5100,
+        monthlyPoints: 600,
+        matchRate: 72,
+        lastLogin: Date(),
+        spotName: "神宮外苑",
+        latitude: 35.67,
+        longitude: 139.71,
+        distanceFromUserMock: 3.2,
+        monthlyGpsActivityCount: 9
+    ),
+    User(
+        id: UUID(),
+        name: "Ryo_多摩川",
+        profileImage: "runner",
+        profileImageUrl: nil,
+        bio: "河川敷ロング多め。サブ4目指してます。",
+        rank: "Rank C",
+        age: 41,
+        gender: "男性",
+        purpose: "サブ4",
+        prefecture: "神奈川県",
+        area: "多摩川",
+        pace: "6:10 /km",
+        runningFrequency: "週2回",
+        personalBest: "Full 3:55:00",
+        schedule: "土曜朝",
+        nextRace: "横浜マラソン",
+        targetTime: "3:50:00",
+        monthlyDistance: 55.0,
+        monthlyTarget: 100.0,
+        avgPace: "6:05 /km",
+        totalPoints: 2800,
+        monthlyPoints: 300,
+        matchRate: 68,
+        lastLogin: Date().addingTimeInterval(-3600 * 5),
+        spotName: "多摩川",
+        latitude: 35.59,
+        longitude: 139.68,
+        distanceFromUserMock: 12.0,
+        monthlyGpsActivityCount: 5
+    ),
+    User(
+        id: UUID(),
+        name: "みお",
+        profileImage: User.findMockInitialsProfileImageToken,
+        profileImageUrl: nil,
+        bio: "井の頭ポイント練習中。仲間募集中。",
+        rank: "Rank B",
+        age: 24,
+        gender: "女性",
+        purpose: "自己ベスト更新",
+        prefecture: "東京都",
+        area: "井の頭公園",
+        pace: "5:15 /km",
+        runningFrequency: "週4回",
+        personalBest: "10km 42:00",
+        schedule: "平日朝",
+        nextRace: "吉祥寺ハーフ",
+        targetTime: "1:35:00",
+        monthlyDistance: 110.0,
+        monthlyTarget: 160.0,
+        avgPace: "5:20 /km",
+        totalPoints: 6200,
+        monthlyPoints: 800,
+        matchRate: 81,
+        lastLogin: Date(),
+        spotName: "井の頭公園",
+        latitude: 35.70,
+        longitude: 139.58,
+        distanceFromUserMock: 6.4,
+        monthlyGpsActivityCount: 11
+    ),
+    User(
+        id: UUID(),
+        name: "Haruto",
+        profileImage: User.findMockInitialsProfileImageToken,
+        profileImageUrl: nil,
+        bio: "お台場レインボーブリッジ周り。写真も撮ります。",
+        rank: "Rank A",
+        age: 30,
+        gender: "男性",
+        purpose: "サブ3",
+        prefecture: "東京都",
+        area: "お台場",
+        pace: "4:55 /km",
+        runningFrequency: "週5回",
+        personalBest: "Full 2:52:00",
+        schedule: "早朝",
+        nextRace: "東京マラソン",
+        targetTime: "2:50:00",
+        monthlyDistance: 280.0,
+        monthlyTarget: 320.0,
+        avgPace: "5:00 /km",
+        totalPoints: 24000,
+        monthlyPoints: 3100,
+        matchRate: 88,
+        lastLogin: Date(),
+        spotName: "お台場",
+        latitude: 35.63,
+        longitude: 139.77,
+        distanceFromUserMock: 7.1,
+        monthlyGpsActivityCount: 16
+    ),
+    User(
+        id: UUID(),
+        name: "Sakura",
+        profileImage: "runner",
+        profileImageUrl: nil,
+        bio: "新宿御苑の外周をゆるりと。初心者歓迎。",
+        rank: "Rank D",
+        age: 22,
+        gender: "女性",
+        purpose: "ダイエット",
+        prefecture: "東京都",
+        area: "新宿御苑",
+        pace: "7:00 /km",
+        runningFrequency: "週1〜2回",
+        personalBest: "",
+        schedule: "土日",
+        nextRace: "",
+        targetTime: "",
+        monthlyDistance: 28.0,
+        monthlyTarget: 60.0,
+        avgPace: "7:05 /km",
+        totalPoints: 900,
+        monthlyPoints: 120,
+        matchRate: 55,
+        lastLogin: Date().addingTimeInterval(-86400 * 2),
+        spotName: "新宿御苑",
+        latitude: 35.69,
+        longitude: 139.71,
+        distanceFromUserMock: 4.0,
+        monthlyGpsActivityCount: 3
+    ),
+    User(
+        id: UUID(),
+        name: "Kei",
+        profileImage: User.findMockInitialsProfileImageToken,
+        profileImageUrl: nil,
+        bio: "二子玉川〜多摩川下流。ロング好き。",
+        rank: "Rank A",
+        age: 36,
+        gender: "男性",
+        purpose: "サブ3",
+        prefecture: "東京都",
+        area: "二子玉川",
+        pace: "4:40 /km",
+        runningFrequency: "週6回",
+        personalBest: "Full 2:48:00",
+        schedule: "土曜朝",
+        nextRace: "大阪マラソン",
+        targetTime: "2:45:00",
+        monthlyDistance: 320.0,
+        monthlyTarget: 360.0,
+        avgPace: "4:45 /km",
+        totalPoints: 31000,
+        monthlyPoints: 4000,
+        matchRate: 91,
+        lastLogin: Date(),
+        spotName: "二子玉川",
+        latitude: 35.61,
+        longitude: 139.63,
+        distanceFromUserMock: 9.5,
+        monthlyGpsActivityCount: 18
+    ),
+    User(
+        id: UUID(),
+        name: "Tomo",
+        profileImage: User.findMockInitialsProfileImageToken,
+        profileImageUrl: nil,
+        bio: "朝霞の給水所まで往復。マラソン完走経験あり。",
+        rank: "Rank B",
+        age: 45,
+        gender: "男性",
+        purpose: "健康維持",
+        prefecture: "埼玉県",
+        area: "朝霞",
+        pace: "5:50 /km",
+        runningFrequency: "週3回",
+        personalBest: "Full 3:40:00",
+        schedule: "日曜",
+        nextRace: "",
+        targetTime: "",
+        monthlyDistance: 70.0,
+        monthlyTarget: 100.0,
+        avgPace: "5:55 /km",
+        totalPoints: 4500,
+        monthlyPoints: 400,
+        matchRate: 62,
+        lastLogin: Date().addingTimeInterval(-86400),
+        spotName: "朝霞",
+        latitude: 35.80,
+        longitude: 139.59,
+        distanceFromUserMock: 18.0,
+        monthlyGpsActivityCount: 7
+    ),
+    User(
+        id: UUID(),
+        name: "Nana",
+        profileImage: User.findMockInitialsProfileImageToken,
+        profileImageUrl: nil,
+        bio: "横浜みなとみらいの夜景コース。ナイトラン。",
+        rank: "Rank B",
+        age: 29,
+        gender: "女性",
+        purpose: "ファンラン",
+        prefecture: "神奈川県",
+        area: "みなとみらい",
+        pace: "5:25 /km",
+        runningFrequency: "週3回",
+        personalBest: "Half 1:42:00",
+        schedule: "平日夜",
+        nextRace: "横浜マラソン",
+        targetTime: "3:30:00",
+        monthlyDistance: 95.0,
+        monthlyTarget: 140.0,
+        avgPace: "5:30 /km",
+        totalPoints: 7800,
+        monthlyPoints: 900,
+        matchRate: 77,
+        lastLogin: Date(),
+        spotName: "みなとみらい",
+        latitude: 35.45,
+        longitude: 139.63,
+        distanceFromUserMock: 25.0,
+        monthlyGpsActivityCount: 8
     )
 ]
+
+/// Find の Practices 検索で Firestore に候補がいないときの Partner 一覧（`mockUsers` 由来）
+let findDiscoverFallbackPartners: [PartnerUser] = mockUsers.map { $0.toPartnerUser() }
 
 let mockPractices = [
     Practice(
@@ -663,6 +1126,126 @@ let mockRecruitments: [PracticeRecruitment] = [
         maxParticipants: 12,
         isRecurring: true,
         recurringWeekday: 4
+    ),
+    PracticeRecruitment(
+        practiceId: "mock-practice-5",
+        chatId: nil,
+        host: PartnerUser(
+            name: "natsu_run",
+            rank: "B",
+            avatarImage: "person.circle.fill",
+            isOnline: true,
+            bestCategory: .tenKm,
+            bestTime: "48:00",
+            age: 26,
+            runningSchedule: .weekendMorning,
+            purpose: "健康維持",
+            nextRace: nil,
+            targetTime: nil,
+            runningSpots: ["多摩川"],
+            prefecture: "東京都",
+            gender: .female,
+            condition: .good,
+            statusMessage: "週末は多摩川沿いをゆっくり",
+            ageGroup: "20s",
+            runningGoal: "健康維持",
+            personalBest: nil,
+            activeTime: "Morning",
+            easyPace: "5:50/km",
+            connectionStyle: .both
+        ),
+        title: "多摩川 サタデー JOG 60分",
+        location: "多摩川河川敷",
+        date: Date().addingTimeInterval(60 * 60 * 24 * 4),
+        category: .jog,
+        pace: "6:00/km",
+        distance: "60分",
+        description: "会話しながらゆるく。初心者・復帰組も大歓迎です。",
+        applicants: [],
+        participantUserIds: [],
+        maxParticipants: 15,
+        isRecurring: false,
+        recurringWeekday: nil
+    ),
+    PracticeRecruitment(
+        practiceId: "mock-practice-6",
+        chatId: nil,
+        host: PartnerUser(
+            name: "Kazu_駒沢",
+            rank: "A",
+            avatarImage: "person.circle.fill",
+            isOnline: true,
+            bestCategory: .full,
+            bestTime: "3:05:00",
+            age: 31,
+            runningSchedule: .weekdayMorning,
+            purpose: "サブ3",
+            nextRace: "東京マラソン",
+            targetTime: "2:58:00",
+            runningSpots: ["駒沢公園"],
+            prefecture: "東京都",
+            gender: .male,
+            condition: .excellent,
+            statusMessage: "駒沢のグラウンド周りを主に練習中",
+            ageGroup: "30s",
+            runningGoal: "Sub3",
+            personalBest: "3:05:00",
+            activeTime: "Morning",
+            easyPace: "4:50/km",
+            connectionStyle: .real
+        ),
+        title: "駒沢 インターバル 400m×12",
+        location: "駒沢公園",
+        date: Date().addingTimeInterval(60 * 60 * 24 * 6),
+        category: .interval,
+        pace: "4:00/km",
+        distance: "インターバル本数は当日調整",
+        description: "レースペースに近い刺激を入れます。持ち帰り用メニューあり。",
+        applicants: [],
+        participantUserIds: [],
+        maxParticipants: 10,
+        isRecurring: false,
+        recurringWeekday: nil
+    ),
+    PracticeRecruitment(
+        practiceId: "mock-practice-7",
+        chatId: nil,
+        host: PartnerUser(
+            name: "リン",
+            rank: "C",
+            avatarImage: "person.circle.fill",
+            isOnline: true,
+            bestCategory: .half,
+            bestTime: "1:55:00",
+            age: 33,
+            runningSchedule: .flexible,
+            purpose: "ダイエット",
+            nextRace: nil,
+            targetTime: nil,
+            runningSpots: ["井の頭公園"],
+            prefecture: "東京都",
+            gender: .female,
+            condition: .good,
+            statusMessage: "井の頭でゆるラン派です",
+            ageGroup: "30s",
+            runningGoal: "ダイエット",
+            personalBest: nil,
+            activeTime: "Holiday",
+            easyPace: "6:20/km",
+            connectionStyle: .virtual
+        ),
+        title: "井の頭 おしゃべりラン 周回",
+        location: "井の頭公園",
+        date: Date().addingTimeInterval(60 * 60 * 24 * 7),
+        category: .chat,
+        pace: "7:00/km",
+        distance: "5km",
+        description: "周回ごとに休憩OK。走ったあとカフェでお茶しませんか。",
+        applicants: [],
+        participantUserIds: [],
+        maxParticipants: 8,
+        isRecurring: false,
+        recurringWeekday: nil
     )
 ]
 
@@ -714,7 +1297,8 @@ struct TeamMessage: Identifiable {
             spotName: user.prefecture,
             latitude: 0.0,
             longitude: 0.0,
-            distanceFromUserMock: 0.0
+            distanceFromUserMock: 0.0,
+            monthlyGpsActivityCount: nil
         )
     }
     

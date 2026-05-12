@@ -13,9 +13,7 @@ struct TermsOfUseView: View {
     var body: some View {
         NavigationStack {
             ScrollView {
-                Text(LegalTexts.termsOfServiceText)
-                    .font(.system(size: 13))
-                    .foregroundColor(.primary)
+                Text(LegalTextAttributed.termsOfService())
                     .lineSpacing(6)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding()

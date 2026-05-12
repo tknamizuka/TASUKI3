@@ -3,12 +3,13 @@ import AVKit
 
 struct SplashView: View {
     @State private var isVideoVisible = false // ノイズ隠し用のフラグ
-    @State private var opacity = 0.0
+    /// 起動直後からロゴを見せる（背景が白に近いため opacity 0 だと真っ白に見える）
+    @State private var opacity = 1.0
     
     var body: some View {
         ZStack {
             // 1. 背景色（動画が出るまでのチラつき防止用）
-            Color(hex: "0F1A2E")
+            Color.tasukiDarkBackground
                 .ignoresSafeArea()
             
             // 2. 動画プレイヤー（intro_run.mp4 を TASUKI フォルダに追加すると再生されます）
@@ -26,19 +27,17 @@ struct SplashView: View {
                     }
             }
             
-            // 3. ロゴ（シンプル表示）
-            VStack(spacing: 20) {
+            // 3. ロゴ（紫＋ブランド黄のアクセントライン）
+            VStack(spacing: 16) {
                 Text("TASUKI")
                     .font(.system(size: 60, weight: .heavy))
-                    .foregroundColor(.white)
+                    .foregroundColor(Color.tasukiPrimary)
                     .tracking(10)
                     .opacity(opacity)
-            }
-        }
-        .onAppear {
-            // ロゴのアニメーション
-            withAnimation(.easeIn(duration: 1.5)) {
-                opacity = 1.0
+                Capsule()
+                    .fill(Color.tasukiBrandYellow)
+                    .frame(width: 120, height: 5)
+                    .opacity(opacity)
             }
         }
     }

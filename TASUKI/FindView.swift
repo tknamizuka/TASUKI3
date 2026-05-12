@@ -32,6 +32,7 @@ struct FindView: View {
     @State private var selectedMode: String = "Runners"  // "Runners" or "Practices"
     @State private var searchText: String = ""
     @State private var showRecruitmentSheet = false
+    @State private var showPracticeCreateConfirm = false
     @State private var showFilterSheet = false  // 詳細フィルターシートの表示状態
     
     // ソート機能
@@ -59,303 +60,70 @@ struct FindView: View {
     @AppStorage("myBestFull") private var myBestFull: String = ""
     @AppStorage("myBestHalf") private var myBestHalf: String = ""
     @AppStorage("myAvgPace") private var myAvgPace: String = "5:30/km"
+    @AppStorage("myRunningSpots") private var myRunningSpots: String = "皇居"
+    @ObservedObject private var activityStore = RunActivityStore.shared
     
     // Practices用 詳細フィルター
     @State private var practiceFilterDate: Date? = nil  // 日時で絞り込む（nil=指定なし）
     @State private var practiceFilterSpot: String = ""
     @State private var practiceFilterCapacity: String = "指定なし"
     
-    // ダミーデータ（PartnerViewと同じ）
-    @State private var partnerMockUsers: [PartnerUser] = [
-        PartnerUser(
-            name: "Kenji_Run",
-            rank: "S",
-            avatarImage: "person.circle.fill",
-            isOnline: true,
-            bestCategory: .half,
-            bestTime: "1:25:00",
-            age: 28,
-            runningSchedule: .weekendMorning,
-            purpose: "サブ3目標",
-            nextRace: "東京マラソン2025",
-            targetTime: "フル 2:55:00",
-            runningSpots: ["皇居", "代々木公園", "多摩川"],
-            prefecture: "Tokyo",
-            gender: .male,
-            condition: .excellent,
-            statusMessage: "調子が良い！今月は200km走る目標です🔥",
-            ageGroup: "20s",
-            runningGoal: "Sub3",
-            personalBest: "2:58:00",
-            activeTime: "Morning",
-            easyPace: "4:30/km",
-            connectionStyle: .real,
-            totalPoints: 28000
-        ),
-        PartnerUser(
-            name: "さっちゃん",
-            rank: "A",
-            avatarImage: "person.circle.fill",
-            isOnline: true,
-            bestCategory: .full,
-            bestTime: "3:15:00",
-            age: 32,
-            runningSchedule: .weekdayEvening,
-            purpose: "サブ3目標",
-            nextRace: "横浜マラソン2025",
-            targetTime: "フル 2:58:00",
-            runningSpots: ["お台場", "多摩川", "駒沢公園"],
-            prefecture: "Kanagawa",
-            gender: .female,
-            condition: .good,
-            statusMessage: "今月も頑張ります！週3回のペースで走ってます",
-            ageGroup: "30s",
-            runningGoal: "Sub3",
-            personalBest: "3:15:00",
-            activeTime: "Night",
-            easyPace: "5:00/km",
-            connectionStyle: .real,
-            totalPoints: 12000
-        ),
-        PartnerUser(
-            name: "Taka@Sub3",
-            rank: "B",
-            avatarImage: "person.circle.fill",
-            isOnline: false,
-            bestCategory: .tenKm,
-            bestTime: "35:00",
-            age: 25,
-            runningSchedule: .weekendMorning,
-            purpose: "健康維持",
-            nextRace: "東京10kmロードレース",
-            targetTime: "10km 33:00",
-            runningSpots: ["皇居", "代々木公園"],
-            prefecture: "Tokyo",
-            gender: .male,
-            condition: .good,
-            statusMessage: "週末の朝ランが楽しみです！",
-            ageGroup: "20s",
-            runningGoal: "健康維持",
-            personalBest: nil,
-            activeTime: "Morning",
-            easyPace: "5:30/km",
-            connectionStyle: .both,
-            totalPoints: 6500
-        ),
-        PartnerUser(
-            name: "Momo",
-            rank: "C",
-            avatarImage: "person.circle.fill",
-            isOnline: true,
-            bestCategory: .half,
-            bestTime: "1:35:00",
-            age: 29,
-            runningSchedule: .flexible,
-            purpose: "ダイエット",
-            nextRace: nil,
-            targetTime: nil,
-            runningSpots: ["大阪城公園", "中之島公園"],
-            prefecture: "Osaka",
-            gender: .female,
-            condition: .tired,
-            statusMessage: "最近忙しくて疲れ気味...でも走りたい！",
-            ageGroup: "20s",
-            runningGoal: "ダイエット",
-            personalBest: nil,
-            activeTime: "Holiday",
-            easyPace: "6:00/km",
-            connectionStyle: .virtual,
-            totalPoints: 2200
-        ),
-        PartnerUser(
-            name: "Runner123",
-            rank: "D",
-            avatarImage: "person.circle.fill",
-            isOnline: false,
-            bestCategory: .tenKm,
-            bestTime: "42:00",
-            age: 24,
-            runningSchedule: .weekdayEvening,
-            purpose: "ダイエット",
-            nextRace: nil,
-            targetTime: nil,
-            runningSpots: ["代々木公園"],
-            prefecture: "Tokyo",
-            gender: .female,
-            condition: .sos,
-            statusMessage: "足を痛めてしまいました...しばらく休みます💦",
-            ageGroup: "20s",
-            runningGoal: "ダイエット",
-            personalBest: nil,
-            activeTime: "Night",
-            easyPace: "6:30/km",
-            connectionStyle: .both,
-            totalPoints: 800
-        ),
-        PartnerUser(
-            name: "マラソン太郎",
-            rank: "S",
-            avatarImage: "person.circle.fill",
-            isOnline: true,
-            bestCategory: .full,
-            bestTime: "2:45:00",
-            age: 35,
-            runningSchedule: .weekdayMorning,
-            purpose: "自己ベスト更新",
-            nextRace: "大阪マラソン2025",
-            targetTime: "フル 2:40:00",
-            runningSpots: ["大阪城公園", "中之島公園"],
-            prefecture: "Osaka",
-            gender: .male,
-            condition: .excellent,
-            statusMessage: "朝ランで気持ちいい！PB更新に向けて頑張ります",
-            ageGroup: "30s",
-            runningGoal: "Sub3",
-            personalBest: "2:45:00",
-            activeTime: "Morning",
-            easyPace: "4:00/km",
-            connectionStyle: .real,
-            totalPoints: 52000
-        ),
-        PartnerUser(
-            name: "みか",
-            rank: "A",
-            avatarImage: "person.circle.fill",
-            isOnline: false,
-            bestCategory: .half,
-            bestTime: "1:30:00",
-            age: 27,
-            runningSchedule: .weekendMorning,
-            purpose: "ファンラン",
-            nextRace: "名古屋ウィメンズマラソン2025",
-            targetTime: "ハーフ 1:25:00",
-            runningSpots: ["名古屋城", "名城公園"],
-            prefecture: "Aichi",
-            gender: .female,
-            condition: .good,
-            statusMessage: "週末のランニングが楽しみ！一緒に走りましょう",
-            ageGroup: "20s",
-            runningGoal: "完走",
-            personalBest: "3:45:00",
-            activeTime: "Morning",
-            easyPace: "5:15/km",
-            connectionStyle: .both,
-            totalPoints: 15000
-        ),
-        PartnerUser(
-            name: "Hiro_Runner",
-            rank: "B",
-            avatarImage: "person.circle.fill",
-            isOnline: true,
-            bestCategory: .tenKm,
-            bestTime: "38:00",
-            age: 42,
-            runningSchedule: .weekdayEvening,
-            purpose: "健康維持",
-            nextRace: "福岡マラソン2025",
-            targetTime: "10km 36:00",
-            runningSpots: ["大濠公園", "福岡タワー"],
-            prefecture: "Fukuoka",
-            gender: .male,
-            condition: .good,
-            statusMessage: "仕事終わりのランでリフレッシュ！",
-            ageGroup: "40s",
-            runningGoal: "健康維持",
-            personalBest: "3:30:00",
-            activeTime: "Night",
-            easyPace: "5:45/km",
-            connectionStyle: .virtual,
-            totalPoints: 3500
-        ),
-        PartnerUser(
-            name: "あきこ",
-            rank: "C",
-            avatarImage: "person.circle.fill",
-            isOnline: true,
-            bestCategory: .half,
-            bestTime: "1:40:00",
-            age: 38,
-            runningSchedule: .weekendAfternoon,
-            purpose: "ダイエット",
-            nextRace: nil,
-            targetTime: nil,
-            runningSpots: ["大通公園", "円山公園"],
-            prefecture: "Hokkaido",
-            gender: .female,
-            condition: .tired,
-            statusMessage: "最近体重が落ちてきて嬉しい！でも少し疲れ気味...",
-            ageGroup: "30s",
-            runningGoal: "ダイエット",
-            personalBest: nil,
-            activeTime: "Holiday",
-            easyPace: "6:15/km",
-            connectionStyle: .virtual,
-            totalPoints: 1100
-        ),
-        PartnerUser(
-            name: "RunTaka",
-            rank: "D",
-            avatarImage: "person.circle.fill",
-            isOnline: false,
-            bestCategory: .fiveKm,
-            bestTime: "22:00",
-            age: 22,
-            runningSchedule: .flexible,
-            purpose: "ファンラン",
-            nextRace: nil,
-            targetTime: nil,
-            runningSpots: ["皇居", "新宿御苑"],
-            prefecture: "Tokyo",
-            gender: .male,
-            condition: .good,
-            statusMessage: "ランニング始めたばかり！一緒に楽しみましょう",
-            ageGroup: "20s",
-            runningGoal: "完走",
-            personalBest: nil,
-            activeTime: "Holiday",
-            easyPace: "6:45/km",
-            connectionStyle: .both,
-            totalPoints: 500
-        )
-    ]
+    @EnvironmentObject private var userManager: UserManager
+    @EnvironmentObject private var practiceRecruitmentsStore: PracticeRecruitmentsStore
     
-    @State private var recruitments: [PracticeRecruitment] = mockRecruitments
+    /// Firestore `public_profiles` の他ユーザー（空なら `mockUsers` / `findDiscoverFallbackPartners` にフォールバック）
+    @State private var discoveredUsers: [User] = []
     
-    // User型のマッチング用データ（Models.swiftのmockUsersを使用）
+    // User型のマッチング用データ（`discoverUserPool` を `refreshMatchingUsers` で加工）
     @State private var matchingUsers: [User] = []
     
-    // フィルタリング＆ソートされたユーザーリスト
-    private var filteredUsers: [User] {
+    /// Firestore に候補がいれば優先。無ければ `mockUsers`（リッチプロフィール済み）
+    private var discoverUserPool: [User] {
+        discoveredUsers.isEmpty ? mockUsers : discoveredUsers
+    }
+    
+    /// Partner カードも User と同一データソース
+    private var partnerDiscoverPool: [PartnerUser] {
+        discoveredUsers.isEmpty ? findDiscoverFallbackPartners : discoveredUsers.map { $0.toPartnerUser() }
+    }
+    
+    private var mySpotLabelForMatch: String {
+        let first = myRunningSpots.split(separator: ",").first.map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
+        if let f = first, !f.isEmpty { return f }
+        return "よく走るエリア"
+    }
+
+    /// Runners / Practices 共通のフィルタ・ソート済みユーザー（件数制限なし）
+    private var userListFiltered: [User] {
         var filtered = matchingUsers
 
         if !selectedRunnerRanks.isEmpty {
             filtered = filtered.filter { selectedRunnerRanks.contains($0.rank) }
         }
         
-        // 検索テキストフィルター
         if !searchText.isEmpty {
             filtered = filtered.filter { user in
                 let q = searchText
-                // ユーザーのID（UUID文字列）
                 let idString = user.id.uuidString
                 return
-                    idString.localizedCaseInsensitiveContains(q) ||          // 固有ID
-                    user.name.localizedCaseInsensitiveContains(q) ||         // ニックネーム
-                    user.spotName.localizedCaseInsensitiveContains(q) ||     // よく走るエリア（表示用スポット）
-                    user.area.localizedCaseInsensitiveContains(q) ||         // 活動エリア
-                    user.prefecture.localizedCaseInsensitiveContains(q) ||   // 都道府県
-                    user.purpose.localizedCaseInsensitiveContains(q) ||      // ランニングの目的
-                    user.schedule.localizedCaseInsensitiveContains(q) ||     // よく走る日時
-                    user.runningFrequency.localizedCaseInsensitiveContains(q) || // 頻度
-                    user.personalBest.localizedCaseInsensitiveContains(q) || // 自己ベスト
-                    user.nextRace.localizedCaseInsensitiveContains(q) ||     // 次のレース
-                    user.targetTime.localizedCaseInsensitiveContains(q) ||   // 目標タイム
-                    user.avgPace.localizedCaseInsensitiveContains(q) ||      // 平均ペース
-                    user.bio.localizedCaseInsensitiveContains(q)             // 自己紹介・タグ的テキスト
+                    idString.localizedCaseInsensitiveContains(q) ||
+                    user.name.localizedCaseInsensitiveContains(q) ||
+                    user.spotName.localizedCaseInsensitiveContains(q) ||
+                    user.area.localizedCaseInsensitiveContains(q) ||
+                    user.prefecture.localizedCaseInsensitiveContains(q) ||
+                    user.purpose.localizedCaseInsensitiveContains(q) ||
+                    user.schedule.localizedCaseInsensitiveContains(q) ||
+                    user.runningFrequency.localizedCaseInsensitiveContains(q) ||
+                    user.personalBest.localizedCaseInsensitiveContains(q) ||
+                    user.nextRace.localizedCaseInsensitiveContains(q) ||
+                    user.targetTime.localizedCaseInsensitiveContains(q) ||
+                    user.avgPace.localizedCaseInsensitiveContains(q) ||
+                    String(FindMatchScore.effectiveMonthlyRunCount(for: user)).contains(q) ||
+                    user.bio.localizedCaseInsensitiveContains(q) ||
+                    user.gender.localizedCaseInsensitiveContains(q)
             }
         }
         
-        // ソート機能（おすすめ＝matchRate 高い順）
         switch sortOption {
         case .recommend:
             filtered = filtered.sorted { $0.matchRate > $1.matchRate }
@@ -367,10 +135,63 @@ struct FindView: View {
         
         return filtered
     }
+
+    /// Runners: 未検索・ランク指定なしのときはおすすめ上位5件のみ
+    private var displayedRunnerUsers: [User] {
+        guard selectedMode == "Runners" else { return [] }
+        if searchText.isEmpty && selectedRunnerRanks.isEmpty {
+            return Array(userListFiltered.prefix(5))
+        }
+        return userListFiltered
+    }
+    
+    /// Practices で検索中に表示する User（Partner カードとは別）
+    private var practiceSearchUsers: [User] {
+        guard selectedMode == "Practices", !searchText.isEmpty else { return [] }
+        return userListFiltered
+    }
+    
+    /// Practices で検索中に表示する Partner 一覧
+    private var practiceSearchPartners: [PartnerUser] {
+        guard selectedMode == "Practices", !searchText.isEmpty else { return [] }
+        return filteredPartnerUsers
+    }
+
+    /// Firestore から他ユーザーを読み込み、マッチング一覧を更新する。
+    @MainActor
+    private func loadDiscoverUsersFromFirestore() async {
+        do {
+            let list = try await userManager.fetchDiscoverUsers(limit: 80)
+            discoveredUsers = list
+        } catch {
+            discoveredUsers = []
+        }
+        refreshMatchingUsers()
+    }
+
+    /// `discoverUserPool` に対し、自分の月間 GPS と候補プロフィールでマッチ度を計算する。
+    private func refreshMatchingUsers() {
+        let myPace = activityStore.monthlyAveragePaceSecondsPerKm()
+        let myRuns = activityStore.monthlyRunCount()
+        let centroid = activityStore.monthlyRouteCentroid()
+        let fallback = myAvgPace.isEmpty ? "5:30/km" : myAvgPace
+        matchingUsers = discoverUserPool.map { user in
+            var u = user
+            u.matchRate = FindMatchScore.compute(
+                myPaceSecPerKm: myPace,
+                myMonthlyGpsRuns: myRuns,
+                myRunLatitude: centroid?.latitude,
+                myRunLongitude: centroid?.longitude,
+                myAvgPaceFallback: fallback,
+                candidate: user
+            )
+            return u
+        }
+    }
     
     // 既存のPartnerUser用のフィルタリング（Practicesモード用に保持）
     private var filteredPartnerUsers: [PartnerUser] {
-        var filtered = partnerMockUsers
+        var filtered = partnerDiscoverPool
         
         if !selectedRunnerRanks.isEmpty {
             filtered = filtered.filter { selectedRunnerRanks.contains("Rank \($0.rank)") }
@@ -486,7 +307,7 @@ struct FindView: View {
     
     // フィルタリングされた募集リスト
     private var filteredRecruitments: [PracticeRecruitment] {
-        var filtered = recruitments
+        var filtered = practiceRecruitmentsStore.recruitments
         
         // カテゴリーフィルター適用
         if let category = selectedPracticeCategory {
@@ -543,7 +364,7 @@ struct FindView: View {
                         Text("Practices").tag("Practices")
                     }
                     .pickerStyle(.segmented)
-                    .padding(.horizontal, 16)
+                    .padding(.horizontal, 20)
                     .padding(.top, 12)
                     
                     // 2. 検索バーエリア（タップでフィルターシートを開く。検索窓はシート内にあり）
@@ -555,7 +376,7 @@ struct FindView: View {
                             
                             Text(searchText.isEmpty ? "検索..." : searchText)
                                 .font(.system(size: 16))
-                                .foregroundColor(searchText.isEmpty ? Color.tasukiMutedText : .white)
+                                .foregroundColor(searchText.isEmpty ? Color.tasukiMutedText : Color.tasukiPrimary)
                                 .lineLimit(1)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .padding(.vertical, 12)
@@ -567,45 +388,96 @@ struct FindView: View {
                         )
                     }
                     .buttonStyle(.plain)
-                    .padding(.horizontal, 16)
+                    .padding(.horizontal, 20)
                     
                     // 5. リスト表示エリア
-                    ScrollView {
+                    ScrollView(showsIndicators: false) {
                         LazyVStack(spacing: 12) {
                             if selectedMode == "Runners" {
-                                // Runnersモード: 自分のプロフィールに近い同性のユーザー（サンプル）をおすすめ順で表示
-                                ForEach(filteredUsers) { user in
-                                    NavigationLink(destination: UserProfileDetailView(user: user)) {
-                                        runnerCardView(user: user)
-                                    }
-                                    .buttonStyle(.plain)
-                                }
-                            } else {
-                                // Practicesモード: 募集リスト（掲示板 + 詳細画面への遷移）
-                                ForEach(filteredRecruitments) { recruitment in
-                                    VStack(spacing: 8) {
-                                        NavigationLink(
-                                            destination: PracticeDetailView(practice: recruitment.toPractice())
-                                        ) {
-                                            practiceCardView(recruitment: recruitment)
+                                if displayedRunnerUsers.isEmpty {
+                                    Text("該当するユーザーがいません")
+                                        .font(.system(size: 14))
+                                        .foregroundColor(Color.tasukiMutedText)
+                                        .frame(maxWidth: .infinity)
+                                        .padding(.vertical, 24)
+                                } else {
+                                    ForEach(displayedRunnerUsers) { user in
+                                        NavigationLink(destination: UserProfileDetailView(user: user)) {
+                                            runnerCardView(
+                                                user: user,
+                                                useSpotBasedCopy: searchText.isEmpty && selectedRunnerRanks.isEmpty
+                                            )
                                         }
                                         .buttonStyle(.plain)
-                                        
-                                        Divider()
-                                            .background(Color.tasukiDarkCardSecondary)
                                     }
-                                    .padding(.vertical, 4)
+                                }
+                            } else {
+                                if !searchText.isEmpty {
+                                    if !practiceSearchUsers.isEmpty {
+                                        sectionHeaderFind("ユーザー")
+                                        ForEach(practiceSearchUsers) { user in
+                                            NavigationLink(destination: UserProfileDetailView(user: user)) {
+                                                runnerCardView(user: user, useSpotBasedCopy: false)
+                                            }
+                                            .buttonStyle(.plain)
+                                        }
+                                    }
+                                    if !practiceSearchPartners.isEmpty {
+                                        sectionHeaderFind("パートナー")
+                                    ForEach(practiceSearchPartners) { partner in
+                                        NavigationLink(destination: PartnerDetailView(user: partner.toUser())) {
+                                            partnerUserCardView(user: partner)
+                                        }
+                                        .buttonStyle(.plain)
+                                    }
+                                    }
+                                    if practiceSearchUsers.isEmpty && practiceSearchPartners.isEmpty {
+                                        Text("検索に一致するユーザー・パートナーはいません")
+                                            .font(.system(size: 13))
+                                            .foregroundColor(Color.tasukiMutedText)
+                                            .frame(maxWidth: .infinity)
+                                            .padding(.vertical, 8)
+                                    }
+                                    sectionHeaderFind("練習会")
+                                }
+                                if filteredRecruitments.isEmpty {
+                                    Text("該当する練習会がありません")
+                                        .font(.system(size: 14))
+                                        .foregroundColor(Color.tasukiMutedText)
+                                        .frame(maxWidth: .infinity)
+                                        .padding(.vertical, 16)
+                                } else {
+                                    ForEach(filteredRecruitments) { recruitment in
+                                        VStack(spacing: 8) {
+                                            NavigationLink(
+                                                destination: PracticeDetailView(practice: recruitment.toPractice())
+                                            ) {
+                                                practiceCardView(recruitment: recruitment)
+                                            }
+                                            .buttonStyle(.plain)
+                                            
+                                            Divider()
+                                                .background(Color.tasukiDarkCardSecondary)
+                                        }
+                                        .padding(.vertical, 4)
+                                    }
                                 }
                             }
                         }
-                        .padding(.horizontal, 16)
-                        .padding(.bottom, 100)  // フローティングボタンのスペース
+                        .padding(.horizontal, 20)
+                        // Practices: FAB（下パディング88＋直径56）の上に最終行が載るよう余白確保
+                        .padding(.bottom, selectedMode == "Practices" ? 168 : 100)
                     }
                 }
             }
-            .navigationTitle("Find")
-            .navigationBarTitleDisplayMode(.large)
+            .navigationTitle("")
+            .navigationBarTitleDisplayMode(.inline)
             .toolbar {
+                ToolbarItem(placement: .principal) {
+                    Text("Find")
+                        .font(.system(size: 19, weight: .bold))
+                        .foregroundColor(Color.tasukiPrimary)
+                }
                 ToolbarItem(placement: .navigationBarTrailing) {
                     if selectedMode == "Runners" {
                         Menu {
@@ -677,31 +549,47 @@ struct FindView: View {
                 )
             }
             .onAppear {
-                // User型のマッチング用データを初期化（Models.swiftのmockUsersを使用）
-                if matchingUsers.isEmpty {
-                    // Models.swiftで定義されたmockUsersを参照（型を明示して確実に参照）
-                    // ローカルのpartnerMockUsersは[PartnerUser]型なので、[User]型のmockUsersはModels.swiftのものを参照
-                    matchingUsers = mockUsers as [User]
-                }
+                activityStore.refreshFromRemote()
+                refreshMatchingUsers()
+            }
+            .task {
+                await loadDiscoverUsersFromFirestore()
+            }
+            .onChange(of: activityStore.activities.count) { _, _ in
+                refreshMatchingUsers()
             }
             .overlay(alignment: .bottomTrailing) {
-                // 新規募集ボタン（Practicesモードの時だけ表示）
+                // 新規募集ボタン（Practicesモードの時だけ表示）— 白地・紺アクセント
                 if selectedMode == "Practices" {
                     Button(action: {
-                        showRecruitmentSheet = true
+                        showPracticeCreateConfirm = true
                     }) {
-                        Image(systemName: "plus.circle.fill")
-                            .font(.system(size: 56, weight: .regular))
-                            .foregroundColor(.white)
-                            .background(
-                                Circle()
-                                    .fill(Color.tasukiAccentOrange)
-                                    .frame(width: 56, height: 56)
-                            )
+                        ZStack {
+                            Circle()
+                                .fill(Color.white)
+                                .frame(width: 56, height: 56)
+                                .shadow(color: Color.tasukiPrimary.opacity(0.18), radius: 8, x: 0, y: 4)
+                            Circle()
+                                .stroke(Color.tasukiPrimary, lineWidth: 2)
+                                .frame(width: 56, height: 56)
+                            Image(systemName: "plus")
+                                .font(.system(size: 26, weight: .semibold))
+                                .foregroundColor(Color.tasukiPrimary)
+                        }
                     }
+                    .buttonStyle(.plain)
                     .padding(.trailing, 20)
-                    .padding(.bottom, 20)
+                    // MainTabView の customTabBar（safeAreaInset）と重ならないよう余白を確保（CoachView と同様）
+                    .padding(.bottom, 88)
                 }
+            }
+            .alert("練習会を作成する", isPresented: $showPracticeCreateConfirm) {
+                Button("キャンセル", role: .cancel) {}
+                Button("作成する") {
+                    showRecruitmentSheet = true
+                }
+            } message: {
+                Text("練習会の募集情報を入力します。")
             }
             .sheet(isPresented: $showRecruitmentSheet) {
                 RecruitmentPostSheet(
@@ -749,7 +637,7 @@ struct FindView: View {
                                 isRecurring: isRecurring,
                                 recurringWeekday: recurringWeekday
                             )
-                            recruitments.insert(newRecruitment, at: 0)
+                            practiceRecruitmentsStore.upsertAtStart(newRecruitment)
                             showRecruitmentSheet = false
                             return
                         }
@@ -773,7 +661,7 @@ struct FindView: View {
                                     isRecurring: isRecurring,
                                     recurringWeekday: recurringWeekday
                                 )
-                                recruitments.insert(newRecruitment, at: 0)
+                                practiceRecruitmentsStore.upsertAtStart(newRecruitment)
                                 showRecruitmentSheet = false
                             }
                         }
@@ -786,24 +674,21 @@ struct FindView: View {
         }
     }
     
-    // MARK: - Runner Card View
+    private func sectionHeaderFind(_ title: String) -> some View {
+        HStack {
+            Text(title)
+                .font(.system(size: 13, weight: .bold))
+                .foregroundColor(Color.tasukiMutedText)
+            Spacer()
+        }
+        .padding(.top, 4)
+    }
+
     // MARK: - Runner Card View (User型用)
-    private func runnerCardView(user: User) -> some View {
+    /// `useSpotBasedCopy`: 未検索のおすすめ表示では GPS ではなく「よく走る場所」で近いように見せる
+    private func runnerCardView(user: User, useSpotBasedCopy: Bool) -> some View {
         HStack(spacing: 15) {
-            // 丸型プロフィール画像（名前の左側に配置）
-            if UIImage(named: user.profileImage) != nil {
-                Image(user.profileImage)
-                    .resizable()
-                    .scaledToFill()
-                    .frame(width: 60, height: 60)
-                    .clipShape(Circle())
-            } else {
-                // プレースホルダー
-                Image(systemName: "person.circle.fill")
-                    .font(.system(size: 60))
-                    .foregroundColor(Color.tasukiMutedText)
-                    .frame(width: 60, height: 60)
-            }
+            UserProfileAvatarView(user: user, size: 60)
             
             // 情報詳細
             VStack(alignment: .leading, spacing: 6) {
@@ -835,15 +720,39 @@ struct FindView: View {
                     }
                 }
                 
-                // マッチ度表示
-                HStack(spacing: 3) {
-                    Image(systemName: "sparkles")
-                        .font(.caption2)
-                    Text("マッチ度：\(user.matchRate)%")
-                        .font(.caption)
-                        .fontWeight(.semibold)
+                // マッチ度 / おすすめ理由（表向きはよく走る場所ベース）
+                if useSpotBasedCopy {
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack(spacing: 4) {
+                            Image(systemName: "sparkles")
+                                .font(.caption2)
+                            Text("おすすめ")
+                                .font(.caption)
+                                .fontWeight(.bold)
+                                .foregroundColor(Color.tasukiAccentOrange)
+                        }
+                        Text("プロフィールのよく走る場所が近い · ペースも近い")
+                            .font(.caption2)
+                            .foregroundColor(Color.tasukiMutedText)
+                            .fixedSize(horizontal: false, vertical: true)
+                        Text("「\(mySpotLabelForMatch)」と「\(user.spotName)」")
+                            .font(.caption2)
+                            .fontWeight(.semibold)
+                            .foregroundColor(Color.tasukiPrimary)
+                        Text("相性スコア \(user.matchRate)%")
+                            .font(.caption2)
+                            .foregroundColor(Color.tasukiMutedText.opacity(0.85))
+                    }
+                } else {
+                    HStack(spacing: 3) {
+                        Image(systemName: "sparkles")
+                            .font(.caption2)
+                        Text("マッチ度：\(user.matchRate)%")
+                            .font(.caption)
+                            .fontWeight(.semibold)
+                    }
+                    .foregroundColor(Color.tasukiMutedText)
                 }
-                .foregroundColor(Color.tasukiMutedText)
                 
                 // ログイン状況
                 let hoursSinceLogin = Int(Date().timeIntervalSince(user.lastLogin) / 3600)
@@ -852,14 +761,18 @@ struct FindView: View {
                     .font(.caption)
                     .foregroundColor(Color.tasukiMutedText)
                 
-                // 活動場所と距離
+                // 活動場所（おすすめ表示では距離 km を出さずエリアのみ）
                 HStack(spacing: 4) {
                     Image(systemName: "mappin.and.ellipse")
                         .font(.caption)
                         .foregroundColor(Color.tasukiMutedText)
-                    Text(user.spotName)
-                    Text("(\(String(format: "%.1f", user.distanceFromUserMock))km)")
-                        .foregroundColor(Color.tasukiMutedText)
+                    if useSpotBasedCopy {
+                        Text("よく走る場所：\(user.spotName)")
+                    } else {
+                        Text(user.spotName)
+                        Text("(\(String(format: "%.1f", user.distanceFromUserMock))km)")
+                            .foregroundColor(Color.tasukiMutedText)
+                    }
                 }
                 .font(.caption)
                 
@@ -1036,12 +949,12 @@ struct FindView: View {
         Button(action: action) {
             Text(title)
                 .font(.system(size: 14, weight: .semibold))
-                .foregroundColor(isSelected ? .white : Color.tasukiMutedText)
+                .foregroundColor(isSelected ? Color.tasukiOnBrandYellow : Color.tasukiMutedText)
                 .padding(.horizontal, 16)
                 .padding(.vertical, 8)
                 .background(
                     Capsule()
-                        .fill(isSelected ? Color.tasukiAccentOrange : Color.clear)
+                        .fill(isSelected ? Color.tasukiPrimaryButtonFill : Color.clear)
                         .overlay(
                             Capsule()
                                 .stroke(isSelected ? Color.clear : Color.tasukiDarkCardSecondary, lineWidth: 1)
@@ -1280,7 +1193,7 @@ private struct AgeRangeSlider: View {
                     .frame(height: trackHeight)
 
                 RoundedRectangle(cornerRadius: trackHeight / 2)
-                    .fill(Color(hex: "2E5CFF"))
+                    .fill(Color.tasukiAccent)
                     .frame(width: max(0, maxX - minX), height: trackHeight)
                     .position(x: (minX + maxX) / 2, y: thumbHitSize / 2)
 
@@ -1331,7 +1244,7 @@ private struct AgeRangeSlider: View {
             .fill(Color.white)
             .frame(width: thumbSize, height: thumbSize)
             .shadow(color: .black.opacity(0.2), radius: 2, x: 0, y: 1)
-            .overlay(Circle().stroke(Color(hex: "2E5CFF"), lineWidth: 2))
+            .overlay(Circle().stroke(Color.tasukiAccent, lineWidth: 2))
             .frame(width: thumbHitSize, height: thumbHitSize)
             .contentShape(Rectangle())
             .zIndex(1)
@@ -1425,10 +1338,10 @@ struct FilterDetailSheet: View {
                 Section(header: Text("検索")) {
                     HStack {
                         Image(systemName: "magnifyingglass")
-                            .foregroundColor(Color(hex: "0F1A2E").opacity(0.5))
+                            .foregroundColor(Color.tasukiPrimary.opacity(0.5))
                         TextField("名前・エリア・目的など", text: $searchText)
                             .font(.system(size: 16))
-                            .foregroundColor(Color(hex: "0F1A2E"))
+                            .foregroundColor(Color.tasukiPrimary)
                     }
                 }
                 
@@ -1441,7 +1354,7 @@ struct FilterDetailSheet: View {
                         } label: {
                             HStack {
                                 Text("マッチングするランク（複数選択）")
-                                    .foregroundColor(Color(hex: "0F1A2E"))
+                                    .foregroundColor(Color.tasukiPrimary)
                                 Spacer()
                                 Text(
                                     selectedRunnerRanks.isEmpty
@@ -1449,7 +1362,7 @@ struct FilterDetailSheet: View {
                                     : selectedRunnerRanks.sorted().joined(separator: ", ")
                                 )
                                 .font(.caption)
-                                .foregroundColor(Color(hex: "0F1A2E").opacity(0.65))
+                                .foregroundColor(Color.tasukiPrimary.opacity(0.65))
                                 .lineLimit(1)
                                 Image(systemName: isRankPickerExpanded ? "chevron.up" : "chevron.down")
                                     .font(.caption2)
@@ -1469,10 +1382,10 @@ struct FilterDetailSheet: View {
                                 } label: {
                                     HStack {
                                         Text(rank)
-                                            .foregroundColor(Color(hex: "0F1A2E"))
+                                            .foregroundColor(Color.tasukiPrimary)
                                         Spacer()
                                         Image(systemName: selectedRunnerRanks.contains(rank) ? "checkmark.circle.fill" : "circle")
-                                            .foregroundColor(selectedRunnerRanks.contains(rank) ? Color(hex: "2E5CFF") : .gray)
+                                            .foregroundColor(selectedRunnerRanks.contains(rank) ? Color.tasukiAccent : .gray)
                                     }
                                 }
                                 .buttonStyle(.plain)
@@ -1484,7 +1397,7 @@ struct FilterDetailSheet: View {
                             .foregroundColor(.secondary)
                         Text("自分のランク: \(myRank)")
                             .font(.caption)
-                            .foregroundColor(Color(hex: "0F1A2E").opacity(0.6))
+                            .foregroundColor(Color.tasukiPrimary.opacity(0.6))
                     }
                     
                     // 基本情報
@@ -1510,7 +1423,7 @@ struct FilterDetailSheet: View {
                         VStack(alignment: .leading, spacing: 12) {
                             Text("年齢（20〜80歳）")
                                 .font(.subheadline)
-                                .foregroundColor(Color(hex: "0F1A2E"))
+                                .foregroundColor(Color.tasukiPrimary)
                             HStack {
                                 Text("\(ageMin)歳")
                                     .font(.subheadline.bold())
@@ -1556,7 +1469,7 @@ struct FilterDetailSheet: View {
                         if !myBestFull.isEmpty {
                             Text("登録時の値: \(myBestFull)")
                                 .font(.caption)
-                                .foregroundColor(Color(hex: "0F1A2E").opacity(0.6))
+                                .foregroundColor(Color.tasukiPrimary.opacity(0.6))
                         }
                         
                         expandableSingleSelect(
@@ -1570,7 +1483,7 @@ struct FilterDetailSheet: View {
                         if !myBestHalf.isEmpty {
                             Text("登録時の値: \(myBestHalf)")
                                 .font(.caption)
-                                .foregroundColor(Color(hex: "0F1A2E").opacity(0.6))
+                                .foregroundColor(Color.tasukiPrimary.opacity(0.6))
                         }
                         
                         expandableSingleSelect(
@@ -1583,7 +1496,7 @@ struct FilterDetailSheet: View {
                         }
                         Text("登録時の値: \(myJogPace)")
                             .font(.caption)
-                            .foregroundColor(Color(hex: "0F1A2E").opacity(0.6))
+                            .foregroundColor(Color.tasukiPrimary.opacity(0.6))
                     }
                     
                     // よく走る場所
@@ -1602,12 +1515,12 @@ struct FilterDetailSheet: View {
                                     }) {
                                         Text(spot)
                                             .font(.system(size: 12, weight: .medium))
-                                            .foregroundColor(Color(hex: "0F1A2E"))
+                                            .foregroundColor(Color.tasukiPrimary)
                                             .padding(.horizontal, 12)
                                             .padding(.vertical, 6)
                                             .background(
                                                 Capsule()
-                                                    .fill(Color(hex: "F5F7FA"))
+                                                    .fill(Color.tasukiDarkCardSecondary)
                                             )
                                     }
                                 }
@@ -1638,7 +1551,7 @@ struct FilterDetailSheet: View {
                             }
                         ), displayedComponents: .date)
                         .datePickerStyle(.compact)
-                        .tint(Color(hex: "2E5CFF"))
+                        .tint(Color.tasukiAccent)
                         
                         DatePicker("開催時刻", selection: Binding(
                             get: { practiceDateSelection },
@@ -1648,7 +1561,7 @@ struct FilterDetailSheet: View {
                                 practiceFilterDate = merged
                             }
                         ), displayedComponents: .hourAndMinute)
-                        .tint(Color(hex: "2E5CFF"))
+                        .tint(Color.tasukiAccent)
                     }
                     
                     Section(header: Text("よく走る場所")) {
@@ -1662,12 +1575,12 @@ struct FilterDetailSheet: View {
                                     }) {
                                         Text(spot)
                                             .font(.system(size: 12, weight: .medium))
-                                            .foregroundColor(Color(hex: "0F1A2E"))
+                                            .foregroundColor(Color.tasukiPrimary)
                                             .padding(.horizontal, 12)
                                             .padding(.vertical, 6)
                                             .background(
                                                 Capsule()
-                                                    .fill(Color(hex: "F5F7FA"))
+                                                    .fill(Color.tasukiDarkCardSecondary)
                                             )
                                     }
                                 }
@@ -1694,7 +1607,7 @@ struct FilterDetailSheet: View {
                     Button("閉じる") {
                         dismiss()
                     }
-                    .foregroundColor(Color(hex: "0F1A2E"))
+                    .foregroundColor(Color.tasukiPrimary)
                 }
                 // 右上: 条件をクリア
                 ToolbarItem(placement: .navigationBarTrailing) {
@@ -1707,7 +1620,7 @@ struct FilterDetailSheet: View {
                         practiceSpot = ""
                         practiceCapacity = "指定なし"
                     }
-                    .foregroundColor(Color(hex: "2E5CFF"))
+                    .foregroundColor(Color.tasukiAccent)
                 }
             }
             // 下部固定の「この条件で検索」ボタン
@@ -1718,10 +1631,10 @@ struct FilterDetailSheet: View {
                 }) {
                     Text("この条件で検索")
                         .font(.system(size: 16, weight: .semibold))
-                        .foregroundColor(.white)
+                        .foregroundColor(Color.tasukiOnBrandYellow)
                         .frame(maxWidth: .infinity)
                         .padding()
-                        .background(Color(hex: "2E5CFF"))
+                        .background(Color.tasukiPrimaryButtonFill)
                         .cornerRadius(12)
                         .padding(.horizontal, 16)
                         .padding(.bottom, 8)
@@ -1750,11 +1663,11 @@ struct FilterDetailSheet: View {
             } label: {
                 HStack {
                     Text(title)
-                        .foregroundColor(Color(hex: "0F1A2E"))
+                        .foregroundColor(Color.tasukiPrimary)
                     Spacer()
                     Text(selectionText)
                         .font(.caption)
-                        .foregroundColor(Color(hex: "0F1A2E").opacity(0.65))
+                        .foregroundColor(Color.tasukiPrimary.opacity(0.65))
                         .lineLimit(1)
                     Image(systemName: isExpanded.wrappedValue ? "chevron.up" : "chevron.down")
                         .font(.caption2)
@@ -1770,10 +1683,10 @@ struct FilterDetailSheet: View {
                     } label: {
                         HStack {
                             Text(option)
-                                .foregroundColor(Color(hex: "0F1A2E"))
+                                .foregroundColor(Color.tasukiPrimary)
                             Spacer()
                             Image(systemName: selectionText == option ? "checkmark.circle.fill" : "circle")
-                                .foregroundColor(selectionText == option ? Color(hex: "2E5CFF") : .gray)
+                                .foregroundColor(selectionText == option ? Color.tasukiAccent : .gray)
                         }
                     }
                     .buttonStyle(.plain)
@@ -1787,4 +1700,6 @@ struct FilterDetailSheet: View {
     NavigationStack {
         FindView()
     }
+    .environmentObject(UserManager())
+    .environmentObject(PracticeRecruitmentsStore.shared)
 }

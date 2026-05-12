@@ -14,70 +14,45 @@ struct SoloRunHubView: View {
                 Color.tasukiDarkBackground
                     .ignoresSafeArea()
 
-                ScrollView {
-                    VStack(spacing: 16) {
-                        Text("Solo Run Mode")
-                            .font(.system(size: 14, weight: .medium))
+                ScrollView(showsIndicators: false) {
+                    VStack(spacing: 0) {
+                        Text("SOLO RUN MODE")
+                            .font(.system(size: 11, weight: .bold))
+                            .tracking(1.2)
                             .foregroundColor(Color.tasukiMutedText)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(.horizontal, 4)
+                            .multilineTextAlignment(.center)
+                            .frame(maxWidth: .infinity, alignment: .center)
+                            .padding(.top, 8)
+                            .padding(.bottom, 12)
 
-                        NavigationLink(destination: RunRecordingView()) {
-                            soloOptionCard(
-                                title: "Run",
-                                subtitle: "走行を記録して保存",
-                                icon: "figure.run"
-                            )
-                        }
-                        .buttonStyle(.plain)
+                        VStack(spacing: 0) {
+                            NavigationLink(destination: RunRecordingView()) {
+                                TasukiFlatHubRow(title: "RUN", subtitle: "走行を記録して保存", systemImage: "figure.run")
+                            }
+                            .buttonStyle(.plain)
 
-                        NavigationLink(destination: TimeTrialEntryView()) {
-                            soloOptionCard(
-                                title: "タイムトライアル",
-                                subtitle: "距離を選んで同ランクと競う",
-                                icon: "stopwatch.fill"
-                            )
+                            NavigationLink(destination: TimeTrialEntryView()) {
+                                TasukiFlatHubRow(title: "TIME TRIAL", subtitle: "距離を選んで同ランクと競う", systemImage: "stopwatch.fill")
+                            }
+                            .buttonStyle(.plain)
                         }
-                        .buttonStyle(.plain)
+                        .padding(.horizontal, 20)
+
+                        Spacer(minLength: 24)
                     }
-                    .padding(16)
-                    .padding(.bottom, 80)
+                    .padding(.bottom, 24)
                 }
             }
-            .navigationTitle("Solo Running Mode")
+            .navigationTitle("")
             .navigationBarTitleDisplayMode(.inline)
-        }
-    }
-
-    private func soloOptionCard(title: String, subtitle: String, icon: String) -> some View {
-        HStack(spacing: 14) {
-            Image(systemName: icon)
-                .font(.system(size: 24, weight: .semibold))
-                .foregroundColor(Color.tasukiAccentOrange)
-                .frame(width: 44, height: 44)
-                .background(
-                    RoundedRectangle(cornerRadius: 12)
-                        .fill(Color.tasukiAccentOrange.opacity(0.15))
-                )
-            VStack(alignment: .leading, spacing: 4) {
-                Text(title)
-                    .font(.system(size: 16, weight: .bold))
-                    .foregroundColor(Color.tasukiPrimary)
-                Text(subtitle)
-                    .font(.system(size: 13))
-                    .foregroundColor(Color.tasukiMutedText)
+            .toolbar {
+                ToolbarItem(placement: .principal) {
+                    Text("Run")
+                        .font(.system(size: 19, weight: .bold))
+                        .foregroundColor(Color.tasukiPrimary)
+                }
             }
-            Spacer()
-            Image(systemName: "chevron.right")
-                .font(.system(size: 14, weight: .semibold))
-                .foregroundColor(Color.tasukiMutedText)
         }
-        .padding(16)
-        .background(
-            RoundedRectangle(cornerRadius: 16)
-                .fill(Color.white)
-                .shadow(color: Color.black.opacity(0.06), radius: 8, x: 0, y: 3)
-        )
     }
 }
 

@@ -68,18 +68,18 @@ struct EkidenSubstituteSheet: View {
                     Button(action: { Task { await saveSubstitute() } }) {
                         if isSaving {
                             ProgressView()
-                                .tint(.white)
+                                .tint(Color.black)
                                 .frame(maxWidth: .infinity)
                                 .padding(.vertical, 14)
                         } else {
                             Text("代走を確定")
                                 .font(.system(size: 16, weight: .bold))
-                                .foregroundColor(.white)
+                                .foregroundColor(Color.tasukiOnBrandYellow)
                                 .frame(maxWidth: .infinity)
                                 .padding(.vertical, 14)
                         }
                     }
-                    .background(RoundedRectangle(cornerRadius: 12).fill(Color.tasukiAccentOrange))
+                    .background(RoundedRectangle(cornerRadius: 12).fill(Color.tasukiPrimaryButtonFill))
                     .disabled(isSaving || selectedUid == leg.assignedUid)
                 }
                 .padding(20)

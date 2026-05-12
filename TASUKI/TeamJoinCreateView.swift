@@ -4,6 +4,8 @@ import FirebaseFirestore
 
 struct TeamJoinCreateView: View {
     private let maxTeamMembers = 10
+    /// この画面で扱うチームはこのモードに一致するもののみ（検索・ランダム・参加）
+    let ekidenJoinMode: EkidenJoinMode
     var onComplete: ((String?) -> Void)? = nil
     var useMockFlow: Bool = false
     
@@ -42,19 +44,59 @@ struct TeamJoinCreateView: View {
                     .foregroundColor(Color.tasukiMutedText)
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, 24)
+
+                Text("参加モード: \(ekidenJoinMode.displayTitle)")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundColor(Color.tasukiPrimary.opacity(0.85))
                 
                 VStack(spacing: 12) {
                     Button(action: { showSearchForm = true }) {
-                        HStack { Spacer(); Text("チームを探す").foregroundColor(.white); Spacer() }
-                            .padding()
-                            .background(RoundedRectangle(cornerRadius: 10).fill(Color.tasukiAccentOrange))
+                        HStack {
+                            Spacer()
+                            Text("チームを探す")
+                                .font(.system(size: 16, weight: .bold))
+                                .foregroundColor(Color.tasukiOnBrandYellow)
+                            Spacer()
+                        }
+                        .frame(minHeight: 50)
+                        .background(RoundedRectangle(cornerRadius: 12).fill(Color.tasukiPrimaryButtonFill))
                     }
-                    
+                    .buttonStyle(.plain)
+                    .disabled(isProcessing)
+
                     Button(action: { showCreateForm = true }) {
-                        HStack { Spacer(); Text("チームをつくる").foregroundColor(.white); Spacer() }
-                            .padding()
-                            .background(RoundedRectangle(cornerRadius: 10).fill(Color.tasukiPrimary))
+                        HStack {
+                            Spacer()
+                            Text("チームをつくる")
+                                .font(.system(size: 16, weight: .bold))
+                                .foregroundColor(Color.tasukiOnBrandYellow)
+                            Spacer()
+                        }
+                        .frame(minHeight: 50)
+                        .background(RoundedRectangle(cornerRadius: 12).fill(Color.tasukiPrimaryButtonFill))
                     }
+                    .buttonStyle(.plain)
+                    .disabled(isProcessing)
+
+                    Button(action: joinRandomAvailableTeam) {
+                        HStack {
+                            Spacer()
+                            Text(isProcessing ? "検索中..." : "空きチームにランダム参加")
+                                .font(.system(size: 16, weight: .bold))
+                                .foregroundColor(Color.tasukiOnBrandYellow)
+                            Spacer()
+                        }
+                        .frame(minHeight: 50)
+                        .background(RoundedRectangle(cornerRadius: 12).fill(Color.tasukiPrimaryButtonFill))
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(isProcessing)
+
+                    Text("定員に空きがあり、再加入ブロックのないチームからランダムに選びます（承認不要を優先）。")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundColor(Color.tasukiMutedText.opacity(0.9))
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 28)
                 }
                 .padding(.horizontal, 40)
                 
@@ -117,7 +159,7 @@ struct TeamJoinCreateView: View {
         .sheet(isPresented: $showResultsSheet) {
             NavigationStack {
                 List(searchResults) { candidate in
-                    NavigationLink(destination: TeamDetailView(teamId: candidate.id, onJoined: { resultId in
+                    NavigationLink(destination: TeamDetailView(teamId: candidate.id, expectedEkidenJoinMode: ekidenJoinMode, onJoined: { resultId in
                         // 詳細画面から戻ったときの処理
                         showResultsSheet = false
                         self.onComplete?(resultId)
@@ -178,7 +220,8 @@ struct TeamJoinCreateView: View {
             "inviteCode": inviteCode,
             "requiresApproval": requiresApproval,
             "maxMembers": maxTeamMembers,
-            "ownerUid": firebaseUser.uid
+            "ownerUid": firebaseUser.uid,
+            "ekidenMode": ekidenJoinMode.firestoreValue
         ]
         
         newTeamRef.setData(teamData) { error in
@@ -216,6 +259,78 @@ struct TeamJoinCreateView: View {
         }
     }
     
+    /// 取得したチーム一覧から、空き枠のあるチームへランダム参加（承認不要を優先）。
+    private func joinRandomAvailableTeam() {
+        guard !isProcessing else { return }
+        isProcessing = true
+        errorMessage = nil
+
+        if useMockFlow {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) {
+                let mockId = ekidenJoinMode == .realEkiden ? "example_ekiden_real" : "example_member"
+                TeamLeavePolicy.clearLeaveBlock(teamId: mockId, isMock: true)
+                self.isProcessing = false
+                self.onComplete?(mockId)
+            }
+            return
+        }
+
+        guard Auth.auth().currentUser != nil else {
+            errorMessage = "ログインユーザーが見つかりません。"
+            isProcessing = false
+            return
+        }
+
+        Task { @MainActor in
+            let db = Firestore.firestore()
+            do {
+                let snap = try await db.collection("teams").limit(to: 50).getDocuments()
+                guard let uid = Auth.auth().currentUser?.uid else {
+                    self.errorMessage = "ログインユーザーが見つかりません。"
+                    self.isProcessing = false
+                    return
+                }
+
+                var openTeams: [TeamCandidate] = []
+                var approvalTeams: [TeamCandidate] = []
+
+                for doc in snap.documents.shuffled() {
+                    let data = doc.data()
+                    guard ekidenJoinMode.matchesTeamDocument(data) else { continue }
+                    let members = data["members"] as? [String] ?? []
+                    let maxM = data["maxMembers"] as? Int ?? maxTeamMembers
+                    let requiresApproval = data["requiresApproval"] as? Bool ?? false
+                    guard !members.contains(uid), members.count < maxM else { continue }
+                    if await TeamLeavePolicy.isRejoinBlocked(teamId: doc.documentID, isMock: false) { continue }
+
+                    let cand = TeamCandidate(
+                        id: doc.documentID,
+                        name: data["name"] as? String ?? "Unnamed",
+                        requiresApproval: requiresApproval,
+                        inviteCode: data["inviteCode"] as? String
+                    )
+                    if requiresApproval {
+                        approvalTeams.append(cand)
+                    } else {
+                        openTeams.append(cand)
+                    }
+                }
+
+                let pool = openTeams.isEmpty ? approvalTeams : openTeams
+                guard let pick = pool.randomElement() else {
+                    self.errorMessage = "参加可能な空きチームが見つかりませんでした。検索または新規作成をお試しください。"
+                    self.isProcessing = false
+                    return
+                }
+
+                joinTeam(teamId: pick.id, byInvite: false)
+            } catch {
+                self.errorMessage = "チーム一覧の取得に失敗しました: \(error.localizedDescription)"
+                self.isProcessing = false
+            }
+        }
+    }
+
     private func searchAndJoin() {
         guard !isProcessing else { return }
         isProcessing = true
@@ -227,9 +342,9 @@ struct TeamJoinCreateView: View {
         if useMockFlow {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
                 if !self.teamNameInput.trimmingCharacters(in: .whitespaces).isEmpty {
-                    // 招待コードで直接参加（モック）: メンバー視点の example_member に参加したことにする
+                    let mockId = self.ekidenJoinMode == .realEkiden ? "example_ekiden_real" : "example_member"
                     self.isProcessing = false
-                    self.onComplete?("example_member")
+                    self.onComplete?(mockId)
                     return
                 }
                 let prefix = self.searchNameInput.trimmingCharacters(in: .whitespaces)
@@ -238,10 +353,10 @@ struct TeamJoinCreateView: View {
                     self.isProcessing = false
                     return
                 }
-                // モックの検索結果（メンバーとして参加する想定のチーム）
-                self.searchResults = [
-                    TeamCandidate(id: "example_member", name: "皇居ランナーズ", requiresApproval: true, inviteCode: "EX1234")
-                ]
+                let mockCandidate: TeamCandidate = self.ekidenJoinMode == .realEkiden
+                    ? TeamCandidate(id: "example_ekiden_real", name: "EKIDEN サンプルチーム", requiresApproval: true, inviteCode: "RL5678")
+                    : TeamCandidate(id: "example_member", name: "Distance Challenge サンプル", requiresApproval: true, inviteCode: "EX1234")
+                self.searchResults = [mockCandidate]
                 self.isProcessing = false
                 self.showResultsSheet = true
             }
@@ -291,9 +406,10 @@ struct TeamJoinCreateView: View {
                 return
             }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                self.searchResults = [
-                    TeamCandidate(id: "example_member", name: "皇居ランナーズ", requiresApproval: true, inviteCode: "EX1234")
-                ]
+                let mockCandidate: TeamCandidate = self.ekidenJoinMode == .realEkiden
+                    ? TeamCandidate(id: "example_ekiden_real", name: "EKIDEN サンプルチーム", requiresApproval: true, inviteCode: "RL5678")
+                    : TeamCandidate(id: "example_member", name: "Distance Challenge サンプル", requiresApproval: true, inviteCode: "EX1234")
+                self.searchResults = [mockCandidate]
                 self.isProcessing = false
                 self.showResultsSheet = true
             }
@@ -326,11 +442,19 @@ struct TeamJoinCreateView: View {
                 }
                 
                 // 結果を候補リストとして表示
-                let candidates: [TeamCandidate] = docs.map { d in
-                    TeamCandidate(id: d.documentID,
-                                  name: d.data()["name"] as? String ?? "Unnamed",
-                                  requiresApproval: d.data()["requiresApproval"] as? Bool ?? false,
-                                  inviteCode: d.data()["inviteCode"] as? String)
+                let candidates: [TeamCandidate] = docs.compactMap { d -> TeamCandidate? in
+                    let data = d.data()
+                    guard self.ekidenJoinMode.matchesTeamDocument(data) else { return nil }
+                    return TeamCandidate(
+                        id: d.documentID,
+                        name: data["name"] as? String ?? "Unnamed",
+                        requiresApproval: data["requiresApproval"] as? Bool ?? false,
+                        inviteCode: data["inviteCode"] as? String
+                    )
+                }
+                guard !candidates.isEmpty else {
+                    self.errorMessage = "このモードに該当するチームが見つかりません。"
+                    return
                 }
                 self.searchResults = candidates
                 self.showResultsSheet = true
@@ -338,96 +462,81 @@ struct TeamJoinCreateView: View {
     }
     
     private func joinTeam(teamId: String, byInvite: Bool) {
-        // モックフロー対応
-        if useMockFlow {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
-                // サンプルチーム example_member は承認制にしておく
-                let requiresApproval = (teamId == "example_member")
+        Task { @MainActor in
+            if await TeamLeavePolicy.isRejoinBlocked(teamId: teamId, isMock: useMockFlow) {
+                self.errorMessage = TeamLeavePolicy.rejoinBlockedMessage()
+                self.isProcessing = false
+                return
+            }
+            
+            if useMockFlow {
+                try? await Task.sleep(nanoseconds: 400_000_000)
+                let requiresApproval = (teamId == "example_member" || teamId == "example_ekiden_real")
                 self.isProcessing = false
                 if requiresApproval && !byInvite {
-                    // 申請送信だけ行った状態（まだ参加していない）
                     self.showSearchForm = false
                     self.onComplete?(nil)
                 } else {
-                    // 直接参加（メンバーとして参加完了）
+                    TeamLeavePolicy.clearLeaveBlock(teamId: teamId, isMock: true)
                     self.showSearchForm = false
-                    self.onComplete?("example_member")
+                    self.onComplete?(teamId)
                 }
+                return
             }
-            return
-        }
 
-        guard let firebaseUser = Auth.auth().currentUser else {
-            self.errorMessage = "ログインユーザーが見つかりません。"
-            self.isProcessing = false
-            return
-        }
-        
-        let db = Firestore.firestore()
-        let teamRef = db.collection("teams").document(teamId)
-        teamRef.getDocument { snapshot, error in
-            if let error = error {
-                self.errorMessage = "チーム情報の取得に失敗しました: \(error.localizedDescription)"
+            guard let firebaseUser = Auth.auth().currentUser else {
+                self.errorMessage = "ログインユーザーが見つかりません。"
                 self.isProcessing = false
                 return
             }
             
-            guard let data = snapshot?.data() else {
-                self.errorMessage = "チームが見つかりません。"
-                self.isProcessing = false
-                return
-            }
-            
-            let requiresApproval = data["requiresApproval"] as? Bool ?? false
-            let members = data["members"] as? [String] ?? []
-            let maxMembers = data["maxMembers"] as? Int ?? maxTeamMembers
-
-            if !members.contains(firebaseUser.uid), members.count >= maxMembers {
-                self.errorMessage = "このチームは定員\(maxMembers)名に達しています。"
-                self.isProcessing = false
-                return
-            }
-            
-            if requiresApproval && !byInvite {
-                // 承認制かつ招待コードでない場合は申請を作成
-                let reqRef = teamRef.collection("joinRequests").document(firebaseUser.uid)
-                reqRef.setData([
-                    "uid": firebaseUser.uid,
-                    "requestedAt": Timestamp(date: Date())
-                ]) { err in
+            let db = Firestore.firestore()
+            let teamRef = db.collection("teams").document(teamId)
+            do {
+                let snapshot = try await teamRef.getDocument()
+                guard let data = snapshot.data() else {
+                    self.errorMessage = "チームが見つかりません。"
                     self.isProcessing = false
-                    if let err = err {
-                        self.errorMessage = "申請の送信に失敗しました: \(err.localizedDescription)"
-                        return
-                    }
-                    DispatchQueue.main.async {
-                        self.showSearchForm = false
-                        self.onComplete?(nil)
-                    }
+                    return
                 }
-            } else {
-                // 直接参加
-                let userRef = db.collection("users").document(firebaseUser.uid)
-                userRef.setData(["teamId": teamId], merge: true) { err in
-                    if let err = err {
-                        self.errorMessage = "ユーザー情報更新に失敗しました: \(err.localizedDescription)"
-                        self.isProcessing = false
-                        return
-                    }
-                    
-                    teamRef.updateData(["members": FieldValue.arrayUnion([firebaseUser.uid])]) { mErr in
-                        self.isProcessing = false
-                        if let mErr = mErr {
-                            self.errorMessage = "チーム参加に失敗しました: \(mErr.localizedDescription)"
-                            return
-                        }
-                        
-                        DispatchQueue.main.async {
-                            self.showSearchForm = false
-                            self.onComplete?(teamId)
-                        }
-                    }
+
+                guard self.ekidenJoinMode.matchesTeamDocument(data) else {
+                    self.errorMessage = "このチームは、今選んでいるEKIDENモード（\(self.ekidenJoinMode.shortLabel)）のチームではありません。"
+                    self.isProcessing = false
+                    return
                 }
+                
+                let requiresApproval = data["requiresApproval"] as? Bool ?? false
+                let members = data["members"] as? [String] ?? []
+                let maxMembers = data["maxMembers"] as? Int ?? maxTeamMembers
+
+                if !members.contains(firebaseUser.uid), members.count >= maxMembers {
+                    self.errorMessage = "このチームは定員\(maxMembers)名に達しています。"
+                    self.isProcessing = false
+                    return
+                }
+                
+                if requiresApproval && !byInvite {
+                    let reqRef = teamRef.collection("joinRequests").document(firebaseUser.uid)
+                    try await reqRef.setData([
+                        "uid": firebaseUser.uid,
+                        "requestedAt": Timestamp(date: Date())
+                    ])
+                    self.isProcessing = false
+                    self.showSearchForm = false
+                    self.onComplete?(nil)
+                } else {
+                    let userRef = db.collection("users").document(firebaseUser.uid)
+                    try await userRef.setData(["teamId": teamId], merge: true)
+                    try await teamRef.updateData(["members": FieldValue.arrayUnion([firebaseUser.uid])])
+                    TeamLeavePolicy.clearLeaveBlock(teamId: teamId, isMock: false)
+                    self.isProcessing = false
+                    self.showSearchForm = false
+                    self.onComplete?(teamId)
+                }
+            } catch {
+                self.errorMessage = "チーム参加に失敗しました: \(error.localizedDescription)"
+                self.isProcessing = false
             }
         }
     }
