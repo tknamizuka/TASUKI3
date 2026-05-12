@@ -219,10 +219,9 @@ struct LoginView: View {
                     .frame(height: 1)
             }
 
-            socialButton(provider: .apple, icon: "apple.logo")
-            socialButton(provider: .line, icon: "message.fill")
-            socialButton(provider: .google, icon: "globe")
-            socialButton(provider: .facebook, icon: "person.crop.square.fill")
+            ForEach(SocialAuthProvider.loginMenuProviders()) { provider in
+                socialButton(provider: provider, icon: provider.loginSystemImageName)
+            }
         }
     }
 

@@ -248,8 +248,8 @@ struct FlowLayout: Layout {
 // MARK: - Agent debug ingest (session f3091f)
 enum AgentDebugLog {
     static let sessionId = "f3091f"
-    private static let ingestURL = URL(string: "http://127.0.0.1:7824/ingest/d7f1622c-ff7c-497a-bb9c-bba8292b28cf")!
 
+    /// ローカル ingest（127.0.0.1）は実機では常に失敗するため、コンソール出力のみ。
     static func log(location: String, message: String, hypothesisId: String, data: [String: String] = [:]) {
         let ts = Int64(Date().timeIntervalSince1970 * 1000)
         let payload: [String: Any] = [
@@ -262,17 +262,8 @@ enum AgentDebugLog {
         ]
         guard let json = try? JSONSerialization.data(withJSONObject: payload),
               let line = String(data: json, encoding: .utf8) else { return }
+        #if DEBUG
         print("[AgentDebug f3091f] \(line)")
-        #if targetEnvironment(simulator)
-        // シミュレータではローカル ingest への POST を送らない（接続エラー・ノイズ低減）
-        return
-        #else
-        var req = URLRequest(url: ingestURL)
-        req.httpMethod = "POST"
-        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        req.setValue(sessionId, forHTTPHeaderField: "X-Debug-Session-Id")
-        req.httpBody = json
-        URLSession.shared.dataTask(with: req).resume()
         #endif
     }
 }
@@ -280,8 +271,8 @@ enum AgentDebugLog {
 // MARK: - Debug session 65844b (NDJSON ingest — simulator-friendly)
 enum DebugSession658Log {
     static let sessionId = "65844b"
-    private static let ingestURL = URL(string: "http://127.0.0.1:7824/ingest/d7f1622c-ff7c-497a-bb9c-bba8292b28cf")!
 
+    /// ローカル ingest への HTTP は実機・シミュレータとも不要（Connection refused の原因になる）。
     static func log(location: String, message: String, hypothesisId: String, data: [String: String] = [:], runId: String = "pre-fix") {
         let ts = Int64(Date().timeIntervalSince1970 * 1000)
         let payload: [String: Any] = [
@@ -295,16 +286,8 @@ enum DebugSession658Log {
         ]
         guard let json = try? JSONSerialization.data(withJSONObject: payload),
               let line = String(data: json, encoding: .utf8) else { return }
+        #if DEBUG
         print("[Debug65844b] \(line)")
-        #if targetEnvironment(simulator)
-        return
-        #else
-        var req = URLRequest(url: ingestURL)
-        req.httpMethod = "POST"
-        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        req.setValue(sessionId, forHTTPHeaderField: "X-Debug-Session-Id")
-        req.httpBody = json
-        URLSession.shared.dataTask(with: req).resume()
         #endif
     }
 }

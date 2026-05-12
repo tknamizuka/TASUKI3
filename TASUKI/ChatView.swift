@@ -7,6 +7,51 @@
 
 import SwiftUI
 
+// MARK: - スワイプで返信（バブルが指に追従）
+private struct SwipeToReplyContainer<Content: View>: View {
+    let onReply: () -> Void
+    @ViewBuilder var content: () -> Content
+
+    @State private var offsetX: CGFloat = 0
+
+    private let maxPull: CGFloat = 76
+    private let triggerThreshold: CGFloat = 52
+
+    var body: some View {
+        ZStack(alignment: .trailing) {
+            Image(systemName: "arrowshape.turn.up.left.fill")
+                .font(.system(size: 17, weight: .semibold))
+                .foregroundColor(Color.tasukiPrimary.opacity(offsetX < -12 ? 0.55 : 0.28))
+                .padding(.trailing, 2)
+                .accessibilityHidden(true)
+
+            content()
+                .offset(x: offsetX)
+        }
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 16, coordinateSpace: .local)
+                .onChanged { value in
+                    let dx = value.translation.width
+                    let dy = value.translation.height
+                    guard abs(dx) > abs(dy) * 1.08, dx <= 0 else { return }
+                    offsetX = max(dx, -maxPull)
+                }
+                .onEnded { value in
+                    let dx = value.translation.width
+                    let dy = value.translation.height
+                    let mostlyHorizontal = abs(dx) > abs(dy) * 1.08
+                    let triggered = mostlyHorizontal && dx <= -triggerThreshold
+                    if triggered {
+                        onReply()
+                    }
+                    withAnimation(.spring(response: 0.38, dampingFraction: 0.84)) {
+                        offsetX = 0
+                    }
+                }
+        )
+    }
+}
+
 // MARK: - 次回練習の案内メッセージ（送信フォーマットと受信UIの判定で共有）
 enum ChatNextPracticeMessages {
     static let proposalPrefix = "【次回練習の提案】"
@@ -144,12 +189,39 @@ struct ChatView: View {
         }
     }
 
+    /// 「参加」でカレンダー／約束に入れた次回練習（提案経由）。当日までは上部バナーを出す。
+    private var proposalAcceptedCalendarSticky: (location: String, date: Date)? {
+        let conv = conversationId
+        let prefix = "next-practice-\(conv)-"
+        let cal = Calendar.current
+        let todayStart = cal.startOfDay(for: Date())
+        if isPractice {
+            let hits = joinedPracticesStore.items.filter { item in
+                item.chatId == conv
+                    && item.practiceId.hasPrefix(prefix)
+                    && cal.startOfDay(for: item.date) >= todayStart
+            }
+            return hits.min(by: { $0.date < $1.date }).map { ($0.location, $0.date) }
+        } else {
+            let hits = matchPromisesStore.items.filter { item in
+                (item.conversationId ?? "") == conv
+                    && item.id.hasPrefix(prefix)
+                    && cal.startOfDay(for: item.date) >= todayStart
+            }
+            return hits.min(by: { $0.date < $1.date }).map { ($0.location, $0.date) }
+        }
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             safetyHeaderView
 
             if hasUnansweredIncomingPracticeProposal {
                 practiceProposalTopNotice
+            }
+
+            if let sticky = proposalAcceptedCalendarSticky {
+                practiceProposalAcceptedStickyBanner(place: sticky.location, date: sticky.date)
             }
 
             ScrollViewReader { proxy in
@@ -590,6 +662,39 @@ struct ChatView: View {
         .background(Color.white)
     }
 
+    private func practiceProposalAcceptedStickyBanner(place: String, date: Date) -> some View {
+        let when = ChatNextPracticeMessages.proposalLineDateFormatter.string(from: date)
+        return HStack(alignment: .top, spacing: 10) {
+            Image(systemName: "bell.badge.fill")
+                .font(.system(size: 20, weight: .semibold))
+                .foregroundColor(Color.tasukiPrimary)
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 4) {
+                Text("参加予定の次回練習会です")
+                    .font(.system(size: 15, weight: .bold))
+                    .foregroundColor(.black)
+                Text("場所: \(place)\n日時: \(when)\n練習当日までは、このお知らせは上部に表示されたままになります。")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundColor(Color.tasukiMutedText)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .background(
+            RoundedRectangle(cornerRadius: 12)
+                .fill(Color.tasukiBrandYellow.opacity(0.42))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 12)
+                .strokeBorder(Color.tasukiPrimary.opacity(0.25), lineWidth: 1)
+        )
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(Color.white)
+    }
+
     private func sendScheduleProposal(place: String, date: Date) {
         let trimmed = place.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
@@ -654,33 +759,20 @@ struct ChatView: View {
         .background(Color.gray.opacity(0.1))
     }
     
-    // MARK: - Message Bubble + swipe to reply
+    // MARK: - Message Bubble + swipe to reply（バブルがオブジェクトのように横移動）
     private func messageBubbleWithSwipe(message: ChatMessage) -> some View {
-        messageBubbleView(message: message)
-            .contentShape(Rectangle())
-            .simultaneousGesture(
-                DragGesture(minimumDistance: 28)
-                    .onEnded { value in
-                        let dx = value.translation.width
-                        let dy = value.translation.height
-                        guard abs(dx) > abs(dy) * 1.15, dx < -48 else { return }
-                        replyingTo = message
-                    }
-            )
-    }
-    
-    @ViewBuilder
-    private func messageBubbleView(message: ChatMessage) -> some View {
-        HStack {
+        HStack(alignment: .bottom, spacing: 0) {
             if message.isFromMe {
                 Spacer(minLength: 60)
             }
 
-            Group {
-                if !message.isFromMe, ChatNextPracticeMessages.isProposalBody(message.text) {
-                    incomingNextPracticeProposalCard(message: message)
-                } else {
-                    defaultMessageBubble(message: message)
+            SwipeToReplyContainer(onReply: { replyingTo = message }) {
+                Group {
+                    if !message.isFromMe, ChatNextPracticeMessages.isProposalBody(message.text) {
+                        incomingNextPracticeProposalCard(message: message)
+                    } else {
+                        defaultMessageBubble(message: message)
+                    }
                 }
             }
 

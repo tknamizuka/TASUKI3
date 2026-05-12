@@ -30,6 +30,7 @@ struct ProfileEditView: View {
     @AppStorage("myBio") private var storedBio: String = "平日は仕事終わりに5-10km走ってます！週末は距離走やりたいです。"
     @AppStorage("realityMiningConsentEnabled") private var realityMiningConsentEnabled: Bool = false
     @AppStorage("runningDataSource") private var runningDataSourceRaw: String = RunningDataSource.all.rawValue
+    @AppStorage("appAppearanceMode") private var storedAppearanceModeRaw: String = AppAppearanceMode.device.rawValue
     
     // 編集用の一時状態
     @State private var name: String = ""
@@ -50,6 +51,7 @@ struct ProfileEditView: View {
     @State private var monthlyDist: String = ""
     
     @State private var bio: String = ""
+    @State private var appearanceModeRaw: String = AppAppearanceMode.device.rawValue
     
     // 初期値スナップショット（変更検知用）
     @State private var initialSnapshot: ProfileSnapshot?
@@ -85,7 +87,8 @@ struct ProfileEditView: View {
             nextRace: nextRace,
             avgPace: avgPace,
             monthlyDist: monthlyDist,
-            bio: bio
+            bio: bio,
+            appearanceModeRaw: appearanceModeRaw
         )
         return current != snapshot
     }
@@ -158,6 +161,14 @@ struct ProfileEditView: View {
                         }
                     }
                     .tint(Color.tasukiAccent)
+                }
+
+                Section(header: Text("表示")) {
+                    Picker("テーマ", selection: $appearanceModeRaw) {
+                        ForEach(AppAppearanceMode.allCases) { mode in
+                            Text(mode.displayName).tag(mode.rawValue)
+                        }
+                    }
                 }
 
                 Section(header: Text("デバイス連携")) {
@@ -283,6 +294,7 @@ struct ProfileEditView: View {
                     monthlyDist = storedMonthlyDist
                     
                     bio = storedBio
+                    appearanceModeRaw = storedAppearanceModeRaw
                     
                     initialSnapshot = ProfileSnapshot(
                         name: name,
@@ -298,7 +310,8 @@ struct ProfileEditView: View {
                         nextRace: nextRace,
                         avgPace: avgPace,
                         monthlyDist: monthlyDist,
-                        bio: bio
+                        bio: bio,
+                        appearanceModeRaw: appearanceModeRaw
                     )
                 }
                 #if DEBUG
@@ -337,6 +350,7 @@ private struct ProfileSnapshot: Equatable {
     var avgPace: String
     var monthlyDist: String
     var bio: String
+    var appearanceModeRaw: String
 }
 
 private extension ProfileEditView {
@@ -359,6 +373,7 @@ private extension ProfileEditView {
         storedMonthlyDist = monthlyDist
         
         storedBio = bio
+        storedAppearanceModeRaw = appearanceModeRaw
         
         initialSnapshot = ProfileSnapshot(
             name: name,
@@ -374,7 +389,8 @@ private extension ProfileEditView {
             nextRace: nextRace,
             avgPace: avgPace,
             monthlyDist: monthlyDist,
-            bio: bio
+            bio: bio,
+            appearanceModeRaw: appearanceModeRaw
         )
         
         dismiss()

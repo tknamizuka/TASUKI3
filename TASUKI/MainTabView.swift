@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct MainTabView: View {
-    @StateObject private var mainTabRouter = MainTabRouter()
+    @EnvironmentObject private var mainTabRouter: MainTabRouter
     @State private var previousTabIndex: Int = 0
     @State private var tabEnterDate: Date = Date()
     @EnvironmentObject private var unreadProvider: UnreadCountProviderBase
@@ -10,6 +10,8 @@ struct MainTabView: View {
     @EnvironmentObject private var tabBarVisibility: TabBarVisibility
     @EnvironmentObject private var joinedPracticesStore: JoinedPracticesStore
     @EnvironmentObject private var matchPromisesStore: MatchPromisesStore
+    @EnvironmentObject private var partnerMatchRequestsStore: PartnerMatchRequestsStore
+    @EnvironmentObject private var practiceRecruitmentsStore: PracticeRecruitmentsStore
 
     private let tabItems: [(icon: String, label: String)] = [
         ("house.fill", "Home"),
@@ -30,8 +32,14 @@ struct MainTabView: View {
             case 0:
                 NavigationStack {
                     HomeView()
+                        .environmentObject(mainTabRouter)
                         .environmentObject(unreadProvider)
+                        .environmentObject(tabBarVisibility)
+                        .environmentObject(joinedPracticesStore)
+                        .environmentObject(matchPromisesStore)
+                        .environmentObject(partnerMatchRequestsStore)
                 }
+                .tint(Color.tasukiPrimary)
             case 1:
                 NavigationStack {
                     RunRecordingView()
@@ -41,14 +49,23 @@ struct MainTabView: View {
                 TeamView()
             case 3:
                 FindView()
+                    .environmentObject(practiceRecruitmentsStore)
             case 4:
                 meTabContent()
             default:
-                NavigationStack { HomeView().environmentObject(unreadProvider) }
+                NavigationStack {
+                    HomeView()
+                        .environmentObject(mainTabRouter)
+                        .environmentObject(unreadProvider)
+                        .environmentObject(tabBarVisibility)
+                        .environmentObject(joinedPracticesStore)
+                        .environmentObject(matchPromisesStore)
+                        .environmentObject(partnerMatchRequestsStore)
+                }
+                .tint(Color.tasukiPrimary)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .environmentObject(mainTabRouter)
         .overlay(alignment: .topLeading) {
             if mainTabRouter.selectedTab != 0, !mainTabRouter.suppressBackToHomeOverlay {
                 backToHomeButton
@@ -74,6 +91,10 @@ struct MainTabView: View {
             RealityMiningManager.shared.trackScreenView(name: tabItems[mainTabRouter.selectedTab].label)
         }
         .onChange(of: mainTabRouter.selectedTab) { newValue in
+            // Run 履歴などで suppress されたまま EKIDEN に来ると Home ショートカットが消えたままになるため、EKIDEN 表示時は解除する
+            if newValue == 2 {
+                mainTabRouter.suppressBackToHomeOverlay = false
+            }
             // #region agent log
             AgentDebugLog.log(
                 location: "MainTabView.onChange(selectedTab)",
@@ -126,13 +147,13 @@ struct MainTabView: View {
         .padding(.leading, 12)
     }
 
-    /// 右フリック（強め）で Home に戻す。
+    /// 右フリック（強め）で Home に戻す（閾値は短すぎる誤爆を避けるためやや長め）。
     private var returnToHomeGesture: some Gesture {
-        DragGesture(minimumDistance: 26, coordinateSpace: .local)
+        DragGesture(minimumDistance: 32, coordinateSpace: .local)
             .onEnded { value in
                 guard mainTabRouter.selectedTab != 0 else { return }
-                let movedRightFarEnough = value.translation.width >= 180
-                let hasStrongRightVelocity = value.predictedEndTranslation.width >= 280
+                let movedRightFarEnough = value.translation.width >= 240
+                let hasStrongRightVelocity = value.predictedEndTranslation.width >= 380
                 if movedRightFarEnough || hasStrongRightVelocity {
                     returnToHome()
                 }
@@ -219,6 +240,7 @@ struct MainTabView: View {
 
 #Preview {
     MainTabView()
+        .environmentObject(MainTabRouter())
         .environmentObject(AuthManager(forPreview: true))
         .environmentObject(UserManager())
         .environmentObject(PreviewUnreadProvider() as UnreadCountProviderBase)

@@ -14,6 +14,7 @@ struct ProfileRegistrationView: View {
     @AppStorage("skipProfileRegistration") private var skipProfileRegistration: Bool = false
     @AppStorage("runningDataSource") private var runningDataSourceRaw: String = RunningDataSource.all.rawValue
     @AppStorage("connectedRunningDevices") private var connectedRunningDevicesRaw: String = ""
+    @AppStorage("appAppearanceMode") private var appAppearanceModeRaw: String = AppAppearanceMode.device.rawValue
     
     // 完了時のコールバック
     var onComplete: (() -> Void)? = nil
@@ -35,6 +36,7 @@ struct ProfileRegistrationView: View {
     @State private var selectedPurposes: [String] = []
     /// 連携するデータソースは1つのみ。`nil` は「連携しない」。
     @State private var selectedDevice: RunningDataSource? = nil
+    @State private var selectedAppearanceModeRaw: String = AppAppearanceMode.device.rawValue
     @State private var integrationNotice: String?
     
     @StateObject private var areaSearchCompleter = ActivityAreaSearchCompleter()
@@ -42,6 +44,28 @@ struct ProfileRegistrationView: View {
     
     // ステップ管理
     @State private var currentStep: Int = 0
+    
+    private static func legalAcceptedStorageKey(for uid: String) -> String {
+        "tasukiLegalTermsPrivacyAccepted.\(uid)"
+    }
+    
+    /// 同一 UID で規約・プライバシーに一度同意済みなら、プロフィール登録フローでは再度ステップ 0–1 を踏ませない
+    private func applyStoredLegalSkipIfNeeded() {
+        guard let uid = Auth.auth().currentUser?.uid else { return }
+        guard UserDefaults.standard.bool(forKey: Self.legalAcceptedStorageKey(for: uid)) else { return }
+        termsAgreed = true
+        privacyPolicyAgreed = true
+        termsReadToEnd = true
+        privacyReadToEnd = true
+        if currentStep < 2 {
+            currentStep = 2
+        }
+    }
+    
+    private func persistLegalAcceptanceForCurrentUser() {
+        guard let uid = Auth.auth().currentUser?.uid else { return }
+        UserDefaults.standard.set(true, forKey: Self.legalAcceptedStorageKey(for: uid))
+    }
     
     // 利用規約・プライバシーポリシー同意（本文末尾までスクロール後に同意可能）
     @State private var termsAgreed: Bool = false
@@ -87,14 +111,15 @@ struct ProfileRegistrationView: View {
     var body: some View {
         NavigationStack {
             ZStack {
-                Color.tasukiDarkBackground.ignoresSafeArea()
-                
+                Color.tasukiDarkBackground
+                    .ignoresSafeArea()
+
                 VStack(spacing: 32) {
                     progressBar
                         .padding(.top, 24)
                         .padding(.horizontal, 20)
                     
-                    Spacer()
+                    Spacer(minLength: 0)
                     
                     ZStack {
                         stepView()
@@ -102,9 +127,10 @@ struct ProfileRegistrationView: View {
                             .transition(.asymmetric(insertion: .move(edge: .trailing),
                                                     removal: .move(edge: .leading)))
                     }
+                    .layoutPriority(1)
                     .animation(.easeInOut, value: currentStep)
                     
-                    Spacer()
+                    Spacer(minLength: 0)
                     
                     if let message = saveErrorMessage {
                         Text(message)
@@ -128,6 +154,8 @@ struct ProfileRegistrationView: View {
                     .padding(.bottom, 24)
                     .disabled(!isCurrentStepValid || isSaving)
                 }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .contentShape(Rectangle())
             }
             .navigationTitle("プロフィール登録")
             .navigationBarTitleDisplayMode(.inline)
@@ -160,9 +188,6 @@ struct ProfileRegistrationView: View {
                     }
                 }
             }
-            .onTapGesture {
-                hideKeyboard()
-            }
             .alert("登録せずに利用しますか？", isPresented: $showSkipAlert) {
                 Button("キャンセル", role: .cancel) { }
                 Button("登録せずに利用する", role: .destructive) {
@@ -173,6 +198,7 @@ struct ProfileRegistrationView: View {
                 Text("プロフィールを登録せずにアプリを利用します。一部機能が制限される場合があります。")
             }
             .onAppear {
+                applyStoredLegalSkipIfNeeded()
                 if let r = RunningDataSource(rawValue: runningDataSourceRaw), r != .all {
                     selectedDevice = r
                 } else if let firstRaw = connectedRunningDevicesRaw.split(separator: ",").first.map(String.init),
@@ -181,6 +207,7 @@ struct ProfileRegistrationView: View {
                 } else {
                     selectedDevice = nil
                 }
+                selectedAppearanceModeRaw = appAppearanceModeRaw
                 areaSearchCompleter.updateRegion(forPrefecture: selectedPrefecture)
             }
             .onChange(of: selectedPrefecture) { _, newPref in
@@ -305,7 +332,8 @@ struct ProfileRegistrationView: View {
                 .datePickerStyle(.wheel)
                 .labelsHidden()
                 .environment(\.locale, Locale(identifier: "ja_JP"))
-                .frame(height: 150)
+                .frame(maxWidth: .infinity)
+                .frame(minHeight: 220, idealHeight: 240)
             case 6:
                 questionTitle("お住まいの都道府県を教えてください")
                 Picker("都道府県", selection: $selectedPrefecture) {
@@ -314,7 +342,8 @@ struct ProfileRegistrationView: View {
                     }
                 }
                 .pickerStyle(.wheel)
-                .frame(height: 180)
+                .frame(maxWidth: .infinity)
+                .frame(minHeight: 220, idealHeight: 260)
             case 7:
                 activityAreaSearchStep
             case 8:
@@ -473,6 +502,18 @@ struct ProfileRegistrationView: View {
                 .font(.subheadline)
                 .foregroundColor(.gray)
             
+            VStack(alignment: .leading, spacing: 8) {
+                Text("表示テーマ")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundColor(Color.tasukiPrimary)
+                Picker("表示テーマ", selection: $selectedAppearanceModeRaw) {
+                    ForEach(AppAppearanceMode.allCases) { mode in
+                        Text(mode.displayName).tag(mode.rawValue)
+                    }
+                }
+                .pickerStyle(.segmented)
+            }
+            
             Button {
                 selectedDevice = nil
                 integrationNotice = "連携せずに進みます（後から設定できます）"
@@ -574,6 +615,12 @@ struct ProfileRegistrationView: View {
     
     private var termsAgreementStep: some View {
         VStack(alignment: .leading, spacing: 16) {
+            if Auth.auth().currentUser != nil {
+                Text("ログイン済みです。規約・プライバシーに一度同意すると、次回以降はそのステップを省略できます。")
+                    .font(.caption)
+                    .foregroundColor(Color.tasukiPrimary.opacity(0.9))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
             Text("TASUKI（タスキ）利用規約")
                 .font(.system(size: 18, weight: .bold))
                 .foregroundColor(Color.tasukiPrimary)
@@ -816,6 +863,9 @@ struct ProfileRegistrationView: View {
         if isLastStep {
             saveProfile()
         } else {
+            if currentStep == 1 {
+                persistLegalAcceptanceForCurrentUser()
+            }
             withAnimation {
                 currentStep = min(currentStep + 1, totalSteps - 1)
             }
@@ -827,6 +877,7 @@ struct ProfileRegistrationView: View {
             saveErrorMessage = "プロフィール写真を選択してください。"
             return
         }
+        appAppearanceModeRaw = selectedAppearanceModeRaw
         persistSelectedDevices()
         
         isSaving = true
@@ -983,7 +1034,8 @@ final class ActivityAreaSearchCompleter: NSObject, ObservableObject, MKLocalSear
     
     private let completer: MKLocalSearchCompleter = {
         let c = MKLocalSearchCompleter()
-        c.resultTypes = [.pointOfInterest]
+        // POI のみだと公園・ランドマーク等が返らない環境があるため住所・クエリ候補も含める
+        c.resultTypes = [.pointOfInterest, .address, .query]
         c.region = PrefectureMapRegions.japanWide
         return c
     }()

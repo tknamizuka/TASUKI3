@@ -26,9 +26,12 @@ struct HomeView: View {
     
     @State private var showRunHistory = false
     @State private var showPracticeCalendar = false
+    @State private var showMessageHubSheet = false
+    @State private var messageHubSheetInitialTab: MessageListTab = .chat
     @ObservedObject private var activityStore = RunActivityStore.shared
     @ObservedObject private var runTracker = RunTracker.shared
     @EnvironmentObject private var mainTabRouter: MainTabRouter
+    @EnvironmentObject private var tabBarVisibility: TabBarVisibility
     @EnvironmentObject private var unreadProvider: UnreadCountProviderBase
     @EnvironmentObject private var joinedPracticesStore: JoinedPracticesStore
     @EnvironmentObject private var matchPromisesStore: MatchPromisesStore
@@ -39,6 +42,11 @@ struct HomeView: View {
     @AppStorage("reduceRankingPressure") private var reduceRankingPressure: Bool = false
     @State private var runBannerTick = Date()
     private let runBannerTimer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
+    
+    /// アクティビティから即時計算する今月距離（Home の進捗率連動用）
+    private var activityMonthlyDistanceKm: Double {
+        activityStore.monthlyDistanceKm()
+    }
 
     init(
         currentDistance: Double = 0.0,
@@ -56,11 +64,15 @@ struct HomeView: View {
     
     /// 円グラフ表示用の距離（読み込み中はサンプル、それ以外は実データ）
     private var ringShowsSampleWhileLoading: Bool {
-        isHealthKitLoading && !usePreviewData
+        isHealthKitLoading && !usePreviewData && activityMonthlyDistanceKm <= 0
     }
 
     private var ringCurrentKm: Double {
-        ringShowsSampleWhileLoading ? MonthlyGoalRingSample.currentKm : currentDistance
+        if ringShowsSampleWhileLoading {
+            return MonthlyGoalRingSample.currentKm
+        }
+        // 活動記録がある場合は HealthKit より先に Home 進捗へ即反映する
+        return max(currentDistance, activityMonthlyDistanceKm)
     }
 
     private var ringGoalKm: Double {
@@ -272,6 +284,16 @@ struct HomeView: View {
                 matchPromisesStore: matchPromisesStore
             )
         }
+        .sheet(isPresented: $showMessageHubSheet) {
+            NavigationStack {
+                MessageListView(initialTab: messageHubSheetInitialTab, embedNavigationStack: false)
+            }
+            .environmentObject(partnerMatchStore)
+            .environmentObject(tabBarVisibility)
+            .environmentObject(joinedPracticesStore)
+            .environmentObject(matchPromisesStore)
+            .environmentObject(PracticeRecruitmentsStore.shared)
+        }
         .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
@@ -293,6 +315,7 @@ struct HomeView: View {
                         }
                     }
                 }
+                .buttonStyle(.plain)
             }
             ToolbarItem(placement: .topBarTrailing) {
                 NavigationLink(destination: MessageListView(embedNavigationStack: false)) {
@@ -310,7 +333,14 @@ struct HomeView: View {
                         }
                     }
                 }
+                .buttonStyle(.plain)
             }
+        }
+        .onChange(of: mainTabRouter.pendingMessageHubTab) { _, newValue in
+            guard let tab = newValue else { return }
+            messageHubSheetInitialTab = tab
+            showMessageHubSheet = true
+            mainTabRouter.pendingMessageHubTab = nil
         }
         .onAppear {
             let isPreview = ProcessInfo.processInfo.environment["XCODE_RUNNING_FOR_PREVIEWS"] == "1"
@@ -449,6 +479,7 @@ struct HomeView: View {
         HomeView()
     }
     .environmentObject(MainTabRouter())
+    .environmentObject(TabBarVisibility())
     .environmentObject(PreviewUnreadProvider() as UnreadCountProviderBase)
     .environmentObject(JoinedPracticesStore())
     .environmentObject(MatchPromisesStore())
@@ -467,6 +498,7 @@ struct HomeView: View {
         )
     }
     .environmentObject(MainTabRouter())
+    .environmentObject(TabBarVisibility())
     .environmentObject(PreviewUnreadProvider() as UnreadCountProviderBase)
     .environmentObject(JoinedPracticesStore())
     .environmentObject(MatchPromisesStore())
@@ -484,6 +516,7 @@ struct HomeView: View {
         )
     }
     .environmentObject(MainTabRouter())
+    .environmentObject(TabBarVisibility())
     .environmentObject(PreviewUnreadProvider() as UnreadCountProviderBase)
     .environmentObject(JoinedPracticesStore())
     .environmentObject(MatchPromisesStore())
@@ -501,6 +534,7 @@ struct HomeView: View {
         )
     }
     .environmentObject(MainTabRouter())
+    .environmentObject(TabBarVisibility())
     .environmentObject(PreviewUnreadProvider() as UnreadCountProviderBase)
     .environmentObject(JoinedPracticesStore())
     .environmentObject(MatchPromisesStore())
@@ -518,6 +552,7 @@ struct HomeView: View {
         )
     }
     .environmentObject(MainTabRouter())
+    .environmentObject(TabBarVisibility())
     .environmentObject(PreviewUnreadProvider() as UnreadCountProviderBase)
     .environmentObject(JoinedPracticesStore())
     .environmentObject(MatchPromisesStore())
@@ -537,6 +572,7 @@ struct HomeView: View {
         )
     }
     .environmentObject(MainTabRouter())
+    .environmentObject(TabBarVisibility())
     .environmentObject(PreviewUnreadProvider(unreadCount: 3) as UnreadCountProviderBase)
     .environmentObject(store)
     .environmentObject(MatchPromisesStore())

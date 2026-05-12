@@ -3,7 +3,8 @@ import AVKit
 
 struct SplashView: View {
     @State private var isVideoVisible = false // ノイズ隠し用のフラグ
-    @State private var opacity = 0.0
+    /// 起動直後からロゴを見せる（背景が白に近いため opacity 0 だと真っ白に見える）
+    @State private var opacity = 1.0
     
     var body: some View {
         ZStack {
@@ -37,12 +38,6 @@ struct SplashView: View {
                     .fill(Color.tasukiBrandYellow)
                     .frame(width: 120, height: 5)
                     .opacity(opacity)
-            }
-        }
-        .onAppear {
-            // ロゴのアニメーション
-            withAnimation(.easeIn(duration: 1.5)) {
-                opacity = 1.0
             }
         }
     }

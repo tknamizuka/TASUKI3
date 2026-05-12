@@ -19,6 +19,13 @@ struct RunRecordingView: View {
             span: MKCoordinateSpan(latitudeDelta: 0.01, longitudeDelta: 0.01)
         )
     )
+    /// 走行開始前のルートカード用（現在地に追従）
+    @State private var idleMapCamera: MapCameraPosition = .region(
+        MKCoordinateRegion(
+            center: CLLocationCoordinate2D(latitude: 35.68, longitude: 139.76),
+            span: MKCoordinateSpan(latitudeDelta: 0.02, longitudeDelta: 0.02)
+        )
+    )
     @State private var postRunDraft: RunFinishDraft?
     /// 走行開始直後は false。黄帯を下にスワイプすると true になり地図表示＋ヘッダー折りたたみ
     @State private var isTrackingMapExpanded = false
@@ -50,20 +57,20 @@ struct RunRecordingView: View {
         return max(0, Int((tracker.distanceKm * kg * 1.036).rounded()))
     }
     
-    /// 記録中画面の地図用リージョン（ルート＋現在地を含む）
+    /// 記録中画面の地図用リージョン（現在地を中心に追従）
     private var trackingLiveMapRegion: MKCoordinateRegion {
-        var coords = routeCoordinates
-        if let last = tracker.lastKnownCoordinate {
-            if coords.isEmpty || coords.last?.latitude != last.latitude || coords.last?.longitude != last.longitude {
-                coords.append(last)
-            }
+        if let current = tracker.lastKnownCoordinate {
+            return MKCoordinateRegion(
+                center: current,
+                span: MKCoordinateSpan(latitudeDelta: 0.0065, longitudeDelta: 0.0065)
+            )
         }
-        guard let first = coords.first else {
+        guard let first = routeCoordinates.first else {
             let c = tracker.lastKnownCoordinate ?? CLLocationCoordinate2D(latitude: 35.68, longitude: 139.76)
             return MKCoordinateRegion(center: c, span: MKCoordinateSpan(latitudeDelta: 0.008, longitudeDelta: 0.008))
         }
-        let lats = coords.map(\.latitude)
-        let lons = coords.map(\.longitude)
+        let lats = routeCoordinates.map(\.latitude)
+        let lons = routeCoordinates.map(\.longitude)
         let center = CLLocationCoordinate2D(
             latitude: (lats.min()! + lats.max()!) / 2,
             longitude: (lons.min()! + lons.max()!) / 2
@@ -75,24 +82,17 @@ struct RunRecordingView: View {
         return MKCoordinateRegion(center: center, span: span)
     }
 
-    private var mapRegion: MKCoordinateRegion {
-        guard let first = routeCoordinates.first else {
-            return MKCoordinateRegion(
-                center: CLLocationCoordinate2D(latitude: 35.68, longitude: 139.76),
-                span: MKCoordinateSpan(latitudeDelta: 0.02, longitudeDelta: 0.02)
-            )
-        }
-        let lats = routeCoordinates.map(\.latitude)
-        let lons = routeCoordinates.map(\.longitude)
-        let center = CLLocationCoordinate2D(
-            latitude: (lats.min()! + lats.max()!) / 2,
-            longitude: (lons.min()! + lons.max()!) / 2
-        )
-        let span = MKCoordinateSpan(
-            latitudeDelta: max((lats.max()! - lats.min()!) * 1.5, 0.008),
-            longitudeDelta: max((lons.max()! - lons.min()!) * 1.5, 0.008)
-        )
-        return MKCoordinateRegion(center: center, span: span)
+    private func syncIdleMapCameraFromTracker() {
+        guard !tracker.isTracking else { return }
+        let fallback = CLLocationCoordinate2D(latitude: 35.68, longitude: 139.76)
+        let center = tracker.lastKnownCoordinate ?? fallback
+        let span = MKCoordinateSpan(latitudeDelta: 0.012, longitudeDelta: 0.012)
+        idleMapCamera = .region(MKCoordinateRegion(center: center, span: span))
+    }
+
+    private func requestCurrentLocationOnIdleMap() {
+        tracker.startMapPreviewLocationUpdates()
+        syncIdleMapCameraFromTracker()
     }
 
     var body: some View {
@@ -147,6 +147,14 @@ struct RunRecordingView: View {
         .onChange(of: tracker.isTracking) { _, isOn in
             if isOn {
                 isTrackingMapExpanded = false
+            } else {
+                tracker.startMapPreviewLocationUpdates()
+                syncIdleMapCameraFromTracker()
+            }
+        }
+        .onChange(of: tracker.lastKnownCoordinate?.latitude) { _, _ in
+            if !tracker.isTracking {
+                syncIdleMapCameraFromTracker()
             }
         }
         .onReceive(elapsedTimer) { now = $0 }
@@ -160,11 +168,16 @@ struct RunRecordingView: View {
             )
             // #endregion
             activityStore.refreshFromRemote()
+            if !tracker.isTracking {
+                tracker.startMapPreviewLocationUpdates()
+                syncIdleMapCameraFromTracker()
+            }
         }
         .onDisappear {
             runStartCountdownTask?.cancel()
             runStartCountdownTask = nil
             runStartCountdownPhase = nil
+            tracker.stopMapPreviewLocationUpdates()
         }
         .fullScreenCover(item: $postRunDraft) { draft in
             PostRunFlowView(draft: draft, onActivitySavedAndDismiss: { activity in
@@ -657,19 +670,90 @@ struct RunRecordingView: View {
 
     private var mapCard: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("ルート")
+            Text("スタート地点付近")
                 .font(.system(size: 11, weight: .bold))
                 .tracking(1.2)
                 .foregroundColor(Color.tasukiMutedText)
-            Map(initialPosition: .region(mapRegion), interactionModes: .all) {
-                if routeCoordinates.count >= 2 {
-                    MapPolyline(coordinates: routeCoordinates)
-                        .stroke(Color.tasukiAccent, lineWidth: 4)
+            ZStack {
+                Map(position: $idleMapCamera, interactionModes: .all) {
+                    if let cur = tracker.lastKnownCoordinate, !tracker.isTracking {
+                        Annotation("現在地", coordinate: cur) {
+                            ZStack {
+                                Circle()
+                                    .fill(Color.tasukiAccent.opacity(0.35))
+                                    .frame(width: 22, height: 22)
+                                Circle()
+                                    .fill(Color.white)
+                                    .frame(width: 10, height: 10)
+                                Circle()
+                                    .fill(Color.tasukiAccent)
+                                    .frame(width: 6, height: 6)
+                            }
+                        }
+                    }
+                    if routeCoordinates.count >= 2 {
+                        MapPolyline(coordinates: routeCoordinates)
+                            .stroke(Color.tasukiAccent, lineWidth: 4)
+                    }
+                }
+                .frame(height: 240)
+                .clipShape(RoundedRectangle(cornerRadius: 14))
+                .tasukiFlatCard()
+
+                if idleMapLocationOverlayVisible {
+                    VStack(spacing: 8) {
+                        ProgressView()
+                        Text(idleMapLocationOverlayMessage)
+                            .font(.caption)
+                            .foregroundColor(Color.tasukiMutedText)
+                            .multilineTextAlignment(.center)
+                    }
+                    .padding(16)
+                    .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12))
                 }
             }
-            .frame(height: 240)
-            .clipShape(RoundedRectangle(cornerRadius: 14))
-            .tasukiFlatCard()
+            if let err = tracker.locationError, !tracker.isTracking {
+                Text(err)
+                    .font(.caption)
+                    .foregroundColor(Color.tasukiAccentOrange)
+            }
+            Button {
+                requestCurrentLocationOnIdleMap()
+            } label: {
+                Label("現在地を取得", systemImage: "location.fill")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundColor(Color.tasukiPrimary)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .background(
+                        RoundedRectangle(cornerRadius: 10)
+                            .stroke(Color.tasukiDarkCardSecondary, lineWidth: 1)
+                    )
+            }
+            .buttonStyle(.plain)
+        }
+    }
+
+    private var idleMapLocationOverlayVisible: Bool {
+        guard !tracker.isTracking, tracker.lastKnownCoordinate == nil, tracker.locationError == nil else {
+            return false
+        }
+        switch tracker.authorizationStatus {
+        case .authorizedAlways, .authorizedWhenInUse, .notDetermined:
+            return true
+        default:
+            return false
+        }
+    }
+
+    private var idleMapLocationOverlayMessage: String {
+        switch tracker.authorizationStatus {
+        case .authorizedAlways, .authorizedWhenInUse:
+            return "現在地を取得しています…"
+        case .notDetermined:
+            return "位置情報を許可すると現在地が表示されます"
+        default:
+            return ""
         }
     }
 

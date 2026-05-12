@@ -191,12 +191,14 @@ final class ConversationManager: UnreadCountProviderBase {
                     let practiceId = data["practiceId"] as? String
                     let lastMessage = data["lastMessage"] as? String ?? ""
                     let lastMessageAt = (data["lastMessageAt"] as? Timestamp)?.dateValue() ?? (data["createdAt"] as? Timestamp)?.dateValue() ?? Date()
+                    let lastMessageSenderId = data["lastMessageSenderId"] as? String
                     let lastReadAt: Date? = {
                         guard let map = data["lastReadAt"] as? [String: Timestamp],
                               let ts = map[myUid] else { return nil }
                         return ts.dateValue()
                     }()
-                    let hasUnread = lastMessageAt > (lastReadAt ?? .distantPast)
+                    let hasUnread = (lastMessageSenderId != nil ? lastMessageSenderId != myUid : true)
+                        && (lastMessageAt > (lastReadAt ?? .distantPast))
                     // practiceId を持つ会話は「練習会チャット」として扱う
                     let isPractice = practiceId != nil || partnerName.hasPrefix("練習会:")
                     return MessageConversation(
@@ -315,7 +317,16 @@ final class ConversationManager: UnreadCountProviderBase {
         if let replyId = replyToMessageId, !replyId.isEmpty {
             data["replyToMessageId"] = replyId
         }
-        ref.setData(data) { error in
+        let conversationRef = db.collection("conversations").document(conversationId)
+        let batch = db.batch()
+        batch.setData(data, forDocument: ref)
+        batch.setData([
+            "lastMessage": text,
+            "lastMessageAt": now,
+            "lastMessageSenderId": myUid,
+            "lastReadAt.\(myUid)": now
+        ], forDocument: conversationRef, merge: true)
+        batch.commit { error in
             if let error = error {
                 self.trackConversationEvent(
                     "message_send_failed",

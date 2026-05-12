@@ -3,6 +3,12 @@ import FirebaseAuth
 import FirebaseCore
 import Combine
 
+/// 一時的な Personal Team（無料）向けビルド: HealthKit / Sign in with Apple の entitlement を外している間は `true`。
+/// 有料 Apple Developer Program で capability を戻したら `false` にする。
+enum TemporaryPersonalTeamBuild {
+    static let isActive = true
+}
+
 enum SocialAuthProvider: CaseIterable, Identifiable {
     case apple
     case line
@@ -40,6 +46,23 @@ enum SocialAuthProvider: CaseIterable, Identifiable {
             return ["email", "name"]
         default:
             return []
+        }
+    }
+
+    /// ログイン画面に並べるソーシャル（一時ビルドでは Apple を除外）
+    static func loginMenuProviders() -> [SocialAuthProvider] {
+        if TemporaryPersonalTeamBuild.isActive {
+            return allCases.filter { $0 != .apple }
+        }
+        return Array(allCases)
+    }
+
+    var loginSystemImageName: String {
+        switch self {
+        case .apple: return "apple.logo"
+        case .line: return "message.fill"
+        case .google: return "globe"
+        case .facebook: return "person.crop.square.fill"
         }
     }
 }
@@ -92,7 +115,7 @@ final class AuthManager: ObservableObject {
                         case .invalidEmail:
                             self.errorMessage = "メールアドレスの形式が正しくありません。"
                         case .emailAlreadyInUse:
-                            self.errorMessage = "このメールアドレスは既に使用されています。"
+                            self.errorMessage = "このメールアドレスは既に登録されています。同じアドレスで「ログイン」をお試しください。新規に別アカウントを作る場合は、別のメールアドレスをご利用ください。"
                         case .weakPassword:
                             self.errorMessage = "パスワードは6文字以上にしてください。"
                         default:
@@ -141,6 +164,16 @@ final class AuthManager: ObservableObject {
     }
 
     func signIn(with provider: SocialAuthProvider, completion: @escaping (Result<Void, Error>) -> Void) {
+        if TemporaryPersonalTeamBuild.isActive, provider == .apple {
+            errorMessage = "Apple ID ログインは一時的に無効です（無料署名ビルド）。"
+            completion(.failure(NSError(
+                domain: "AuthManager",
+                code: -1,
+                userInfo: [NSLocalizedDescriptionKey: errorMessage]
+            )))
+            return
+        }
+
         isLoading = true
         errorMessage = ""
 

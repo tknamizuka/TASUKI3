@@ -234,7 +234,7 @@ struct TeamView: View {
     
     /// 本番かつ未ログインでは EKIDEN チームフローをサンプル（モック）で動かす
     private var isSampleTeamFlow: Bool {
-        useMockTeamFlow || Auth.auth().currentUser == nil
+        useMockTeamFlow || TasukiDevelopmentFlags.skipFirestoreEkidenTabReads || Auth.auth().currentUser == nil
     }
     
     /// 参加チームID（本番の `userTeamId` またはプレビュー用）
@@ -317,16 +317,15 @@ struct TeamView: View {
                                 .foregroundColor(Color.tasukiPrimary)
                                 .fixedSize(horizontal: true, vertical: false)
                         }
-                        if hubEkidenJoinMode != nil {
-                            ToolbarItem(placement: .navigationBarLeading) {
+                        // leading は空けておく（MainTabView の「Home」オーバーレイと横並びで“戻る系が二重”に見えないようにする）
+                        ToolbarItemGroup(placement: .topBarTrailing) {
+                            if hubEkidenJoinMode != nil {
                                 Button("モード") {
                                     hubEkidenJoinMode = nil
                                 }
                                 .foregroundColor(Color.tasukiPrimary)
                             }
-                        }
-                        if !spectatorStatusesForGuest.isEmpty {
-                            ToolbarItem(placement: .topBarTrailing) {
+                            if !spectatorStatusesForGuest.isEmpty {
                                 Button(showGuestSpectatorView ? "参加へ" : "観戦") {
                                     showGuestSpectatorView.toggle()
                                 }
@@ -568,6 +567,9 @@ struct TeamView: View {
                 if selectedTeamId.isEmpty { selectedTeamId = d }
             }
         }
+        .task {
+            await EkidenDeviceSampleDataSeeder.seedIfNeeded()
+        }
         .onAppear {
             if isSampleTeamFlow || debugPreviewTeamId != nil {
                 isResolvingEntryState = false
@@ -585,6 +587,13 @@ struct TeamView: View {
     private func loadUserTeamId() {
         guard let firebaseUser = Auth.auth().currentUser else {
             isResolvingEntryState = false
+            return
+        }
+        if TasukiDevelopmentFlags.skipFirestoreEkidenTabReads {
+            DispatchQueue.main.async {
+                self.userTeamId = nil
+                self.isResolvingEntryState = false
+            }
             return
         }
         let db = Firestore.firestore()
@@ -1360,6 +1369,15 @@ struct TeamView: View {
         guard resolvedTeamId == nil else { return }
         let todayKey = dayKeyString(Date())
         if guestSpectatorDayKey == todayKey, !spectatorStatusesForGuest.isEmpty {
+            return
+        }
+        if TasukiDevelopmentFlags.skipFirestoreEkidenTabReads {
+            await MainActor.run {
+                spectatorStatusesForGuest = []
+                guestSpectatorDayKey = todayKey
+                isLoadingGuestSpectator = false
+                guestSpectatorError = nil
+            }
             return
         }
         await MainActor.run {
