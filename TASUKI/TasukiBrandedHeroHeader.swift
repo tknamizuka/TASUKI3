@@ -14,15 +14,18 @@ struct TasukiBrandedHeroHeader: View {
     let title: String
     /// TeamView `teamToolbarBrandedTitle(.ekiden)` と揃える
     var compactToolbarStyle: Bool = false
+    /// `compactToolbarStyle` 時の字間（未指定時は 8）。
+    var compactTitleTracking: CGFloat?
 
     var body: some View {
         Group {
             if compactToolbarStyle {
+                let tracking = compactTitleTracking ?? 8
                 HStack(alignment: .center, spacing: 8) {
                     tasukiLogo(size: 36)
                     Text(title)
                         .font(.system(size: 21, weight: .heavy))
-                        .tracking(8)
+                        .tracking(tracking)
                         .foregroundColor(Color.tasukiPrimary)
                         .shadow(color: .white.opacity(0.8), radius: 2, x: 0, y: 0)
                 }

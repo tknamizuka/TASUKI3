@@ -39,6 +39,8 @@ struct RunActivity: Identifiable, Codable {
     var perceivedEffort: Int?
     /// 1〜5（走後の気分）。記録直後のアンケート任意。
     var postRunMood: Int?
+    /// 記録完了時に算出した詳細メトリクス（記録中UIには表示しない）
+    var metrics: RunActivityMetrics?
 
     init(
         id: UUID = UUID(),
@@ -51,7 +53,8 @@ struct RunActivity: Identifiable, Codable {
         title: String? = nil,
         note: String? = nil,
         perceivedEffort: Int? = nil,
-        postRunMood: Int? = nil
+        postRunMood: Int? = nil,
+        metrics: RunActivityMetrics? = nil
     ) {
         self.id = id
         self.startedAt = startedAt
@@ -64,6 +67,7 @@ struct RunActivity: Identifiable, Codable {
         self.note = note
         self.perceivedEffort = perceivedEffort
         self.postRunMood = postRunMood
+        self.metrics = metrics
     }
 
     var paceSecondsPerKm: Double? {
@@ -88,6 +92,125 @@ struct RunActivity: Identifiable, Codable {
         }
         return false
     }
+
+    /// アプリ内の Run 記録フロー（`PostRunFlowViews` が `run_recorder` で保存）。
+    var isFromTasukiRunRecorder: Bool { source == "run_recorder" }
+}
+
+struct RunActivityMetrics: Codable, Hashable {
+    var totalDistanceKm: Double?
+    var elapsedTimeSeconds: Double?
+    var movingTimeSeconds: Double?
+    var totalTimeSeconds: Double?
+    var averagePaceSecondsPerKm: Double?
+    var averageMovingPaceSecondsPerKm: Double?
+    var gradeAdjustedPaceSecondsPerKm: Double?
+    var bestPaceSecondsPerKm: Double?
+    var averageSpeedKmh: Double?
+    var maxSpeedKmh: Double?
+    var lapSplits: [RunActivityLapSplit]
+    var runningTimeSeconds: Double?
+    var walkingTimeSeconds: Double?
+    var restTimeSeconds: Double?
+    var caloriesKcal: Int?
+    var averageCadenceSpm: Double?
+    var maxCadenceSpm: Double?
+    var averageStrideLengthMeters: Double?
+    var averageVerticalOscillationCm: Double?
+    var averageVerticalRatioPercent: Double?
+    var averageGroundContactTimeMs: Double?
+    var totalAscentMeters: Double?
+    var totalDescentMeters: Double?
+    var minAltitudeMeters: Double?
+    var maxAltitudeMeters: Double?
+    var altitudeTrendMeters: [Double]?
+    var weatherSummary: String?
+    var temperatureCelsius: Double?
+    var windDirection: String?
+    var windSpeedMetersPerSecond: Double?
+    var targetDistanceKm: Double?
+    var targetDurationSeconds: Double?
+    var targetDistanceProgress: Double?
+    var targetDurationProgress: Double?
+
+    init(
+        totalDistanceKm: Double? = nil,
+        elapsedTimeSeconds: Double? = nil,
+        movingTimeSeconds: Double? = nil,
+        totalTimeSeconds: Double? = nil,
+        averagePaceSecondsPerKm: Double? = nil,
+        averageMovingPaceSecondsPerKm: Double? = nil,
+        gradeAdjustedPaceSecondsPerKm: Double? = nil,
+        bestPaceSecondsPerKm: Double? = nil,
+        averageSpeedKmh: Double? = nil,
+        maxSpeedKmh: Double? = nil,
+        lapSplits: [RunActivityLapSplit] = [],
+        runningTimeSeconds: Double? = nil,
+        walkingTimeSeconds: Double? = nil,
+        restTimeSeconds: Double? = nil,
+        caloriesKcal: Int? = nil,
+        averageCadenceSpm: Double? = nil,
+        maxCadenceSpm: Double? = nil,
+        averageStrideLengthMeters: Double? = nil,
+        averageVerticalOscillationCm: Double? = nil,
+        averageVerticalRatioPercent: Double? = nil,
+        averageGroundContactTimeMs: Double? = nil,
+        totalAscentMeters: Double? = nil,
+        totalDescentMeters: Double? = nil,
+        minAltitudeMeters: Double? = nil,
+        maxAltitudeMeters: Double? = nil,
+        altitudeTrendMeters: [Double]? = nil,
+        weatherSummary: String? = nil,
+        temperatureCelsius: Double? = nil,
+        windDirection: String? = nil,
+        windSpeedMetersPerSecond: Double? = nil,
+        targetDistanceKm: Double? = nil,
+        targetDurationSeconds: Double? = nil,
+        targetDistanceProgress: Double? = nil,
+        targetDurationProgress: Double? = nil
+    ) {
+        self.totalDistanceKm = totalDistanceKm
+        self.elapsedTimeSeconds = elapsedTimeSeconds
+        self.movingTimeSeconds = movingTimeSeconds
+        self.totalTimeSeconds = totalTimeSeconds
+        self.averagePaceSecondsPerKm = averagePaceSecondsPerKm
+        self.averageMovingPaceSecondsPerKm = averageMovingPaceSecondsPerKm
+        self.gradeAdjustedPaceSecondsPerKm = gradeAdjustedPaceSecondsPerKm
+        self.bestPaceSecondsPerKm = bestPaceSecondsPerKm
+        self.averageSpeedKmh = averageSpeedKmh
+        self.maxSpeedKmh = maxSpeedKmh
+        self.lapSplits = lapSplits
+        self.runningTimeSeconds = runningTimeSeconds
+        self.walkingTimeSeconds = walkingTimeSeconds
+        self.restTimeSeconds = restTimeSeconds
+        self.caloriesKcal = caloriesKcal
+        self.averageCadenceSpm = averageCadenceSpm
+        self.maxCadenceSpm = maxCadenceSpm
+        self.averageStrideLengthMeters = averageStrideLengthMeters
+        self.averageVerticalOscillationCm = averageVerticalOscillationCm
+        self.averageVerticalRatioPercent = averageVerticalRatioPercent
+        self.averageGroundContactTimeMs = averageGroundContactTimeMs
+        self.totalAscentMeters = totalAscentMeters
+        self.totalDescentMeters = totalDescentMeters
+        self.minAltitudeMeters = minAltitudeMeters
+        self.maxAltitudeMeters = maxAltitudeMeters
+        self.altitudeTrendMeters = altitudeTrendMeters
+        self.weatherSummary = weatherSummary
+        self.temperatureCelsius = temperatureCelsius
+        self.windDirection = windDirection
+        self.windSpeedMetersPerSecond = windSpeedMetersPerSecond
+        self.targetDistanceKm = targetDistanceKm
+        self.targetDurationSeconds = targetDurationSeconds
+        self.targetDistanceProgress = targetDistanceProgress
+        self.targetDurationProgress = targetDurationProgress
+    }
+}
+
+struct RunActivityLapSplit: Codable, Hashable {
+    var index: Int
+    var distanceKm: Double
+    var durationSeconds: Double
+    var paceSecondsPerKm: Double
 }
 
 /// 週次距離チャート用（`RunActivityStore.weeklyActivityChartPoints` · Me の Activity と Run 記録で同一描画に使う）。
@@ -136,7 +259,8 @@ final class RunActivityStore: ObservableObject {
         title: String? = nil,
         note: String? = nil,
         perceivedEffort: Int? = nil,
-        postRunMood: Int? = nil
+        postRunMood: Int? = nil,
+        metrics: RunActivityMetrics? = nil
     ) -> RunActivity {
         let sanitizedDistance = max(0, distanceKm)
         let sanitizedDuration = max(1, durationSeconds)
@@ -152,7 +276,8 @@ final class RunActivityStore: ObservableObject {
             title: title,
             note: note,
             perceivedEffort: perceivedEffort,
-            postRunMood: postRunMood
+            postRunMood: postRunMood,
+            metrics: metrics
         )
         activities.insert(activity, at: 0)
         if activities.count > maxStoredCount {
@@ -351,6 +476,123 @@ final class RunActivityStore: ObservableObject {
         activitiesInCurrentWeek(now: now).count
     }
 
+    // MARK: - TASUKI Run 記録（`run_recorder`）集計 · My Profile など
+
+    func tasukiRecorderActivities() -> [RunActivity] {
+        activities.filter(\.isFromTasukiRunRecorder)
+    }
+
+    func tasukiRecorderActivitiesInCurrentMonth(now: Date = Date()) -> [RunActivity] {
+        activitiesInCurrentMonth(now: now).filter(\.isFromTasukiRunRecorder)
+    }
+
+    func tasukiRecorderMonthlyRunCount(now: Date = Date()) -> Int {
+        tasukiRecorderActivitiesInCurrentMonth(now: now).count
+    }
+
+    func tasukiRecorderMonthlyDistanceKm(now: Date = Date()) -> Double {
+        tasukiRecorderActivitiesInCurrentMonth(now: now).reduce(0) { $0 + $1.distanceKm }
+    }
+
+    func tasukiRecorderAllTimeRunCount() -> Int {
+        tasukiRecorderActivities().count
+    }
+
+    func tasukiRecorderAllTimeDistanceKm() -> Double {
+        tasukiRecorderActivities().reduce(0) { $0 + $1.distanceKm }
+    }
+
+    func tasukiRecorderMonthlyAveragePaceDisplayLabel(now: Date = Date()) -> String {
+        let acts = tasukiRecorderActivitiesInCurrentMonth(now: now)
+        var totalDist = 0.0
+        var totalDur = 0.0
+        for a in acts {
+            totalDist += max(0, a.distanceKm)
+            totalDur += max(0, a.durationSeconds)
+        }
+        guard totalDist > 0.01 else { return "--:--/km" }
+        let sec = totalDur / totalDist
+        let m = Int(sec) / 60
+        let s = Int(sec) % 60
+        return String(format: "%d:%02d/km", m, s)
+    }
+
+    func tasukiRecorderMonthlyAverageMovingPaceDisplayLabel(now: Date = Date()) -> String {
+        tasukiRecorderPaceDisplay(
+            weightedSecondsPerKm: distanceWeightedRecorderMetric(now: now) { $0.averageMovingPaceSecondsPerKm }
+        )
+    }
+
+    func tasukiRecorderMonthlyGapPaceDisplayLabel(now: Date = Date()) -> String {
+        tasukiRecorderPaceDisplay(
+            weightedSecondsPerKm: distanceWeightedRecorderMetric(now: now) { $0.gradeAdjustedPaceSecondsPerKm }
+        )
+    }
+
+    func tasukiRecorderMonthlyAverageCadenceDisplayLabel(now: Date = Date()) -> String {
+        guard let v = distanceWeightedRecorderMetric(now: now) { $0.averageCadenceSpm }, v > 0 else { return "-- spm" }
+        return String(format: "%.0f spm", v)
+    }
+
+    func tasukiRecorderMonthlyMaxCadenceDisplayLabel(now: Date = Date()) -> String {
+        let acts = tasukiRecorderActivitiesInCurrentMonth(now: now)
+        guard let maxV = acts.compactMap(\.metrics?.maxCadenceSpm).filter({ $0 > 0 }).max() else { return "-- spm" }
+        return String(format: "%.0f spm", maxV)
+    }
+
+    func tasukiRecorderMonthlyTotalAscentDisplayLabel(now: Date = Date()) -> String {
+        let sum = tasukiRecorderActivitiesInCurrentMonth(now: now)
+            .compactMap(\.metrics?.totalAscentMeters)
+            .filter { $0 > 0 }
+            .reduce(0.0, +)
+        guard sum > 0.5 else { return "-- m" }
+        return String(format: "%.0f m", sum)
+    }
+
+    func tasukiRecorderMonthlyTotalCaloriesDisplayLabel(now: Date = Date()) -> String {
+        let sum = tasukiRecorderActivitiesInCurrentMonth(now: now)
+            .compactMap(\.metrics?.caloriesKcal)
+            .filter { $0 > 0 }
+            .reduce(0, +)
+        guard sum > 0 else { return "-- kcal" }
+        return "\(sum) kcal"
+    }
+
+    func tasukiRecorderMonthlyAverageStrideDisplayLabel(now: Date = Date()) -> String {
+        guard let v = distanceWeightedRecorderMetric(now: now) { $0.averageStrideLengthMeters }, v > 0 else { return "-- m" }
+        return String(format: "%.2f m", v)
+    }
+
+    func tasukiRecorderMonthlyAverageSpeedDisplayLabel(now: Date = Date()) -> String {
+        guard let v = distanceWeightedRecorderMetric(now: now) { $0.averageSpeedKmh }, v > 0 else { return "-- km/h" }
+        return String(format: "%.1f km/h", v)
+    }
+
+    private func distanceWeightedRecorderMetric(
+        now: Date,
+        pick: (RunActivityMetrics) -> Double?
+    ) -> Double? {
+        let acts = tasukiRecorderActivitiesInCurrentMonth(now: now)
+        var sumW = 0.0
+        var sumV = 0.0
+        for a in acts {
+            guard let m = a.metrics else { continue }
+            guard let raw = pick(m), raw.isFinite, raw > 0 else { continue }
+            let w = max(0.01, a.distanceKm)
+            sumW += w
+            sumV += raw * w
+        }
+        guard sumW > 0.01 else { return nil }
+        return sumV / sumW
+    }
+
+    private func tasukiRecorderPaceDisplay(weightedSecondsPerKm: Double?) -> String {
+        guard let sec = weightedSecondsPerKm, sec.isFinite, sec > 0 else { return "--:--/km" }
+        let m = Int(sec) / 60
+        let s = Int(sec) % 60
+        return String(format: "%d:%02d/km", m, s)
+    }
+
     /// 直近 `weeks` 週の週次走行距離（右端が今週）。実データがすべて 0 のときのみデモ用フォールバック。
     func weeklyActivityChartPoints(
         weeks: Int = 8,
@@ -409,6 +651,7 @@ final class RunActivityStore: ObservableObject {
         }
         do {
             activities = try JSONDecoder().decode([RunActivity].self, from: data)
+                .map { withBackfilledMetricsIfNeeded($0) }
                 .sorted { $0.startedAt > $1.startedAt }
         } catch {
             activities = []
@@ -440,6 +683,9 @@ final class RunActivityStore: ObservableObject {
         if let n = activity.note, !n.isEmpty { payload["note"] = n }
         if let e = activity.perceivedEffort { payload["perceivedEffort"] = e }
         if let m = activity.postRunMood { payload["postRunMood"] = m }
+        if let metrics = activity.metrics {
+            payload["metrics"] = firestorePayload(from: metrics)
+        }
         db.collection("users")
             .document(uid)
             .collection("activities")
@@ -478,6 +724,7 @@ final class RunActivityStore: ObservableObject {
                     let note = data["note"] as? String
                     let perceivedEffort = data["perceivedEffort"] as? Int
                     let postRunMood = data["postRunMood"] as? Int
+                    let metrics = self.parseMetrics(from: data["metrics"])
                     return RunActivity(
                         id: id,
                         startedAt: startedAt,
@@ -489,16 +736,24 @@ final class RunActivityStore: ObservableObject {
                         title: title,
                         note: note,
                         perceivedEffort: perceivedEffort,
-                        postRunMood: postRunMood
+                        postRunMood: postRunMood,
+                        metrics: metrics
                     )
                 }
                 if remote.isEmpty { return }
                 DispatchQueue.main.async {
                     var mergedById: [UUID: RunActivity] = Dictionary(uniqueKeysWithValues: self.activities.map { ($0.id, $0) })
                     for item in remote {
-                        mergedById[item.id] = item
+                        if let local = mergedById[item.id], item.metrics == nil {
+                            var merged = item
+                            merged.metrics = local.metrics
+                            mergedById[item.id] = self.withBackfilledMetricsIfNeeded(merged)
+                        } else {
+                            mergedById[item.id] = self.withBackfilledMetricsIfNeeded(item)
+                        }
                     }
                     self.activities = mergedById.values
+                        .map { self.withBackfilledMetricsIfNeeded($0) }
                         .sorted { $0.startedAt > $1.startedAt }
                     if self.activities.count > self.maxStoredCount {
                         self.activities = Array(self.activities.prefix(self.maxStoredCount))
@@ -506,6 +761,162 @@ final class RunActivityStore: ObservableObject {
                     self.save()
                 }
             }
+    }
+
+    private func firestorePayload(from metrics: RunActivityMetrics) -> [String: Any] {
+        var payload: [String: Any] = [:]
+        if let v = metrics.totalDistanceKm { payload["totalDistanceKm"] = v }
+        if let v = metrics.elapsedTimeSeconds { payload["elapsedTimeSeconds"] = v }
+        if let v = metrics.movingTimeSeconds { payload["movingTimeSeconds"] = v }
+        if let v = metrics.totalTimeSeconds { payload["totalTimeSeconds"] = v }
+        if let v = metrics.averagePaceSecondsPerKm { payload["averagePaceSecondsPerKm"] = v }
+        if let v = metrics.averageMovingPaceSecondsPerKm { payload["averageMovingPaceSecondsPerKm"] = v }
+        if let v = metrics.gradeAdjustedPaceSecondsPerKm { payload["gradeAdjustedPaceSecondsPerKm"] = v }
+        if let v = metrics.bestPaceSecondsPerKm { payload["bestPaceSecondsPerKm"] = v }
+        if let v = metrics.averageSpeedKmh { payload["averageSpeedKmh"] = v }
+        if let v = metrics.maxSpeedKmh { payload["maxSpeedKmh"] = v }
+        if !metrics.lapSplits.isEmpty {
+            payload["lapSplits"] = metrics.lapSplits.map {
+                [
+                    "index": $0.index,
+                    "distanceKm": $0.distanceKm,
+                    "durationSeconds": $0.durationSeconds,
+                    "paceSecondsPerKm": $0.paceSecondsPerKm
+                ]
+            }
+        }
+        if let v = metrics.runningTimeSeconds { payload["runningTimeSeconds"] = v }
+        if let v = metrics.walkingTimeSeconds { payload["walkingTimeSeconds"] = v }
+        if let v = metrics.restTimeSeconds { payload["restTimeSeconds"] = v }
+        if let v = metrics.caloriesKcal { payload["caloriesKcal"] = v }
+        if let v = metrics.averageCadenceSpm { payload["averageCadenceSpm"] = v }
+        if let v = metrics.maxCadenceSpm { payload["maxCadenceSpm"] = v }
+        if let v = metrics.averageStrideLengthMeters { payload["averageStrideLengthMeters"] = v }
+        if let v = metrics.averageVerticalOscillationCm { payload["averageVerticalOscillationCm"] = v }
+        if let v = metrics.averageVerticalRatioPercent { payload["averageVerticalRatioPercent"] = v }
+        if let v = metrics.averageGroundContactTimeMs { payload["averageGroundContactTimeMs"] = v }
+        if let v = metrics.totalAscentMeters { payload["totalAscentMeters"] = v }
+        if let v = metrics.totalDescentMeters { payload["totalDescentMeters"] = v }
+        if let v = metrics.minAltitudeMeters { payload["minAltitudeMeters"] = v }
+        if let v = metrics.maxAltitudeMeters { payload["maxAltitudeMeters"] = v }
+        if let v = metrics.altitudeTrendMeters { payload["altitudeTrendMeters"] = v }
+        if let v = metrics.weatherSummary, !v.isEmpty { payload["weatherSummary"] = v }
+        if let v = metrics.temperatureCelsius { payload["temperatureCelsius"] = v }
+        if let v = metrics.windDirection, !v.isEmpty { payload["windDirection"] = v }
+        if let v = metrics.windSpeedMetersPerSecond { payload["windSpeedMetersPerSecond"] = v }
+        if let v = metrics.targetDistanceKm { payload["targetDistanceKm"] = v }
+        if let v = metrics.targetDurationSeconds { payload["targetDurationSeconds"] = v }
+        if let v = metrics.targetDistanceProgress { payload["targetDistanceProgress"] = v }
+        if let v = metrics.targetDurationProgress { payload["targetDurationProgress"] = v }
+        return payload
+    }
+
+    private func parseMetrics(from raw: Any?) -> RunActivityMetrics? {
+        guard let map = raw as? [String: Any] else { return nil }
+        let lapsRaw = map["lapSplits"] as? [[String: Any]] ?? []
+        let lapSplits = lapsRaw.compactMap { item -> RunActivityLapSplit? in
+            let idx = self.intFromAny(item["index"])
+            let distance = self.doubleFromAny(item["distanceKm"])
+            let duration = self.doubleFromAny(item["durationSeconds"])
+            let pace = self.doubleFromAny(item["paceSecondsPerKm"])
+            guard idx > 0, distance > 0, duration > 0, pace > 0 else { return nil }
+            return RunActivityLapSplit(index: idx, distanceKm: distance, durationSeconds: duration, paceSecondsPerKm: pace)
+        }
+        return RunActivityMetrics(
+            totalDistanceKm: optionalDoubleFromAny(map["totalDistanceKm"]),
+            elapsedTimeSeconds: optionalDoubleFromAny(map["elapsedTimeSeconds"]),
+            movingTimeSeconds: optionalDoubleFromAny(map["movingTimeSeconds"]),
+            totalTimeSeconds: optionalDoubleFromAny(map["totalTimeSeconds"]),
+            averagePaceSecondsPerKm: optionalDoubleFromAny(map["averagePaceSecondsPerKm"]),
+            averageMovingPaceSecondsPerKm: optionalDoubleFromAny(map["averageMovingPaceSecondsPerKm"]),
+            gradeAdjustedPaceSecondsPerKm: optionalDoubleFromAny(map["gradeAdjustedPaceSecondsPerKm"]),
+            bestPaceSecondsPerKm: optionalDoubleFromAny(map["bestPaceSecondsPerKm"]),
+            averageSpeedKmh: optionalDoubleFromAny(map["averageSpeedKmh"]),
+            maxSpeedKmh: optionalDoubleFromAny(map["maxSpeedKmh"]),
+            lapSplits: lapSplits,
+            runningTimeSeconds: optionalDoubleFromAny(map["runningTimeSeconds"]),
+            walkingTimeSeconds: optionalDoubleFromAny(map["walkingTimeSeconds"]),
+            restTimeSeconds: optionalDoubleFromAny(map["restTimeSeconds"]),
+            caloriesKcal: optionalIntFromAny(map["caloriesKcal"]),
+            averageCadenceSpm: optionalDoubleFromAny(map["averageCadenceSpm"]),
+            maxCadenceSpm: optionalDoubleFromAny(map["maxCadenceSpm"]),
+            averageStrideLengthMeters: optionalDoubleFromAny(map["averageStrideLengthMeters"]),
+            averageVerticalOscillationCm: optionalDoubleFromAny(map["averageVerticalOscillationCm"]),
+            averageVerticalRatioPercent: optionalDoubleFromAny(map["averageVerticalRatioPercent"]),
+            averageGroundContactTimeMs: optionalDoubleFromAny(map["averageGroundContactTimeMs"]),
+            totalAscentMeters: optionalDoubleFromAny(map["totalAscentMeters"]),
+            totalDescentMeters: optionalDoubleFromAny(map["totalDescentMeters"]),
+            minAltitudeMeters: optionalDoubleFromAny(map["minAltitudeMeters"]),
+            maxAltitudeMeters: optionalDoubleFromAny(map["maxAltitudeMeters"]),
+            altitudeTrendMeters: map["altitudeTrendMeters"] as? [Double],
+            weatherSummary: map["weatherSummary"] as? String,
+            temperatureCelsius: optionalDoubleFromAny(map["temperatureCelsius"]),
+            windDirection: map["windDirection"] as? String,
+            windSpeedMetersPerSecond: optionalDoubleFromAny(map["windSpeedMetersPerSecond"]),
+            targetDistanceKm: optionalDoubleFromAny(map["targetDistanceKm"]),
+            targetDurationSeconds: optionalDoubleFromAny(map["targetDurationSeconds"]),
+            targetDistanceProgress: optionalDoubleFromAny(map["targetDistanceProgress"]),
+            targetDurationProgress: optionalDoubleFromAny(map["targetDurationProgress"])
+        )
+    }
+
+    private func withBackfilledMetricsIfNeeded(_ activity: RunActivity) -> RunActivity {
+        var updated = activity
+        updated.metrics = mergedMetricsWithBackfill(existing: activity.metrics, activity: activity)
+        return updated
+    }
+
+    private func mergedMetricsWithBackfill(existing: RunActivityMetrics?, activity: RunActivity) -> RunActivityMetrics? {
+        let distanceKm = max(0, activity.distanceKm)
+        let duration = max(1, activity.durationSeconds)
+        let pace = distanceKm > 0 ? duration / distanceKm : nil
+        let speed = duration > 0 ? distanceKm / (duration / 3600.0) : nil
+        let estimatedCalories = Int((distanceKm * 65.0 * 1.036).rounded())
+
+        var merged = existing ?? RunActivityMetrics()
+        if merged.totalDistanceKm == nil { merged.totalDistanceKm = distanceKm }
+        if merged.elapsedTimeSeconds == nil { merged.elapsedTimeSeconds = duration }
+        if merged.movingTimeSeconds == nil { merged.movingTimeSeconds = duration }
+        if merged.totalTimeSeconds == nil { merged.totalTimeSeconds = duration }
+        if merged.averagePaceSecondsPerKm == nil { merged.averagePaceSecondsPerKm = pace }
+        if merged.averageMovingPaceSecondsPerKm == nil { merged.averageMovingPaceSecondsPerKm = pace }
+        if merged.averageSpeedKmh == nil { merged.averageSpeedKmh = speed }
+        if merged.caloriesKcal == nil, estimatedCalories > 0 { merged.caloriesKcal = estimatedCalories }
+
+        if merged.targetDistanceProgress == nil, let target = merged.targetDistanceKm, target > 0 {
+            merged.targetDistanceProgress = min(max(distanceKm / target, 0), 1)
+        }
+        if merged.targetDurationProgress == nil, let target = merged.targetDurationSeconds, target > 0 {
+            merged.targetDurationProgress = min(max(duration / target, 0), 1)
+        }
+
+        return merged
+    }
+
+    private func intFromAny(_ value: Any?) -> Int {
+        if let i = value as? Int { return i }
+        if let n = value as? NSNumber { return n.intValue }
+        return 0
+    }
+
+    private func doubleFromAny(_ value: Any?) -> Double {
+        if let d = value as? Double { return d }
+        if let i = value as? Int { return Double(i) }
+        if let n = value as? NSNumber { return n.doubleValue }
+        return 0
+    }
+
+    private func optionalDoubleFromAny(_ value: Any?) -> Double? {
+        if let d = value as? Double { return d }
+        if let i = value as? Int { return Double(i) }
+        if let n = value as? NSNumber { return n.doubleValue }
+        return nil
+    }
+
+    private func optionalIntFromAny(_ value: Any?) -> Int? {
+        if let i = value as? Int { return i }
+        if let n = value as? NSNumber { return n.intValue }
+        return nil
     }
 }
 

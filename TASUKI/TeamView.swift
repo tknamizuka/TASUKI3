@@ -279,6 +279,19 @@ struct TeamView: View {
         return nil
     }
 
+    /// MainTabView の「Home」オーバーレイ: 参加ハブ・チーム詳細とナビの戻るが重ならないよう制御する。
+    private func refreshEkidenOverlayHomeSuppress() {
+        let inJoinHub = resolvedTeamId == nil && showTeamJoinHub
+        mainTabRouter.suppressBackToHomeOverlay = inJoinHub || showTeamDetail
+    }
+
+    /// `MainTabView.onChange(selectedTab)` より後に実行し、参加ハブで `suppress` が上書きされないようにする。
+    private func scheduleRefreshEkidenOverlayHomeSuppress() {
+        DispatchQueue.main.async {
+            self.refreshEkidenOverlayHomeSuppress()
+        }
+    }
+
     /// EKIDEN チームID（`users.teamId`）
     private var ekidenChatTeamId: String {
         if let u = userTeamId, !u.isEmpty { return u }
@@ -418,6 +431,10 @@ struct TeamView: View {
                 teamJoinedRootView
             }
         }
+        .onChange(of: showTeamDetail) { _, _ in scheduleRefreshEkidenOverlayHomeSuppress() }
+        .onChange(of: showTeamJoinHub) { _, _ in scheduleRefreshEkidenOverlayHomeSuppress() }
+        .onChange(of: userTeamId) { _, _ in scheduleRefreshEkidenOverlayHomeSuppress() }
+        .onChange(of: userDistanceTeamId) { _, _ in scheduleRefreshEkidenOverlayHomeSuppress() }
         .task(id: debugPreviewTeamId) {
             if let d = debugPreviewTeamId, !d.isEmpty {
                 if userTeamId == nil { userTeamId = d }
@@ -441,6 +458,7 @@ struct TeamView: View {
             if userDistanceTeamId == nil, isSampleTeamFlow, let savedDist = UserDefaults.standard.string(forKey: "myDistanceTeamId"), !savedDist.isEmpty {
                 userDistanceTeamId = savedDist
             }
+            scheduleRefreshEkidenOverlayHomeSuppress()
         }
         .onDisappear {
             mainTabRouter.suppressBackToHomeOverlay = false

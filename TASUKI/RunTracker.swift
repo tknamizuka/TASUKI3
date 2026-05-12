@@ -8,6 +8,20 @@
 import Foundation
 import Combine
 import CoreLocation
+import CoreMotion
+
+struct RunTrackPoint: Codable, Hashable {
+    let timestamp: Date
+    let latitude: Double
+    let longitude: Double
+    let altitudeMeters: Double
+    let speedMetersPerSecond: Double?
+    let horizontalAccuracy: Double
+
+    var coordinate: CLLocationCoordinate2D {
+        CLLocationCoordinate2D(latitude: latitude, longitude: longitude)
+    }
+}
 
 final class RunTracker: NSObject, ObservableObject {
     static let shared = RunTracker()
@@ -19,11 +33,17 @@ final class RunTracker: NSObject, ObservableObject {
     @Published var elevationGainMeters: Double = 0
     @Published var currentAltitudeMeters: Double = 0
     @Published private(set) var routeCoordinates: [CLLocationCoordinate2D] = []
+    /// 描画専用: 生の座標列を移動平均で平滑化したポリライン（距離計算には使わない）
+    @Published private(set) var smoothedRouteCoordinates: [CLLocationCoordinate2D] = []
+    @Published private(set) var trackPoints: [RunTrackPoint] = []
     /// 記録中の最新位置（地図の現在地表示用）
     @Published private(set) var lastKnownCoordinate: CLLocationCoordinate2D?
     @Published private(set) var trackingStartedAt: Date?
+    @Published private(set) var averageCadenceSpm: Double?
+    @Published private(set) var maxCadenceSpm: Double?
     
     private let locationManager = CLLocationManager()
+    private let pedometer = CMPedometer()
     private var lastLocation: CLLocation?
     private var lastAltitude: Double?
     private var lastDistanceBucket: Int = 0
@@ -36,20 +56,24 @@ final class RunTracker: NSObject, ObservableObject {
     private let warmupMaxHorizontalAccuracy: CLLocationAccuracy = 65
     private let warmupMaxStaleSeconds: TimeInterval = 10
     private let minSegmentDistanceMeters: CLLocationDistance = 2
+    private let minRoutePointDistanceMeters: CLLocationDistance = 3
     private let maxRunningSpeedMps: CLLocationSpeed = 8.5
     private let warmupDurationSeconds: TimeInterval = 40
     private let warmupMaxRunningSpeedMps: CLLocationSpeed = 7.0
+    private let routeSmoothingWindowSize = 5
     /// 走行開始前の地図プレビュー用に位置更新のみ行う（距離・ルートには加えない）
     private var isPreviewingMapLocation = false
     /// バックグラウンド記録のため「常に」を一度案内したか
     private var didPromptAlwaysAuthorizationWhileTracking = false
+    private var cadenceSampleCount: Int = 0
+    private var cadenceSampleSum: Double = 0
     
     override private init() {
         super.init()
         locationManager.delegate = self
         locationManager.desiredAccuracy = kCLLocationAccuracyBest
         locationManager.activityType = .fitness
-        locationManager.distanceFilter = 10
+        locationManager.distanceFilter = 5
         locationManager.pausesLocationUpdatesAutomatically = false
         locationManager.allowsBackgroundLocationUpdates = false
     }
@@ -124,9 +148,22 @@ final class RunTracker: NSObject, ObservableObject {
         currentAltitudeMeters = 0
         if let previewCoordinate {
             routeCoordinates = [previewCoordinate]
+            smoothedRouteCoordinates = [previewCoordinate]
+            trackPoints = [
+                RunTrackPoint(
+                    timestamp: Date(),
+                    latitude: previewCoordinate.latitude,
+                    longitude: previewCoordinate.longitude,
+                    altitudeMeters: 0,
+                    speedMetersPerSecond: nil,
+                    horizontalAccuracy: 999
+                )
+            ]
             lastKnownCoordinate = previewCoordinate
         } else {
             routeCoordinates = []
+            smoothedRouteCoordinates = []
+            trackPoints = []
             lastKnownCoordinate = nil
         }
         trackingStartedAt = Date()
@@ -134,9 +171,14 @@ final class RunTracker: NSObject, ObservableObject {
         accumulatedPausedSeconds = 0
         isPaused = false
         locationError = nil
+        cadenceSampleCount = 0
+        cadenceSampleSum = 0
+        averageCadenceSpm = nil
+        maxCadenceSpm = nil
         didPromptAlwaysAuthorizationWhileTracking = false
         applyBackgroundLocationPolicyForTracking()
         locationManager.startUpdatingLocation()
+        startCadenceUpdates()
         isTracking = true
         promptAlwaysAuthorizationIfNeeded()
         RunLiveActivityManager.shared.beginIfPossible()
@@ -151,6 +193,7 @@ final class RunTracker: NSObject, ObservableObject {
         }
         locationManager.allowsBackgroundLocationUpdates = false
         locationManager.stopUpdatingLocation()
+        stopCadenceUpdates()
         RealityMiningManager.shared.trackEvent(
             name: "run_tracking_stop",
             properties: ["distance_km": distanceKm]
@@ -162,6 +205,7 @@ final class RunTracker: NSObject, ObservableObject {
     func pause() {
         guard isTracking, !isPaused else { return }
         locationManager.stopUpdatingLocation()
+        stopCadenceUpdates()
         pausedAt = Date()
         isPaused = true
     }
@@ -174,6 +218,7 @@ final class RunTracker: NSObject, ObservableObject {
         self.pausedAt = nil
         applyBackgroundLocationPolicyForTracking()
         locationManager.startUpdatingLocation()
+        startCadenceUpdates()
         isPaused = false
     }
     
@@ -184,11 +229,18 @@ final class RunTracker: NSObject, ObservableObject {
         elevationGainMeters = 0
         currentAltitudeMeters = 0
         routeCoordinates = []
+        smoothedRouteCoordinates = []
+        trackPoints = []
         lastKnownCoordinate = nil
         trackingStartedAt = nil
         pausedAt = nil
         accumulatedPausedSeconds = 0
         isPaused = false
+        stopCadenceUpdates()
+        cadenceSampleCount = 0
+        cadenceSampleSum = 0
+        averageCadenceSpm = nil
+        maxCadenceSpm = nil
     }
 
     func elapsedSeconds(now: Date = Date()) -> TimeInterval {
@@ -202,37 +254,78 @@ final class RunTracker: NSObject, ObservableObject {
         }
         return max(0, raw - pausedExtra)
     }
+
+    private func startCadenceUpdates() {
+        guard CMPedometer.isCadenceAvailable() else { return }
+        pedometer.startUpdates(from: Date()) { [weak self] data, _ in
+            guard let self else { return }
+            guard self.isTracking, !self.isPaused else { return }
+            guard let cadence = data?.currentCadence?.doubleValue, cadence > 0 else { return }
+            let cadenceSpm = cadence * 60.0
+            DispatchQueue.main.async {
+                self.cadenceSampleCount += 1
+                self.cadenceSampleSum += cadenceSpm
+                self.averageCadenceSpm = self.cadenceSampleSum / Double(self.cadenceSampleCount)
+                self.maxCadenceSpm = max(self.maxCadenceSpm ?? cadenceSpm, cadenceSpm)
+            }
+        }
+    }
+
+    private func stopCadenceUpdates() {
+        pedometer.stopUpdates()
+    }
 }
 
 extension RunTracker: CLLocationManagerDelegate {
     func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
-        guard let newLocation = locations.last, newLocation.horizontalAccuracy >= 0 else { return }
+        guard !locations.isEmpty else { return }
 
         // 走行前: 地図の現在地ピンのみ更新（ルート・距離は触らない）
         if isPreviewingMapLocation && !isTracking {
             let maxPreviewAccuracy = maxHorizontalAccuracy * 3
-            guard newLocation.horizontalAccuracy <= maxPreviewAccuracy else { return }
-            let ageSeconds = abs(newLocation.timestamp.timeIntervalSinceNow)
-            guard ageSeconds <= maxStaleSeconds * 3 else { return }
+            let previewCandidate = locations.reversed().first { location in
+                guard location.horizontalAccuracy >= 0 else { return false }
+                guard location.horizontalAccuracy <= maxPreviewAccuracy else { return false }
+                let ageSeconds = abs(location.timestamp.timeIntervalSinceNow)
+                return ageSeconds <= maxStaleSeconds * 3
+            }
+            guard let previewCandidate else { return }
             DispatchQueue.main.async {
-                self.lastKnownCoordinate = newLocation.coordinate
+                self.lastKnownCoordinate = previewCandidate.coordinate
             }
             return
         }
 
         guard isTracking, !isPaused else { return }
-        guard shouldUseLocation(newLocation) else { return }
+        for location in locations where location.horizontalAccuracy >= 0 {
+            guard shouldUseLocation(location) else { continue }
+            ingestTrackingLocation(location)
+        }
+    }
 
+    private func ingestTrackingLocation(_ newLocation: CLLocation) {
         DispatchQueue.main.async {
             self.lastKnownCoordinate = newLocation.coordinate
             self.currentAltitudeMeters = max(0, newLocation.altitude)
+            self.trackPoints.append(
+                RunTrackPoint(
+                    timestamp: newLocation.timestamp,
+                    latitude: newLocation.coordinate.latitude,
+                    longitude: newLocation.coordinate.longitude,
+                    altitudeMeters: newLocation.altitude,
+                    speedMetersPerSecond: newLocation.speed >= 0 ? newLocation.speed : nil,
+                    horizontalAccuracy: newLocation.horizontalAccuracy
+                )
+            )
             if let lastCoord = self.routeCoordinates.last {
                 let last = CLLocation(latitude: lastCoord.latitude, longitude: lastCoord.longitude)
-                if last.distance(from: newLocation) >= 5 {
+                if last.distance(from: newLocation) >= self.minRoutePointDistanceMeters {
                     self.routeCoordinates.append(newLocation.coordinate)
+                    self.smoothedRouteCoordinates = self.smoothedCoordinates(from: self.routeCoordinates)
                 }
             } else {
                 self.routeCoordinates.append(newLocation.coordinate)
+                self.smoothedRouteCoordinates = self.routeCoordinates
             }
         }
         if let last = lastLocation {
@@ -264,6 +357,24 @@ extension RunTracker: CLLocationManagerDelegate {
             self.lastAltitude = newLocation.altitude
         }
         lastLocation = newLocation
+    }
+
+    private func smoothedCoordinates(from raw: [CLLocationCoordinate2D]) -> [CLLocationCoordinate2D] {
+        guard raw.count >= 3 else { return raw }
+        let radius = max(1, routeSmoothingWindowSize / 2)
+        var smoothed: [CLLocationCoordinate2D] = raw
+        for i in 1..<(raw.count - 1) {
+            let start = max(0, i - radius)
+            let end = min(raw.count - 1, i + radius)
+            let segment = raw[start...end]
+            let sumLat = segment.reduce(0.0) { $0 + $1.latitude }
+            let sumLon = segment.reduce(0.0) { $0 + $1.longitude }
+            let count = Double(segment.count)
+            smoothed[i] = CLLocationCoordinate2D(latitude: sumLat / count, longitude: sumLon / count)
+        }
+        smoothed[0] = raw[0]
+        smoothed[raw.count - 1] = raw[raw.count - 1]
+        return smoothed
     }
 
     private func shouldUseLocation(_ location: CLLocation) -> Bool {

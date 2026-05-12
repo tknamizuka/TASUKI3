@@ -303,15 +303,38 @@ struct FlowLayout: Layout {
     }
 }
 
-// MARK: - Agent debug ingest (session f3091f) — DEBUG のみ（Release でローカル HTTP を送出しない）
-enum AgentDebugLog {
-    static let sessionId = "f3091f"
+// MARK: - Cursor debug ingest (session 72380d) — DEBUG のみ（Simulator → ホストの ingest）
+#if DEBUG
+private enum CursorDebugIngest72380d {
+    static let sessionId = "72380d"
+    private static let ingestURL = URL(string: "http://127.0.0.1:7277/ingest/e0cb0106-0f93-4658-bd23-3791397c06c2")!
 
-    static func log(location: String, message: String, hypothesisId: String, data: [String: String] = [:]) {
-        #if DEBUG
-        let ingestURL = URL(string: "http://127.0.0.1:7824/ingest/d7f1622c-ff7c-497a-bb9c-bba8292b28cf")!
+    /// シミュレータからホストのワークスペース `.cursor/debug-72380d.log` へ追記（ingest が届かないときの証跡用）。
+    private static func appendNDJSONLineToHostWorkspace(_ line: String) {
+        #if targetEnvironment(simulator)
+        let home = ProcessInfo.processInfo.environment["SIMULATOR_HOST_HOME"].flatMap { $0.isEmpty ? nil : $0 }
+            ?? "/Users/takuyanamizuka"
+        let path = (home as NSString).appendingPathComponent("Desktop/TASUKI3/.cursor/debug-72380d.log")
+        guard let data = (line + "\n").data(using: .utf8) else { return }
+        let fm = FileManager.default
+        let dir = (path as NSString).deletingLastPathComponent
+        if !fm.fileExists(atPath: dir) {
+            try? fm.createDirectory(atPath: dir, withIntermediateDirectories: true)
+        }
+        if !fm.fileExists(atPath: path) {
+            fm.createFile(atPath: path, contents: data, attributes: nil)
+            return
+        }
+        guard let handle = try? FileHandle(forWritingTo: URL(fileURLWithPath: path)) else { return }
+        defer { try? handle.close() }
+        try? handle.seekToEnd()
+        try? handle.write(contentsOf: data)
+        #endif
+    }
+
+    static func post(location: String, message: String, hypothesisId: String, data: [String: String], runId: String?) {
         let ts = Int64(Date().timeIntervalSince1970 * 1000)
-        let payload: [String: Any] = [
+        var payload: [String: Any] = [
             "sessionId": sessionId,
             "timestamp": ts,
             "location": location,
@@ -319,45 +342,41 @@ enum AgentDebugLog {
             "hypothesisId": hypothesisId,
             "data": data
         ]
+        if let runId {
+            payload["runId"] = runId
+        }
         guard let json = try? JSONSerialization.data(withJSONObject: payload),
               let line = String(data: json, encoding: .utf8) else { return }
-        print("[AgentDebug f3091f] \(line)")
+        print("[CursorDebug 72380d] \(line)")
+        appendNDJSONLineToHostWorkspace(line)
         var req = URLRequest(url: ingestURL)
         req.httpMethod = "POST"
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         req.setValue(sessionId, forHTTPHeaderField: "X-Debug-Session-Id")
         req.httpBody = json
         URLSession.shared.dataTask(with: req).resume()
+    }
+}
+#endif
+
+// MARK: - Agent debug ingest — DEBUG のみ（Release でローカル HTTP を送出しない）
+enum AgentDebugLog {
+    static let sessionId = "72380d"
+
+    static func log(location: String, message: String, hypothesisId: String, data: [String: String] = [:]) {
+        #if DEBUG
+        CursorDebugIngest72380d.post(location: location, message: message, hypothesisId: hypothesisId, data: data, runId: nil)
         #endif
     }
 }
 
-// MARK: - Debug session 65844b (NDJSON ingest — simulator-friendly)
+// MARK: - Debug session log（runId 付き）— Simulator からホスト ingest へ
 enum DebugSession658Log {
-    static let sessionId = "65844b"
+    static let sessionId = "72380d"
 
     static func log(location: String, message: String, hypothesisId: String, data: [String: String] = [:], runId: String = "pre-fix") {
         #if DEBUG
-        let ingestURL = URL(string: "http://127.0.0.1:7824/ingest/d7f1622c-ff7c-497a-bb9c-bba8292b28cf")!
-        let ts = Int64(Date().timeIntervalSince1970 * 1000)
-        let payload: [String: Any] = [
-            "sessionId": sessionId,
-            "runId": runId,
-            "timestamp": ts,
-            "location": location,
-            "message": message,
-            "hypothesisId": hypothesisId,
-            "data": data
-        ]
-        guard let json = try? JSONSerialization.data(withJSONObject: payload),
-              let line = String(data: json, encoding: .utf8) else { return }
-        print("[Debug65844b] \(line)")
-        var req = URLRequest(url: ingestURL)
-        req.httpMethod = "POST"
-        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        req.setValue(sessionId, forHTTPHeaderField: "X-Debug-Session-Id")
-        req.httpBody = json
-        URLSession.shared.dataTask(with: req).resume()
+        CursorDebugIngest72380d.post(location: location, message: message, hypothesisId: hypothesisId, data: data, runId: runId)
         #endif
     }
 }

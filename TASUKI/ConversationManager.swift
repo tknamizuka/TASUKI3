@@ -10,7 +10,7 @@ import Combine
 import FirebaseAuth
 import FirebaseFirestore
 
-/// 未読数表示用の共通ベース（@EnvironmentObject は具象型が必要なためクラスで定義）
+/// 未読数表示用の共通ベース（`ConversationManager` が継承。View の `@EnvironmentObject` は具象型 `ConversationManager` を使う）
 class UnreadCountProviderBase: ObservableObject {
     @Published var unreadCount: Int = 0
     func refreshUnreadCount(completion: (() -> Void)? = nil) { completion?() }
@@ -385,10 +385,4 @@ final class ConversationManager: UnreadCountProviderBase {
             }
         }
     }
-}
-
-// MARK: - プレビュー用モック（Firebase に触れず HomeView プレビューを表示）
-final class PreviewUnreadProvider: UnreadCountProviderBase {
-    override init() { super.init() }
-    init(unreadCount: Int = 0) { super.init(); self.unreadCount = unreadCount }
 }

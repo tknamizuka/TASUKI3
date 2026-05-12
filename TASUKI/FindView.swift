@@ -373,7 +373,7 @@ struct FindView: View {
                     .ignoresSafeArea()
                 
                 VStack(spacing: 12) {
-                    TasukiBrandedHeroHeader(title: "FIND")
+                    TasukiBrandedHeroHeader(title: "FIND", compactToolbarStyle: true)
                     // 1. メインモード切り替え
                     Picker("Mode", selection: $selectedMode) {
                         Text("Runners").tag("Runners")

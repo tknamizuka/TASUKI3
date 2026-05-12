@@ -26,7 +26,7 @@ struct SoloRunHubView: View {
                             .padding(.bottom, 12)
 
                         VStack(spacing: 0) {
-                            NavigationLink(destination: RunRecordingView()) {
+                            NavigationLink(destination: RunRecordingView(embedNavigationStack: false)) {
                                 TasukiFlatHubRow(title: "RUN", subtitle: "走行を記録して保存", systemImage: "figure.run")
                             }
                             .buttonStyle(.plain)

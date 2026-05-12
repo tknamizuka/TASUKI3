@@ -5,6 +5,7 @@ struct ProfileEditView: View {
     @Environment(\.openURL) private var openURL
     @EnvironmentObject var authManager: AuthManager
     @EnvironmentObject var userManager: UserManager
+    @EnvironmentObject private var mainTabRouter: MainTabRouter
 
     // 永続化用ストレージ（Firestore と同期後もローカルキャッシュとして更新）
     @AppStorage("myName") private var storedName: String = "Hiro"
@@ -12,6 +13,8 @@ struct ProfileEditView: View {
     @AppStorage("myArea") private var storedArea: String = "Tokyo, Setagaya"
     @AppStorage("myRank") private var storedRank: String = "Rank A"
     @AppStorage("myGender") private var storedGender: String = "male"
+    @AppStorage("runnerHeightCm") private var storedRunnerHeightCm: Double = 0
+    @AppStorage("runnerWeightKg") private var storedRunnerWeightKg: Double = 0
     
     // Running Style
     @AppStorage("myPurpose") private var storedPurpose: String = "サブ3, 健康維持"
@@ -38,6 +41,8 @@ struct ProfileEditView: View {
     @State private var area: String = ""
     @State private var rank: String = "Rank A"
     @State private var gender: String = "male"
+    @State private var runnerHeightCmText: String = ""
+    @State private var runnerWeightKgText: String = ""
     
     @State private var purpose: String = ""
     @State private var runningSpots: String = ""
@@ -83,6 +88,8 @@ struct ProfileEditView: View {
             area: area,
             rank: rank,
             gender: gender,
+            runnerHeightCmText: runnerHeightCmText,
+            runnerWeightKgText: runnerWeightKgText,
             purpose: purpose,
             runningSpots: runningSpots,
             schedule: schedule,
@@ -110,6 +117,10 @@ struct ProfileEditView: View {
                     }
                     TextField("年齢", text: $age)
                         .keyboardType(.numberPad)
+                    TextField("身長(cm)", text: $runnerHeightCmText)
+                        .keyboardType(.decimalPad)
+                    TextField("体重(kg)", text: $runnerWeightKgText)
+                        .keyboardType(.decimalPad)
                     TextField("エリア/都道府県", text: $area)
                     Picker("性別", selection: $gender) {
                         ForEach(Gender.allCases, id: \.self) { genderOption in
@@ -292,10 +303,14 @@ struct ProfileEditView: View {
                 await loadProfileFromFirestore()
             }
             .onAppear {
+                mainTabRouter.suppressBackToHomeOverlay = true
                 #if DEBUG
                 debugCoachCertified = UserDefaults.standard.bool(forKey: CoachCertificationManager.debugCoachCertifiedKey)
                 debugCoachProfileName = UserDefaults.standard.string(forKey: CoachCertificationManager.debugCoachProfileNameKey) ?? "廣 佳樹"
                 #endif
+            }
+            .onDisappear {
+                mainTabRouter.suppressBackToHomeOverlay = false
             }
             .alert("保存に失敗しました", isPresented: $showSaveError) {
                 Button("OK", role: .cancel) {}
@@ -321,6 +336,8 @@ private struct ProfileSnapshot: Equatable {
     var area: String
     var rank: String
     var gender: String
+    var runnerHeightCmText: String
+    var runnerWeightKgText: String
     var purpose: String
     var runningSpots: String
     var schedule: String
@@ -365,6 +382,8 @@ private extension ProfileEditView {
         avgPace = user.avgPace
         monthlyDist = user.editingMonthlyDistLabel
         bio = user.bio
+        runnerHeightCmText = storedRunnerHeightCm > 0 ? formatDecimalInput(storedRunnerHeightCm) : ""
+        runnerWeightKgText = storedRunnerWeightKg > 0 ? formatDecimalInput(storedRunnerWeightKg) : ""
     }
 
     func loadFormFromAppStorage() {
@@ -373,6 +392,8 @@ private extension ProfileEditView {
         area = storedArea
         rank = storedRank
         gender = storedGender
+        runnerHeightCmText = storedRunnerHeightCm > 0 ? formatDecimalInput(storedRunnerHeightCm) : ""
+        runnerWeightKgText = storedRunnerWeightKg > 0 ? formatDecimalInput(storedRunnerWeightKg) : ""
         purpose = storedPurpose
         runningSpots = storedRunningSpots
         schedule = storedSchedule
@@ -391,6 +412,8 @@ private extension ProfileEditView {
             area: area,
             rank: rank,
             gender: gender,
+            runnerHeightCmText: runnerHeightCmText,
+            runnerWeightKgText: runnerWeightKgText,
             purpose: purpose,
             runningSpots: runningSpots,
             schedule: schedule,
@@ -425,6 +448,21 @@ private extension ProfileEditView {
         if s.isEmpty { return nil }
         let numeral = s.filter { $0.isNumber || $0 == "." }
         return Double(numeral)
+    }
+
+    func parseBodyMetric(_ raw: String) -> Double? {
+        let normalized = raw
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: ",", with: ".")
+        guard !normalized.isEmpty else { return nil }
+        return Double(normalized)
+    }
+
+    func formatDecimalInput(_ value: Double) -> String {
+        if value == floor(value) {
+            return "\(Int(value))"
+        }
+        return String(format: "%.1f", value)
     }
 
     func buildUserFromForm(base: User) -> User {
@@ -471,6 +509,10 @@ private extension ProfileEditView {
         storedArea = area
         storedRank = rank
         storedGender = gender
+        let parsedHeight = parseBodyMetric(runnerHeightCmText) ?? 0
+        let parsedWeight = parseBodyMetric(runnerWeightKgText) ?? 0
+        storedRunnerHeightCm = parsedHeight > 0 ? parsedHeight : 0
+        storedRunnerWeightKg = parsedWeight > 0 ? parsedWeight : 0
         storedPurpose = purpose
         storedRunningSpots = runningSpots
         storedSchedule = schedule
@@ -531,4 +573,5 @@ private extension ProfileEditView {
     ProfileEditView()
         .environmentObject(AuthManager())
         .environmentObject(UserManager())
+        .environmentObject(MainTabRouter())
 }

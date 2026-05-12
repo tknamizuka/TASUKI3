@@ -5,6 +5,8 @@ import CoreLocation
 
 struct RunRecordingView: View {
     let onEkidenActivitySaved: ((RunActivity) -> Void)?
+    /// `false` のときは親の `NavigationStack` に載せる（`SoloRunHubView` 等で二重化しない）。
+    private let embedNavigationStack: Bool
     @ObservedObject private var tracker = RunTracker.shared
     @ObservedObject private var activityStore = RunActivityStore.shared
     @ObservedObject private var qaStore = CoachQAStore.shared
@@ -30,6 +32,9 @@ struct RunRecordingView: View {
     )
     @State private var postRunDraft: RunFinishDraft?
     @State private var navigateToCoach = false
+    @State private var navigateToRunStartReady = false
+    @State private var targetDistanceKmText: String = ""
+    @State private var targetDurationMinutesText: String = ""
     /// 記録中: 背面マップの上に載るシートの高さ比率。最大＝デフォルトの記録主体画面（上端にマップが細く見える）、最小＝折りたたみ。スナップはこの二段階のみ。
     @State private var recordingSheetFraction: CGFloat = 0.94
     @State private var recordingSheetDragStartFraction: CGFloat?
@@ -53,6 +58,13 @@ struct RunRecordingView: View {
 
     private var routeCoordinates: [CLLocationCoordinate2D] {
         tracker.routeCoordinates
+    }
+
+    private var displayRouteCoordinates: [CLLocationCoordinate2D] {
+        if tracker.smoothedRouteCoordinates.count >= 2 {
+            return tracker.smoothedRouteCoordinates
+        }
+        return routeCoordinates
     }
 
     /// 体重×距離のおおよその消費 kcal（走行中の目安）
@@ -117,6 +129,19 @@ struct RunRecordingView: View {
     }
 
     var body: some View {
+        Group {
+            if embedNavigationStack {
+                NavigationStack {
+                    runRecordingNavigableRoot
+                }
+            } else {
+                runRecordingNavigableRoot
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var runRecordingNavigableRoot: some View {
         ZStack {
             Group {
                 if tracker.isTracking {
@@ -208,6 +233,9 @@ struct RunRecordingView: View {
                         data: ["runId": "post-fix"]
                     )
                 }
+        }
+        .navigationDestination(isPresented: $navigateToRunStartReady) {
+            runStartReadyView
         }
         .onReceive(elapsedTimer) { now = $0 }
         .onAppear {
@@ -348,8 +376,8 @@ struct RunRecordingView: View {
     private func trackingMapBackgroundLayer(height: CGFloat, width: CGFloat, contentHeight: CGFloat) -> some View {
         ZStack(alignment: .topTrailing) {
             Map(position: $trackingMapCamera, interactionModes: [.pan, .zoom, .rotate]) {
-                if routeCoordinates.count >= 2 {
-                    MapPolyline(coordinates: routeCoordinates)
+                if displayRouteCoordinates.count >= 2 {
+                    MapPolyline(coordinates: displayRouteCoordinates)
                         .stroke(Color.tasukiAccent, lineWidth: 5)
                 }
                 if let cur = tracker.lastKnownCoordinate {
@@ -609,9 +637,52 @@ struct RunRecordingView: View {
                 trackingCompactMetric(title: "ペース", value: currentPaceText.replacingOccurrences(of: "/km", with: ""), unit: "/km")
             }
             .padding(.horizontal, 4)
+
+            if currentDistanceGoalProgress != nil || currentDurationGoalProgress != nil {
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("目標進捗")
+                        .font(.system(size: 11, weight: .bold))
+                        .tracking(1.2)
+                        .foregroundColor(Color.tasukiMutedText)
+
+                    if let progress = currentDistanceGoalProgress, let goalKm = targetDistanceKm {
+                        goalProgressRow(
+                            title: String(format: "距離 %.1fkm", goalKm),
+                            progress: progress
+                        )
+                    }
+
+                    if let progress = currentDurationGoalProgress, let goalSec = targetDurationSeconds {
+                        goalProgressRow(
+                            title: "時間 \(formatDuration(goalSec))",
+                            progress: progress
+                        )
+                    }
+                }
+                .padding(.horizontal, 4)
+            }
         }
         .padding(.horizontal, 20)
         .padding(.bottom, 8)
+    }
+
+    private func goalProgressRow(title: String, progress: Double) -> some View {
+        let clamped = min(max(progress, 0), 1)
+        let percent = Int((clamped * 100).rounded())
+        return VStack(alignment: .leading, spacing: 5) {
+            HStack {
+                Text(title)
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundColor(Color.tasukiPrimary)
+                Spacer()
+                Text("\(percent)%")
+                    .font(.system(size: 12, weight: .bold))
+                    .foregroundColor(Color.tasukiPrimary)
+                    .monospacedDigit()
+            }
+            ProgressView(value: clamped)
+                .tint(Color.tasukiAccent)
+        }
     }
 
     private func trackingCompactMetric(title: String, value: String, unit: String) -> some View {
@@ -640,6 +711,25 @@ struct RunRecordingView: View {
                 .fill(Color.tasukiDarkCard)
                 .shadow(color: Color.black.opacity(0.04), radius: 4, y: 2)
         )
+    }
+
+    private var targetDistanceKm: Double? {
+        positiveDouble(from: targetDistanceKmText)
+    }
+
+    private var targetDurationSeconds: Double? {
+        guard let minutes = positiveDouble(from: targetDurationMinutesText) else { return nil }
+        return minutes * 60
+    }
+
+    private var currentDistanceGoalProgress: Double? {
+        guard let goalKm = targetDistanceKm, goalKm > 0 else { return nil }
+        return tracker.distanceKm / goalKm
+    }
+
+    private var currentDurationGoalProgress: Double? {
+        guard let goalSec = targetDurationSeconds, goalSec > 0 else { return nil }
+        return elapsedSeconds / goalSec
     }
 
     private var runHeroTagline: some View {
@@ -671,9 +761,9 @@ struct RunRecordingView: View {
     /// 旧 CHALLENGE 行の位置。カウントダウン後に `beginRunStartCountdown` と同じフローで記録開始。
     private var primaryStartRunButton: some View {
         Button {
-            beginRunStartCountdown()
+            navigateToRunStartReady = true
         } label: {
-            Text(runStartCountdownPhase != nil ? "準備中…" : "走行を開始")
+            Text(runStartCountdownPhase != nil ? "準備中…" : "走行を開始する")
                 .font(.system(size: 16, weight: .bold))
                 .foregroundColor(Color.tasukiOnBrandYellow)
                 .frame(maxWidth: .infinity)
@@ -682,6 +772,106 @@ struct RunRecordingView: View {
         }
         .buttonStyle(.plain)
         .disabled(runStartCountdownPhase != nil)
+    }
+
+    private var runStartReadyView: some View {
+        VStack(spacing: 0) {
+            Map(position: $idleMapCamera, interactionModes: .all) {
+                if let cur = tracker.lastKnownCoordinate, !tracker.isTracking {
+                    Annotation("現在地", coordinate: cur) {
+                        ZStack {
+                            Circle()
+                                .fill(Color.tasukiAccent.opacity(0.35))
+                                .frame(width: 22, height: 22)
+                            Circle()
+                                .fill(Color.white)
+                                .frame(width: 10, height: 10)
+                            Circle()
+                                .fill(Color.tasukiAccent)
+                                .frame(width: 6, height: 6)
+                        }
+                    }
+                }
+                if displayRouteCoordinates.count >= 2 {
+                    MapPolyline(coordinates: displayRouteCoordinates)
+                        .stroke(Color.tasukiAccent, lineWidth: 4)
+                }
+            }
+            .frame(maxWidth: .infinity)
+            .frame(height: 360)
+            .clipShape(RoundedRectangle(cornerRadius: 20))
+            .padding(.horizontal, 20)
+            .padding(.top, 12)
+
+            HStack(spacing: 12) {
+                metricItem(title: "距離", value: String(format: "%.2f", tracker.distanceKm), unit: "km")
+                metricItem(title: "速度", value: String(format: "%.1f", averageSpeedKmh), unit: "km/h")
+            }
+            .padding(.horizontal, 20)
+            .padding(.top, 20)
+
+            VStack(alignment: .leading, spacing: 10) {
+                Text("目標（任意）")
+                    .font(.system(size: 11, weight: .bold))
+                    .tracking(1.2)
+                    .foregroundColor(Color.tasukiMutedText)
+
+                HStack(spacing: 10) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("距離 (km)")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundColor(Color.tasukiPrimary)
+                        TextField("例: 5", text: $targetDistanceKmText)
+                            .keyboardType(.decimalPad)
+                            .textFieldStyle(.roundedBorder)
+                    }
+
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("時間 (分)")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundColor(Color.tasukiPrimary)
+                        TextField("例: 30", text: $targetDurationMinutesText)
+                            .keyboardType(.decimalPad)
+                            .textFieldStyle(.roundedBorder)
+                    }
+                }
+            }
+            .padding(.horizontal, 20)
+            .padding(.top, 16)
+
+            Spacer(minLength: 0)
+
+            Button {
+                beginRunStartCountdown(seconds: 5)
+                navigateToRunStartReady = false
+            } label: {
+                Text(runStartCountdownPhase != nil ? "準備中…" : "Lets RUN!")
+                    .font(.system(size: 18, weight: .bold))
+                    .foregroundColor(Color.tasukiOnBrandYellow)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 16)
+                    .background(Capsule().fill(Color.tasukiPrimaryButtonFill))
+            }
+            .buttonStyle(.plain)
+            .disabled(runStartCountdownPhase != nil)
+            .padding(.horizontal, 20)
+            .padding(.bottom, 20)
+        }
+        .background(Color.tasukiDarkBackground.ignoresSafeArea())
+        .navigationTitle("")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .principal) {
+                Text("RUN START")
+                    .font(.system(size: 21, weight: .heavy))
+                    .tracking(8)
+                    .foregroundColor(Color.tasukiPrimary)
+                    .shadow(color: .white.opacity(0.8), radius: 2, x: 0, y: 0)
+            }
+        }
+        .onAppear {
+            requestCurrentLocationOnIdleMap()
+        }
     }
 
     private var mapCard: some View {
@@ -707,8 +897,8 @@ struct RunRecordingView: View {
                             }
                         }
                     }
-                    if routeCoordinates.count >= 2 {
-                        MapPolyline(coordinates: routeCoordinates)
+                    if displayRouteCoordinates.count >= 2 {
+                        MapPolyline(coordinates: displayRouteCoordinates)
                             .stroke(Color.tasukiAccent, lineWidth: 4)
                     }
                 }
@@ -788,12 +978,12 @@ struct RunRecordingView: View {
         .transition(.opacity)
     }
 
-    private func beginRunStartCountdown() {
+    private func beginRunStartCountdown(seconds: Int = 5) {
         runStartCountdownTask?.cancel()
         runStartCountdownTask = Task { @MainActor in
             defer { runStartCountdownTask = nil }
             do {
-                for phase in (1...3).reversed() {
+                for phase in (1...max(1, seconds)).reversed() {
                     runStartCountdownPhase = phase
                     try await Task.sleep(nanoseconds: 1_000_000_000)
                     try Task.checkCancellation()
@@ -855,6 +1045,12 @@ struct RunRecordingView: View {
                             Text("\(String(format: "%.1f", activity.distanceKm))km · \(activity.paceLabel)")
                                 .font(.system(size: 14, weight: .semibold))
                                 .foregroundColor(Color.tasukiPrimary)
+                            if let metrics = activity.metrics {
+                                Text(recentActivitySupplementarySummary(metrics))
+                                    .font(.caption2)
+                                    .foregroundColor(Color.tasukiMutedText.opacity(0.9))
+                                    .lineLimit(1)
+                            }
                         }
                         Spacer()
                     }
@@ -871,7 +1067,8 @@ struct RunRecordingView: View {
                 date: activity.startedAt,
                 distanceKm: activity.distanceKm,
                 pace: activity.paceLabel,
-                routeCoordinates: activity.route.map(\.coordinate)
+                routeCoordinates: activity.route.map(\.coordinate),
+                metrics: activity.metrics
             )
         }
     }
@@ -942,15 +1139,35 @@ struct RunRecordingView: View {
         return tracker.distanceKm / (elapsedSeconds / 3600.0)
     }
 
-    init(onEkidenActivitySaved: ((RunActivity) -> Void)? = nil) {
+    init(onEkidenActivitySaved: ((RunActivity) -> Void)? = nil, embedNavigationStack: Bool = true) {
         self.onEkidenActivitySaved = onEkidenActivitySaved
+        self.embedNavigationStack = embedNavigationStack
     }
 
     private func finishAndPrepareDraft() {
         let endedAt = Date()
         let distanceKm = tracker.distanceKm
         let durationSeconds = max(tracker.elapsedSeconds(now: now), 1)
+        let elapsedWallSeconds: TimeInterval
+        if let started = tracker.trackingStartedAt {
+            elapsedWallSeconds = max(1, endedAt.timeIntervalSince(started))
+        } else {
+            elapsedWallSeconds = durationSeconds
+        }
         let routeSnapshot = tracker.routeCoordinates
+        let trackPointsSnapshot = tracker.trackPoints
+        let cadenceAverage = tracker.averageCadenceSpm
+        let cadenceMax = tracker.maxCadenceSpm
+        let metrics = buildExtendedMetrics(
+            distanceKm: distanceKm,
+            movingDurationSeconds: durationSeconds,
+            elapsedDurationSeconds: elapsedWallSeconds,
+            trackPoints: trackPointsSnapshot,
+            averageCadenceSpm: cadenceAverage,
+            maxCadenceSpm: cadenceMax,
+            targetDistanceKm: targetDistanceKm,
+            targetDurationSeconds: targetDurationSeconds
+        )
         tracker.stop()
         guard distanceKm >= 0.05 else {
             tracker.reset()
@@ -960,9 +1177,238 @@ struct RunRecordingView: View {
             endedAt: endedAt,
             distanceKm: distanceKm,
             durationSeconds: durationSeconds,
-            routeCoordinates: routeSnapshot
+            routeCoordinates: routeSnapshot,
+            metrics: metrics
         )
         tracker.reset()
+    }
+
+    private func buildExtendedMetrics(
+        distanceKm: Double,
+        movingDurationSeconds: TimeInterval,
+        elapsedDurationSeconds: TimeInterval,
+        trackPoints: [RunTrackPoint],
+        averageCadenceSpm: Double?,
+        maxCadenceSpm: Double?,
+        targetDistanceKm: Double?,
+        targetDurationSeconds: Double?
+    ) -> RunActivityMetrics {
+        let lapSplits = buildLapSplits(from: trackPoints)
+        let pace = distanceKm > 0 ? movingDurationSeconds / distanceKm : nil
+        let movingPace = pace
+        let speedKmh = movingDurationSeconds > 0 ? distanceKm / (movingDurationSeconds / 3600.0) : nil
+        let maxSpeedKmh = maxSegmentSpeedKmh(from: trackPoints)
+        let altitudeStats = altitudeMetrics(from: trackPoints)
+        let movement = movementDurations(from: trackPoints, elapsedDurationSeconds: elapsedDurationSeconds)
+        let stride = strideLengthMeters(distanceKm: distanceKm, averageCadenceSpm: averageCadenceSpm, movingDurationSeconds: movingDurationSeconds)
+        let gradeAdjustedPace = gapSecondsPerKm(basePace: movingPace, altitude: altitudeStats, distanceKm: distanceKm)
+        let calories = estimatedCaloriesKcal
+        let distanceGoalProgress = targetDistanceKm.map { goal in
+            guard goal > 0 else { return 0.0 }
+            return min(max(distanceKm / goal, 0.0), 1.0)
+        }
+        let durationGoalProgress = targetDurationSeconds.map { goal in
+            guard goal > 0 else { return 0.0 }
+            return min(max(elapsedDurationSeconds / goal, 0.0), 1.0)
+        }
+        return RunActivityMetrics(
+            totalDistanceKm: distanceKm,
+            elapsedTimeSeconds: elapsedDurationSeconds,
+            movingTimeSeconds: movingDurationSeconds,
+            totalTimeSeconds: elapsedDurationSeconds,
+            averagePaceSecondsPerKm: pace,
+            averageMovingPaceSecondsPerKm: movingPace,
+            gradeAdjustedPaceSecondsPerKm: gradeAdjustedPace,
+            bestPaceSecondsPerKm: lapSplits.map(\.paceSecondsPerKm).min(),
+            averageSpeedKmh: speedKmh,
+            maxSpeedKmh: maxSpeedKmh,
+            lapSplits: lapSplits,
+            runningTimeSeconds: movement.running,
+            walkingTimeSeconds: movement.walking,
+            restTimeSeconds: movement.rest,
+            caloriesKcal: calories,
+            averageCadenceSpm: averageCadenceSpm,
+            maxCadenceSpm: maxCadenceSpm,
+            averageStrideLengthMeters: stride,
+            averageVerticalOscillationCm: nil,
+            averageVerticalRatioPercent: nil,
+            averageGroundContactTimeMs: nil,
+            totalAscentMeters: altitudeStats.gain,
+            totalDescentMeters: altitudeStats.loss,
+            minAltitudeMeters: altitudeStats.min,
+            maxAltitudeMeters: altitudeStats.max,
+            altitudeTrendMeters: altitudeStats.trend,
+            weatherSummary: nil,
+            temperatureCelsius: nil,
+            windDirection: nil,
+            windSpeedMetersPerSecond: nil,
+            targetDistanceKm: targetDistanceKm,
+            targetDurationSeconds: targetDurationSeconds,
+            targetDistanceProgress: distanceGoalProgress,
+            targetDurationProgress: durationGoalProgress
+        )
+    }
+
+    private func positiveDouble(from raw: String) -> Double? {
+        let trimmed = raw
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: ",", with: ".")
+        guard let value = Double(trimmed), value > 0 else { return nil }
+        return value
+    }
+
+    private func buildLapSplits(from points: [RunTrackPoint]) -> [RunActivityLapSplit] {
+        guard points.count >= 2 else { return [] }
+        var laps: [RunActivityLapSplit] = []
+        var lapDistanceMeters: Double = 0
+        var lapDurationSeconds: TimeInterval = 0
+        var lapIndex = 1
+        let lapDistanceTargetMeters: Double = 1000
+
+        for i in 1..<points.count {
+            let a = points[i - 1]
+            let b = points[i]
+            let segmentDistance = CLLocation(latitude: a.latitude, longitude: a.longitude)
+                .distance(from: CLLocation(latitude: b.latitude, longitude: b.longitude))
+            let segmentDuration = max(0, b.timestamp.timeIntervalSince(a.timestamp))
+            guard segmentDuration > 0, segmentDistance > 0 else { continue }
+
+            var remainingDistance = segmentDistance
+            var remainingDuration = segmentDuration
+            while remainingDistance > 0.001 {
+                let capacity = max(0, lapDistanceTargetMeters - lapDistanceMeters)
+                if remainingDistance <= capacity || capacity <= 0.001 {
+                    lapDistanceMeters += remainingDistance
+                    lapDurationSeconds += remainingDuration
+                    remainingDistance = 0
+                    remainingDuration = 0
+                } else {
+                    let ratio = capacity / remainingDistance
+                    let usedDuration = remainingDuration * ratio
+                    lapDistanceMeters += capacity
+                    lapDurationSeconds += usedDuration
+                    remainingDistance -= capacity
+                    remainingDuration -= usedDuration
+                }
+
+                if lapDistanceMeters >= lapDistanceTargetMeters - 0.001, lapDurationSeconds > 0 {
+                    let pace = lapDurationSeconds / (lapDistanceMeters / 1000.0)
+                    laps.append(
+                        RunActivityLapSplit(
+                            index: lapIndex,
+                            distanceKm: lapDistanceMeters / 1000.0,
+                            durationSeconds: lapDurationSeconds,
+                            paceSecondsPerKm: pace
+                        )
+                    )
+                    lapIndex += 1
+                    lapDistanceMeters = 0
+                    lapDurationSeconds = 0
+                }
+            }
+        }
+
+        if lapDistanceMeters >= 50, lapDurationSeconds > 0 {
+            let pace = lapDurationSeconds / (lapDistanceMeters / 1000.0)
+            laps.append(
+                RunActivityLapSplit(
+                    index: lapIndex,
+                    distanceKm: lapDistanceMeters / 1000.0,
+                    durationSeconds: lapDurationSeconds,
+                    paceSecondsPerKm: pace
+                )
+            )
+        }
+
+        return laps
+    }
+
+    private func maxSegmentSpeedKmh(from points: [RunTrackPoint]) -> Double? {
+        guard points.count >= 2 else { return nil }
+        var maxMps: Double = 0
+        for i in 1..<points.count {
+            let a = points[i - 1]
+            let b = points[i]
+            let dt = b.timestamp.timeIntervalSince(a.timestamp)
+            guard dt > 0 else { continue }
+            let dist = CLLocation(latitude: a.latitude, longitude: a.longitude)
+                .distance(from: CLLocation(latitude: b.latitude, longitude: b.longitude))
+            let derived = dist / dt
+            let sensor = b.speedMetersPerSecond ?? derived
+            maxMps = max(maxMps, max(derived, sensor))
+        }
+        return maxMps > 0 ? maxMps * 3.6 : nil
+    }
+
+    private func altitudeMetrics(from points: [RunTrackPoint]) -> (gain: Double?, loss: Double?, min: Double?, max: Double?, trend: [Double]?) {
+        let validAltitudes = points.map(\.altitudeMeters).filter { $0 > -200 && $0 < 10000 }
+        guard validAltitudes.count >= 2 else {
+            return (nil, nil, validAltitudes.min(), validAltitudes.max(), validAltitudes.isEmpty ? nil : validAltitudes)
+        }
+        var gain: Double = 0
+        var loss: Double = 0
+        for i in 1..<validAltitudes.count {
+            let delta = validAltitudes[i] - validAltitudes[i - 1]
+            if delta > 0 {
+                gain += delta
+            } else {
+                loss += abs(delta)
+            }
+        }
+        let sampledTrend = downsampleAltitudes(validAltitudes, maxCount: 120)
+        return (gain, loss, validAltitudes.min(), validAltitudes.max(), sampledTrend)
+    }
+
+    private func downsampleAltitudes(_ values: [Double], maxCount: Int) -> [Double] {
+        guard values.count > maxCount, maxCount > 1 else { return values }
+        let step = Double(values.count - 1) / Double(maxCount - 1)
+        return (0..<maxCount).map { idx in
+            let sourceIndex = Int((Double(idx) * step).rounded())
+            return values[min(sourceIndex, values.count - 1)]
+        }
+    }
+
+    private func movementDurations(from points: [RunTrackPoint], elapsedDurationSeconds: TimeInterval) -> (running: Double, walking: Double, rest: Double) {
+        guard points.count >= 2 else {
+            return (0, 0, max(0, elapsedDurationSeconds))
+        }
+        var running: Double = 0
+        var walking: Double = 0
+        var rest: Double = 0
+        for i in 1..<points.count {
+            let a = points[i - 1]
+            let b = points[i]
+            let dt = max(0, b.timestamp.timeIntervalSince(a.timestamp))
+            guard dt > 0 else { continue }
+            let dist = CLLocation(latitude: a.latitude, longitude: a.longitude)
+                .distance(from: CLLocation(latitude: b.latitude, longitude: b.longitude))
+            let speed = max(0, dist / dt)
+            if speed >= 2.0 {
+                running += dt
+            } else if speed >= 0.7 {
+                walking += dt
+            } else {
+                rest += dt
+            }
+        }
+        let classified = running + walking + rest
+        if elapsedDurationSeconds > classified {
+            rest += elapsedDurationSeconds - classified
+        }
+        return (running, walking, rest)
+    }
+
+    private func strideLengthMeters(distanceKm: Double, averageCadenceSpm: Double?, movingDurationSeconds: TimeInterval) -> Double? {
+        guard let cadence = averageCadenceSpm, cadence > 0, movingDurationSeconds > 0 else { return nil }
+        let totalSteps = cadence * (movingDurationSeconds / 60.0)
+        guard totalSteps > 1 else { return nil }
+        return (distanceKm * 1000.0) / totalSteps
+    }
+
+    private func gapSecondsPerKm(basePace: Double?, altitude: (gain: Double?, loss: Double?, min: Double?, max: Double?, trend: [Double]?), distanceKm: Double) -> Double? {
+        guard let pace = basePace, let gain = altitude.gain, let loss = altitude.loss, distanceKm > 0 else { return nil }
+        let netGradePercent = ((gain - loss) / (distanceKm * 1000.0)) * 100.0
+        return pace * (1.0 + netGradePercent * 0.03)
     }
 
     private func formatDuration(_ sec: TimeInterval) -> String {
@@ -982,6 +1428,22 @@ struct RunRecordingView: View {
         f.dateFormat = "M/d HH:mm"
         return f.string(from: date)
     }
+    
+    private func recentActivitySupplementarySummary(_ metrics: RunActivityMetrics) -> String {
+        let cadence: String
+        if let v = metrics.averageCadenceSpm, v > 0 {
+            cadence = String(format: "平均ピッチ %.0f spm", v)
+        } else {
+            cadence = "平均ピッチ --"
+        }
+        let ascent: String
+        if let v = metrics.totalAscentMeters {
+            ascent = String(format: "上昇 %.0f m", v)
+        } else {
+            ascent = "上昇 -- m"
+        }
+        return "\(cadence) ・ \(ascent)"
+    }
 }
 
 private struct RunRecordingNavigationBarHiddenModifier: ViewModifier {
@@ -997,10 +1459,8 @@ private struct RunRecordingNavigationBarHiddenModifier: ViewModifier {
 }
 
 #Preview {
-    NavigationStack {
-        RunRecordingView()
-            .environmentObject(CoachCertificationManager.shared)
-            .environmentObject(MainTabRouter())
-            .environmentObject(TabBarVisibility())
-    }
+    RunRecordingView()
+        .environmentObject(CoachCertificationManager.shared)
+        .environmentObject(MainTabRouter())
+        .environmentObject(TabBarVisibility())
 }

@@ -10,7 +10,7 @@ struct MainTabView: View {
     /// 非 Home タブのパネルを右へずらす量（Home を手前に見せる）
     @State private var panelSlideOffset: CGFloat = 0
     @State private var screenWidth: CGFloat = UIScreen.main.bounds.width
-    @EnvironmentObject private var unreadProvider: UnreadCountProviderBase
+    @EnvironmentObject private var conversationManager: ConversationManager
     @EnvironmentObject private var authManager: AuthManager
     @EnvironmentObject private var coachCertification: CoachCertificationManager
     @EnvironmentObject private var tabBarVisibility: TabBarVisibility
@@ -86,9 +86,6 @@ struct MainTabView: View {
             if newValue != 0 {
                 panelSlideOffset = 0
             }
-            if newValue == 2 {
-                mainTabRouter.suppressBackToHomeOverlay = false
-            }
             // #region agent log
             AgentDebugLog.log(
                 location: "MainTabView.onChange(selectedTab)",
@@ -144,7 +141,7 @@ struct MainTabView: View {
     private var homeTabRoot: some View {
         NavigationStack {
             HomeView()
-                .environmentObject(unreadProvider)
+                .environmentObject(conversationManager)
                 .environmentObject(mainTabRouter)
                 .environmentObject(tabBarVisibility)
         }
@@ -154,11 +151,9 @@ struct MainTabView: View {
     private func nonHomeTabRoot(for tab: Int) -> some View {
         switch tab {
         case 1:
-            NavigationStack {
-                RunRecordingView()
-                    .environmentObject(coachCertification)
-                    .environmentObject(mainTabRouter)
-            }
+            RunRecordingView()
+                .environmentObject(coachCertification)
+                .environmentObject(mainTabRouter)
         case 2:
             TeamView()
         case 3:
@@ -168,7 +163,7 @@ struct MainTabView: View {
         default:
             NavigationStack {
                 HomeView()
-                    .environmentObject(unreadProvider)
+                    .environmentObject(conversationManager)
                     .environmentObject(mainTabRouter)
                     .environmentObject(tabBarVisibility)
             }
@@ -304,7 +299,7 @@ struct MainTabView: View {
     MainTabView()
         .environmentObject(AuthManager(forPreview: true))
         .environmentObject(UserManager())
-        .environmentObject(PreviewUnreadProvider() as UnreadCountProviderBase)
+        .environmentObject(ConversationManager.shared)
         .environmentObject(JoinedPracticesStore())
         .environmentObject(CoachCertificationManager.shared)
         .environmentObject(TabBarVisibility())

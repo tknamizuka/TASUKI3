@@ -34,11 +34,9 @@ struct HomeView: View {
     /// 子画面（シート内 `MessageListView` など）が `pushHiddenContext` でタブを隠すための共有状態。
     /// ルートの下部メニュー表示は `MainTabView.shouldShowMenuBar`（Home タブかつ非ネスト時のみ）と組み合わさる（`TASUKI_demo` と同じ）。
     @EnvironmentObject private var tabBarVisibility: TabBarVisibility
-    @EnvironmentObject private var unreadProvider: UnreadCountProviderBase
+    @EnvironmentObject private var conversationManager: ConversationManager
     @EnvironmentObject private var joinedPracticesStore: JoinedPracticesStore
     @AppStorage("runningDataSource") private var runningDataSourceRaw: String = RunningDataSource.all.rawValue
-    @AppStorage("myRank") private var myRank: String = "Rank E"
-    @AppStorage("reduceRankingPressure") private var reduceRankingPressure: Bool = false
     @State private var runBannerTick = Date()
     private let runBannerTimer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
     init(
@@ -93,26 +91,6 @@ struct HomeView: View {
 
     private var selectedRunningDataSource: RunningDataSource {
         RunningDataSource(rawValue: runningDataSourceRaw) ?? .all
-    }
-
-    private var sameRankUsers: [User] {
-        var users = [mockUser] + mockUsers
-        var me = users[0]
-        me.rank = myRank
-        me.totalPoints = PointService.shared.currentTotalPoints()
-        users[0] = me
-        return users
-            .filter { $0.rank == myRank }
-            .sorted { $0.totalPoints > $1.totalPoints }
-    }
-
-    private var sameRankPosition: Int {
-        guard let idx = sameRankUsers.firstIndex(where: { $0.id == mockUser.id }) else { return 1 }
-        return idx + 1
-    }
-
-    private var sameRankTotal: Int {
-        max(sameRankUsers.count, 1)
     }
 
     private var formattedTotalPoints: String {
@@ -235,22 +213,6 @@ struct HomeView: View {
                     }
                     .padding(.horizontal, 20)
 
-                    if !reduceRankingPressure {
-                        NavigationLink(destination: RankingView()) {
-                            TasukiFlatHubRow(
-                                title: "RANKING",
-                                subtitle: "総合ランキング · 現在 \(myRank) · 同ランク内 \(sameRankPosition)/\(sameRankTotal)（参考）",
-                                systemImage: "crown.fill",
-                                iconFontSize: 20,
-                                hStackSpacing: 12,
-                                titleSubtitleSpacing: 4
-                            )
-                        }
-                        .buttonStyle(.plain)
-                        .padding(.horizontal, 20)
-                        .padding(.top, 8)
-                    }
-
                     Spacer(minLength: 24)
                 }
                 .padding(.bottom, 24)
@@ -298,8 +260,8 @@ struct HomeView: View {
                         Image(systemName: "message.fill")
                             .font(.system(size: 20))
                             .foregroundColor(Color.tasukiPrimary)
-                        if unreadProvider.unreadCount > 0 {
-                            Text("\(min(unreadProvider.unreadCount, 99))")
+                        if conversationManager.unreadCount > 0 {
+                            Text("\(min(conversationManager.unreadCount, 99))")
                                 .font(.system(size: 10, weight: .bold))
                                 .foregroundColor(Color.tasukiOnBrandYellow)
                                 .padding(4)
@@ -324,7 +286,7 @@ struct HomeView: View {
             } else if isPreview {
                 isHealthKitLoading = false
             }
-            unreadProvider.refreshUnreadCount()
+            conversationManager.refreshUnreadCount()
             activityStore.refreshFromRemote()
         }
         .onReceive(runBannerTimer) { date in
@@ -447,7 +409,7 @@ struct HomeView: View {
     }
     .environmentObject(MainTabRouter())
     .environmentObject(TabBarVisibility())
-    .environmentObject(PreviewUnreadProvider() as UnreadCountProviderBase)
+    .environmentObject(ConversationManager.shared)
     .environmentObject(JoinedPracticesStore())
 }
 
@@ -463,7 +425,7 @@ struct HomeView: View {
     }
     .environmentObject(MainTabRouter())
     .environmentObject(TabBarVisibility())
-    .environmentObject(PreviewUnreadProvider() as UnreadCountProviderBase)
+    .environmentObject(ConversationManager.shared)
     .environmentObject(JoinedPracticesStore())
 }
 
@@ -478,7 +440,7 @@ struct HomeView: View {
     }
     .environmentObject(MainTabRouter())
     .environmentObject(TabBarVisibility())
-    .environmentObject(PreviewUnreadProvider() as UnreadCountProviderBase)
+    .environmentObject(ConversationManager.shared)
     .environmentObject(JoinedPracticesStore())
 }
 
@@ -493,7 +455,7 @@ struct HomeView: View {
     }
     .environmentObject(MainTabRouter())
     .environmentObject(TabBarVisibility())
-    .environmentObject(PreviewUnreadProvider() as UnreadCountProviderBase)
+    .environmentObject(ConversationManager.shared)
     .environmentObject(JoinedPracticesStore())
 }
 
@@ -508,7 +470,7 @@ struct HomeView: View {
     }
     .environmentObject(MainTabRouter())
     .environmentObject(TabBarVisibility())
-    .environmentObject(PreviewUnreadProvider() as UnreadCountProviderBase)
+    .environmentObject(ConversationManager.shared)
     .environmentObject(JoinedPracticesStore())
 }
 
@@ -525,6 +487,7 @@ struct HomeView: View {
     }
     .environmentObject(MainTabRouter())
     .environmentObject(TabBarVisibility())
-    .environmentObject(PreviewUnreadProvider(unreadCount: 3) as UnreadCountProviderBase)
+    .environmentObject(ConversationManager.shared)
     .environmentObject(store)
+    .onAppear { ConversationManager.shared.unreadCount = 3 }
 }

@@ -15,6 +15,7 @@ struct MyProfileView: View {
     @AppStorage("myMonthlyDist") private var monthlyDist: String = "150km"
     @AppStorage("myTotalPoints") private var myTotalPoints: Int = 0
     @AppStorage("myBio") private var bio: String = "平日は仕事終わりに5-10km走ってます！週末は距離走やりたいです。"
+    @AppStorage("reduceRankingPressure") private var reduceRankingPressure: Bool = false
 
     @State private var userUUID: String = ""
     @State private var showCopiedToast: Bool = false
@@ -36,6 +37,26 @@ struct MyProfileView: View {
             .filter { !$0.isEmpty }
     }
 
+    private var sameRankUsers: [User] {
+        var users = [mockUser] + mockUsers
+        var me = users[0]
+        me.rank = rank
+        me.totalPoints = PointService.shared.currentTotalPoints()
+        users[0] = me
+        return users
+            .filter { $0.rank == rank }
+            .sorted { $0.totalPoints > $1.totalPoints }
+    }
+
+    private var sameRankPosition: Int {
+        guard let idx = sameRankUsers.firstIndex(where: { $0.id == mockUser.id }) else { return 1 }
+        return idx + 1
+    }
+
+    private var sameRankTotal: Int {
+        max(sameRankUsers.count, 1)
+    }
+
     var body: some View {
         NavigationStack {
             ZStack {
@@ -43,7 +64,7 @@ struct MyProfileView: View {
 
                 ScrollView(showsIndicators: false) {
                     VStack(spacing: 0) {
-                        TasukiBrandedHeroHeader(title: "ME")
+                        TasukiBrandedHeroHeader(title: "My Profile", compactToolbarStyle: true, compactTitleTracking: 3)
                         VStack(spacing: 0) {
                             heroSection
                                 .padding(.bottom, 28)
@@ -87,6 +108,7 @@ struct MyProfileView: View {
                 loadUserUUID()
             }
             .onAppear {
+                activityStore.refreshFromRemote()
                 // #region agent log
                 AgentDebugLog.log(
                     location: "MyProfileView.onAppear",
@@ -177,6 +199,36 @@ struct MyProfileView: View {
                 statItem(title: "Avg Pace (月)", value: monthlyAveragePaceDisplay)
                 statItem(title: "Monthly Dist", value: monthlyDist)
             }
+
+            sectionEyebrow("RUN RECORDER")
+
+            HStack(spacing: 12) {
+                statItem(title: "記録 今月回数", value: "\(activityStore.tasukiRecorderMonthlyRunCount()) 回")
+                statItem(title: "記録 今月 km", value: String(format: "%.1f km", activityStore.tasukiRecorderMonthlyDistanceKm()))
+            }
+            HStack(spacing: 12) {
+                statItem(title: "平均ペース（記録・月）", value: activityStore.tasukiRecorderMonthlyAveragePaceDisplayLabel())
+                statItem(title: "移動ペース（記録・月）", value: activityStore.tasukiRecorderMonthlyAverageMovingPaceDisplayLabel())
+            }
+            HStack(spacing: 12) {
+                statItem(title: "GAP（記録・月）", value: activityStore.tasukiRecorderMonthlyGapPaceDisplayLabel())
+                statItem(title: "平均速度（記録・月）", value: activityStore.tasukiRecorderMonthlyAverageSpeedDisplayLabel())
+            }
+            HStack(spacing: 12) {
+                statItem(title: "平均ケイデンス", value: activityStore.tasukiRecorderMonthlyAverageCadenceDisplayLabel())
+                statItem(title: "最高ケイデンス（月）", value: activityStore.tasukiRecorderMonthlyMaxCadenceDisplayLabel())
+            }
+            HStack(spacing: 12) {
+                statItem(title: "推定ストライド", value: activityStore.tasukiRecorderMonthlyAverageStrideDisplayLabel())
+                statItem(title: "累積上昇（記録・月）", value: activityStore.tasukiRecorderMonthlyTotalAscentDisplayLabel())
+            }
+            HStack(spacing: 12) {
+                statItem(title: "消費 kcal（記録・月）", value: activityStore.tasukiRecorderMonthlyTotalCaloriesDisplayLabel())
+                statItem(
+                    title: "累計（記録）",
+                    value: "\(activityStore.tasukiRecorderAllTimeRunCount()) 回 · \(String(format: "%.1f km", activityStore.tasukiRecorderAllTimeDistanceKm()))"
+                )
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -255,6 +307,20 @@ struct MyProfileView: View {
     private var profileSection: some View {
         VStack(alignment: .leading, spacing: 12) {
             sectionEyebrow("PROFILE")
+
+            if !reduceRankingPressure {
+                NavigationLink(destination: RankingView()) {
+                    TasukiFlatHubRow(
+                        title: "RANKING",
+                        subtitle: "総合ランキング · 現在 \(rank) · 同ランク内 \(sameRankPosition)/\(sameRankTotal)（参考）",
+                        systemImage: "crown.fill",
+                        iconFontSize: 20,
+                        hStackSpacing: 12,
+                        titleSubtitleSpacing: 4
+                    )
+                }
+                .buttonStyle(.plain)
+            }
 
             HStack {
                 Image(systemName: "mappin.and.ellipse")

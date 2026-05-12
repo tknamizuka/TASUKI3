@@ -14,6 +14,7 @@ struct CoachView: View {
     @AppStorage("myName") private var myName: String = "Hiro"
     @State private var showQuestionSheet = false
     @EnvironmentObject private var coachCertification: CoachCertificationManager
+    @EnvironmentObject private var mainTabRouter: MainTabRouter
     @ObservedObject private var qaStore = CoachQAStore.shared
     
     private var userQAItems: [QAItem] {
@@ -172,6 +173,12 @@ struct CoachView: View {
                     showQuestionSheet = false
                 }
             )
+        }
+        .onAppear {
+            mainTabRouter.suppressBackToHomeOverlay = true
+        }
+        .onDisappear {
+            mainTabRouter.suppressBackToHomeOverlay = false
         }
     }
     
@@ -410,4 +417,5 @@ struct QuestionPostSheet: View {
 #Preview {
     CoachView()
         .environmentObject(CoachCertificationManager.shared)
+        .environmentObject(MainTabRouter())
 }

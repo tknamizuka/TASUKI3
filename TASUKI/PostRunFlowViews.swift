@@ -11,6 +11,7 @@ struct RunFinishDraft: Identifiable {
     let distanceKm: Double
     let durationSeconds: TimeInterval
     let routeCoordinates: [CLLocationCoordinate2D]
+    let metrics: RunActivityMetrics?
 }
 
 // MARK: - Root flow
@@ -170,7 +171,8 @@ private struct PostRunActivitySaveView: View {
             title: titleTrim.isEmpty ? nil : titleTrim,
             note: noteTrim.isEmpty ? nil : noteTrim,
             perceivedEffort: nil,
-            postRunMood: nil
+            postRunMood: nil,
+            metrics: draft.metrics
         )
         let earnedPoints = max(20, Int(activity.distanceKm * 12))
         PointService.shared.addPointsToCurrentUser(
@@ -283,6 +285,16 @@ private struct PostRunActivityReviewView: View {
     let onUpdateActivity: (RunActivity) -> Void
 
     @State private var showEditSheet = false
+    @State private var selectedTab: DetailTab = .overview
+
+    private enum DetailTab: String, CaseIterable, Identifiable {
+        case overview = "概要"
+        case stats = "統計"
+        case laps = "ラップ数"
+        case graphs = "グラフ"
+
+        var id: String { rawValue }
+    }
 
     init(
         activity: RunActivity,
@@ -298,6 +310,10 @@ private struct PostRunActivityReviewView: View {
 
     private var routeCoordinates: [CLLocationCoordinate2D] {
         activity.route.map(\.coordinate)
+    }
+    
+    private var metrics: RunActivityMetrics? {
+        activity.metrics
     }
 
     private var mapRegion: MKCoordinateRegion {
@@ -323,52 +339,38 @@ private struct PostRunActivityReviewView: View {
     }
 
     var body: some View {
-        ScrollView(showsIndicators: false) {
-            VStack(alignment: .leading, spacing: 20) {
-                if let t = activity.title, !t.isEmpty {
-                    Text(t)
-                        .font(.system(size: 22, weight: .bold))
-                        .foregroundColor(Color.tasukiPrimary)
-                }
-
-                VStack(alignment: .leading, spacing: 12) {
-                    Text(formatDate(activity.startedAt))
-                        .font(.system(size: 14, weight: .medium))
-                        .foregroundColor(Color.tasukiMutedText)
-                    HStack(spacing: 20) {
-                        reviewStat(title: "距離", value: String(format: "%.2f km", activity.distanceKm))
-                        reviewStat(title: "時間", value: formatDuration(activity.durationSeconds))
-                        reviewStat(title: "平均ペース", value: activity.paceLabel)
+        VStack(spacing: 0) {
+            tabSelector
+            ScrollView(showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 16) {
+                    switch selectedTab {
+                    case .overview:
+                        overviewContent
+                    case .stats:
+                        if let metrics {
+                            detailedMetricsSection(metrics)
+                        } else {
+                            emptyMetricsState
+                        }
+                    case .laps:
+                        lapsContent
+                    case .graphs:
+                        graphsContent
                     }
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(16)
-                .background(RoundedRectangle(cornerRadius: 14).fill(Color.tasukiDarkCardSecondary))
-
-                if let note = activity.note, !note.isEmpty {
-                    Text(note)
-                        .font(.system(size: 15))
-                        .foregroundColor(Color.tasukiPrimary)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(16)
-                        .background(RoundedRectangle(cornerRadius: 14).fill(Color.tasukiDarkCard))
-                }
-
-                Text("走行ルート")
-                    .font(.system(size: 13, weight: .bold))
-                    .foregroundColor(Color.tasukiMutedText)
-
-                RunHistoryMapView(coordinates: routeCoordinates, region: mapRegion)
-                    .frame(height: 280)
-                    .clipShape(RoundedRectangle(cornerRadius: 14))
+                .padding(20)
             }
-            .padding(20)
         }
         .background(Color.tasukiDarkBackground.ignoresSafeArea())
-        .navigationTitle("振り返り")
+        .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
         .navigationBarBackButtonHidden(true)
         .toolbar {
+            ToolbarItem(placement: .principal) {
+                Text("振り返り")
+                    .font(.system(size: 19, weight: .bold))
+                    .foregroundColor(Color.tasukiPrimary)
+            }
             ToolbarItem(placement: .topBarLeading) {
                 Button {
                     onGoHome()
@@ -411,6 +413,116 @@ private struct PostRunActivityReviewView: View {
         }
     }
 
+    private var tabSelector: some View {
+        HStack(spacing: 0) {
+            ForEach(DetailTab.allCases) { tab in
+                Button {
+                    selectedTab = tab
+                } label: {
+                    VStack(spacing: 8) {
+                        Text(tab.rawValue)
+                            .font(.system(size: 14, weight: selectedTab == tab ? .bold : .medium))
+                            .foregroundColor(selectedTab == tab ? Color.tasukiPrimary : Color.tasukiMutedText)
+                            .frame(maxWidth: .infinity)
+                        Rectangle()
+                            .fill(selectedTab == tab ? Color.tasukiPrimary : Color.clear)
+                            .frame(height: 2)
+                    }
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.top, 8)
+        .padding(.bottom, 4)
+        .background(Color.tasukiDarkBackground)
+    }
+
+    private var overviewContent: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            VStack(alignment: .leading, spacing: 10) {
+                Text("ACTIVITY")
+                    .font(.system(size: 11, weight: .bold))
+                    .tracking(1.2)
+                    .foregroundColor(Color.tasukiMutedText)
+                Text(formatDate(activity.startedAt))
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundColor(Color.tasukiMutedText)
+                if let t = activity.title, !t.isEmpty {
+                    Text(t)
+                        .font(.system(size: 22, weight: .bold))
+                        .foregroundColor(Color.tasukiPrimary)
+                }
+                HStack(spacing: 16) {
+                    reviewStat(title: "距離", value: String(format: "%.2f km", activity.distanceKm))
+                    reviewStat(title: "平均ペース", value: activity.paceLabel)
+                }
+                HStack(spacing: 16) {
+                    reviewStat(title: "合計タイム", value: formatDuration(activity.durationSeconds))
+                    reviewStat(title: "カロリー", value: formatCalories(metrics?.caloriesKcal))
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(16)
+            .background(RoundedRectangle(cornerRadius: 14).fill(Color.tasukiDarkCardSecondary))
+            
+            RunHistoryMapView(coordinates: routeCoordinates, region: mapRegion)
+                .frame(height: 220)
+                .clipShape(RoundedRectangle(cornerRadius: 14))
+
+            if let note = activity.note, !note.isEmpty {
+                Text(note)
+                    .font(.system(size: 15))
+                    .foregroundColor(Color.tasukiPrimary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(16)
+                    .background(RoundedRectangle(cornerRadius: 14).fill(Color.tasukiDarkCard))
+            }
+        }
+    }
+
+    private var lapsContent: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            if let laps = metrics?.lapSplits, !laps.isEmpty {
+                lapSplitsCard(laps)
+            } else {
+                emptyMetricsState
+            }
+        }
+    }
+
+    private var graphsContent: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            if let metrics {
+                trendGraphCard(
+                    title: "ペース推移",
+                    color: .blue,
+                    values: metrics.lapSplits.map(\.paceSecondsPerKm),
+                    minText: formatPace(metrics.bestPaceSecondsPerKm),
+                    maxText: formatPace(metrics.averagePaceSecondsPerKm)
+                )
+                trendGraphCard(
+                    title: "高度推移",
+                    color: .green,
+                    values: metrics.altitudeTrendMeters ?? [],
+                    minText: formatMeters(metrics.minAltitudeMeters),
+                    maxText: formatMeters(metrics.maxAltitudeMeters)
+                )
+            } else {
+                emptyMetricsState
+            }
+        }
+    }
+
+    private var emptyMetricsState: some View {
+        Text("このアクティビティには詳細データがありません。")
+            .font(.system(size: 14, weight: .medium))
+            .foregroundColor(Color.tasukiMutedText)
+            .padding(16)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(RoundedRectangle(cornerRadius: 12).fill(Color.tasukiDarkCardSecondary))
+    }
+
     private func syncActivityFromStore() {
         if let latest = activityStore.activities.first(where: { $0.id == activity.id }) {
             activity = latest
@@ -430,6 +542,152 @@ private struct PostRunActivityReviewView: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
+    
+    @ViewBuilder
+    private func detailedMetricsSection(_ metrics: RunActivityMetrics) -> some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("統計")
+                .font(.system(size: 13, weight: .bold))
+                .foregroundColor(Color.tasukiMutedText)
+            
+            detailedGridCard(items: [
+                ("移動時間", formatDuration(metrics.movingTimeSeconds)),
+                ("経過時間", formatDuration(metrics.elapsedTimeSeconds)),
+                ("平均移動ペース", formatPace(metrics.averageMovingPaceSecondsPerKm)),
+                ("GAP", formatPace(metrics.gradeAdjustedPaceSecondsPerKm)),
+                ("最速ペース", formatPace(metrics.bestPaceSecondsPerKm)),
+                ("平均速度", formatSpeed(metrics.averageSpeedKmh)),
+                ("最高速度", formatSpeed(metrics.maxSpeedKmh)),
+                ("消費カロリー", formatCalories(metrics.caloriesKcal))
+            ])
+            
+            detailedGridCard(items: [
+                ("走行時間", formatDuration(metrics.runningTimeSeconds)),
+                ("ウォーク時間", formatDuration(metrics.walkingTimeSeconds)),
+                ("休憩時間", formatDuration(metrics.restTimeSeconds)),
+                ("平均ピッチ", formatCadence(metrics.averageCadenceSpm)),
+                ("最高ピッチ", formatCadence(metrics.maxCadenceSpm)),
+                ("平均ストライド", formatStride(metrics.averageStrideLengthMeters))
+            ])
+            
+            detailedGridCard(items: [
+                ("総上昇量", formatMeters(metrics.totalAscentMeters)),
+                ("総下降量", formatMeters(metrics.totalDescentMeters)),
+                ("最低高度", formatMeters(metrics.minAltitudeMeters)),
+                ("最高高度", formatMeters(metrics.maxAltitudeMeters))
+            ])
+            
+            if !metrics.lapSplits.isEmpty {
+                lapSplitsCard(metrics.lapSplits)
+            }
+        }
+    }
+    
+    private func detailedGridCard(items: [(String, String)]) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            ForEach(items.indices, id: \.self) { idx in
+                let item = items[idx]
+                HStack(alignment: .firstTextBaseline) {
+                    Text(item.0)
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundColor(Color.tasukiMutedText)
+                    Spacer()
+                    Text(item.1)
+                        .font(.system(size: 14, weight: .bold))
+                        .foregroundColor(Color.tasukiPrimary)
+                }
+                if idx < items.count - 1 {
+                    Divider().overlay(Color.tasukiMutedText.opacity(0.2))
+                }
+            }
+        }
+        .padding(14)
+        .background(RoundedRectangle(cornerRadius: 12).fill(Color.tasukiDarkCardSecondary))
+    }
+    
+    private func lapSplitsCard(_ laps: [RunActivityLapSplit]) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("ラップ（1kmごと）")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundColor(Color.tasukiMutedText)
+            ForEach(laps, id: \.index) { lap in
+                HStack(spacing: 8) {
+                    Text("Lap \(lap.index)")
+                        .font(.system(size: 13, weight: .bold))
+                        .foregroundColor(Color.tasukiPrimary)
+                        .frame(width: 58, alignment: .leading)
+                    Text(String(format: "%.2fkm", lap.distanceKm))
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(Color.tasukiMutedText)
+                        .frame(width: 62, alignment: .leading)
+                    Spacer()
+                    Text(formatDuration(lap.durationSeconds))
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundColor(Color.tasukiPrimary)
+                    Text(formatPace(lap.paceSecondsPerKm))
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundColor(Color.tasukiPrimary)
+                        .frame(width: 72, alignment: .trailing)
+                }
+                Divider().overlay(Color.tasukiMutedText.opacity(0.18))
+            }
+        }
+        .padding(14)
+        .background(RoundedRectangle(cornerRadius: 12).fill(Color.tasukiDarkCardSecondary))
+    }
+
+    private func trendGraphCard(
+        title: String,
+        color: Color,
+        values: [Double],
+        minText: String,
+        maxText: String
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(title)
+                .font(.system(size: 13, weight: .bold))
+                .foregroundColor(Color.tasukiMutedText)
+            HStack(spacing: 24) {
+                reviewStat(title: "最小", value: minText)
+                reviewStat(title: "最大/平均", value: maxText)
+            }
+            if values.count >= 2 {
+                metricLineGraph(values: values, color: color)
+                    .frame(height: 150)
+            } else {
+                Text("データ不足")
+                    .font(.caption)
+                    .foregroundColor(Color.tasukiMutedText)
+            }
+        }
+        .padding(14)
+        .background(RoundedRectangle(cornerRadius: 12).fill(Color.tasukiDarkCardSecondary))
+    }
+
+    private func metricLineGraph(values: [Double], color: Color) -> some View {
+        GeometryReader { geo in
+            let minV = values.min() ?? 0
+            let maxV = values.max() ?? 1
+            let range = max(maxV - minV, 0.0001)
+            let width = geo.size.width
+            let height = geo.size.height
+            Path { path in
+                for (index, value) in values.enumerated() {
+                    let x = width * CGFloat(index) / CGFloat(max(values.count - 1, 1))
+                    let normalized = (value - minV) / range
+                    let y = height - (CGFloat(normalized) * height)
+                    if index == 0 {
+                        path.move(to: CGPoint(x: x, y: y))
+                    } else {
+                        path.addLine(to: CGPoint(x: x, y: y))
+                    }
+                }
+            }
+            .stroke(color, style: StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round))
+        }
+        .background(Color.black.opacity(0.16))
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+    }
 
     private func formatDate(_ date: Date) -> String {
         let f = DateFormatter()
@@ -439,6 +697,7 @@ private struct PostRunActivityReviewView: View {
     }
 
     private func formatDuration(_ sec: TimeInterval) -> String {
+        guard sec > 0 else { return "--:--" }
         let total = Int(sec)
         let h = total / 3600
         let m = (total % 3600) / 60
@@ -447,6 +706,43 @@ private struct PostRunActivityReviewView: View {
             return String(format: "%d:%02d:%02d", h, m, s)
         }
         return String(format: "%02d:%02d", m, s)
+    }
+    
+    private func formatDuration(_ sec: TimeInterval?) -> String {
+        guard let sec else { return "--:--" }
+        return formatDuration(sec)
+    }
+    
+    private func formatPace(_ secPerKm: Double?) -> String {
+        guard let secPerKm, secPerKm > 0 else { return "--:--/km" }
+        let m = Int(secPerKm) / 60
+        let s = Int(secPerKm) % 60
+        return String(format: "%d:%02d/km", m, s)
+    }
+    
+    private func formatSpeed(_ kmh: Double?) -> String {
+        guard let kmh, kmh > 0 else { return "--.- km/h" }
+        return String(format: "%.1f km/h", kmh)
+    }
+    
+    private func formatCalories(_ kcal: Int?) -> String {
+        guard let kcal, kcal > 0 else { return "-- kcal" }
+        return "\(kcal) kcal"
+    }
+    
+    private func formatCadence(_ spm: Double?) -> String {
+        guard let spm, spm > 0 else { return "-- spm" }
+        return String(format: "%.0f spm", spm)
+    }
+    
+    private func formatStride(_ meters: Double?) -> String {
+        guard let meters, meters > 0 else { return "-- m" }
+        return String(format: "%.2f m", meters)
+    }
+    
+    private func formatMeters(_ meters: Double?) -> String {
+        guard let meters else { return "-- m" }
+        return String(format: "%.0f m", meters)
     }
 }
 
