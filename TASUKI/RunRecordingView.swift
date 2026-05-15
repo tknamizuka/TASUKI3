@@ -32,7 +32,6 @@ struct RunRecordingView: View {
     )
     @State private var postRunDraft: RunFinishDraft?
     @State private var navigateToCoach = false
-    @State private var navigateToRunStartReady = false
     @State private var targetDistanceKmText: String = ""
     @State private var targetDurationMinutesText: String = ""
     /// 記録中: 背面マップの上に載るシートの高さ比率。最大＝デフォルトの記録主体画面（上端にマップが細く見える）、最小＝折りたたみ。スナップはこの二段階のみ。
@@ -187,6 +186,10 @@ struct RunRecordingView: View {
                                 .padding(.horizontal, 20)
                                 .padding(.bottom, 20)
 
+                            runGoalInputCard
+                                .padding(.horizontal, 20)
+                                .padding(.bottom, 20)
+
                             primaryStartRunButton
                                 .padding(.horizontal, 20)
                                 .padding(.bottom, 20)
@@ -234,9 +237,6 @@ struct RunRecordingView: View {
                     )
                 }
         }
-        .navigationDestination(isPresented: $navigateToRunStartReady) {
-            runStartReadyView
-        }
         .onReceive(elapsedTimer) { now = $0 }
         .onAppear {
             AgentDebugLog.log(
@@ -271,7 +271,7 @@ struct RunRecordingView: View {
         GeometryReader { geo in
             let totalH = geo.size.height
             let safeBottom = geo.safeAreaInsets.bottom
-            let bottomControlsHeight: CGFloat = 64 + safeBottom
+            let bottomControlsHeight: CGFloat = 64 + safeBottom + runBottomMenuReservedHeight
             let contentH = max(120, totalH - bottomControlsHeight)
             let minF = effectiveRecordingSheetMinFraction(contentHeight: contentH)
             let maxF = recordingSheetMaxFraction
@@ -327,7 +327,7 @@ struct RunRecordingView: View {
                 }
                 .padding(.horizontal, 20)
                 .padding(.vertical, 12)
-                .padding(.bottom, safeBottom > 0 ? 0 : 8)
+                .padding(.bottom, runBottomMenuReservedHeight + (safeBottom > 0 ? 0 : 8))
                 .background(Color.tasukiDarkBackground)
             }
             .frame(width: geo.size.width, height: totalH, alignment: .top)
@@ -359,6 +359,8 @@ struct RunRecordingView: View {
     private let recordingSheetMinFractionFloor: CGFloat = 0.08
     /// デフォルト展開（画像1: 記録が主役・上端にマップが細く見える）
     private let recordingSheetMaxFraction: CGFloat = 0.94
+    /// 常時表示の下部メニューバーと干渉しないための確保領域
+    private let runBottomMenuReservedHeight: CGFloat = 74
 
     private func effectiveRecordingSheetMinFraction(contentHeight: CGFloat) -> CGFloat {
         let intrinsic = recordingCompactSheetMinimumHeight / max(contentHeight, 120)
@@ -761,9 +763,9 @@ struct RunRecordingView: View {
     /// 旧 CHALLENGE 行の位置。カウントダウン後に `beginRunStartCountdown` と同じフローで記録開始。
     private var primaryStartRunButton: some View {
         Button {
-            navigateToRunStartReady = true
+            beginRunStartCountdown(seconds: 3)
         } label: {
-            Text(runStartCountdownPhase != nil ? "準備中…" : "走行を開始する")
+            Text(runStartCountdownPhase != nil ? "準備中…" : "Lets RUN!")
                 .font(.system(size: 16, weight: .bold))
                 .foregroundColor(Color.tasukiOnBrandYellow)
                 .frame(maxWidth: .infinity)
@@ -774,104 +776,35 @@ struct RunRecordingView: View {
         .disabled(runStartCountdownPhase != nil)
     }
 
-    private var runStartReadyView: some View {
-        VStack(spacing: 0) {
-            Map(position: $idleMapCamera, interactionModes: .all) {
-                if let cur = tracker.lastKnownCoordinate, !tracker.isTracking {
-                    Annotation("現在地", coordinate: cur) {
-                        ZStack {
-                            Circle()
-                                .fill(Color.tasukiAccent.opacity(0.35))
-                                .frame(width: 22, height: 22)
-                            Circle()
-                                .fill(Color.white)
-                                .frame(width: 10, height: 10)
-                            Circle()
-                                .fill(Color.tasukiAccent)
-                                .frame(width: 6, height: 6)
-                        }
-                    }
+    private var runGoalInputCard: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("目標（任意）")
+                .font(.system(size: 11, weight: .bold))
+                .tracking(1.2)
+                .foregroundColor(Color.tasukiMutedText)
+
+            HStack(spacing: 10) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("距離 (km)")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundColor(Color.tasukiPrimary)
+                    TextField("例: 5", text: $targetDistanceKmText)
+                        .keyboardType(.decimalPad)
+                        .textFieldStyle(.roundedBorder)
                 }
-                if displayRouteCoordinates.count >= 2 {
-                    MapPolyline(coordinates: displayRouteCoordinates)
-                        .stroke(Color.tasukiAccent, lineWidth: 4)
-                }
-            }
-            .frame(maxWidth: .infinity)
-            .frame(height: 360)
-            .clipShape(RoundedRectangle(cornerRadius: 20))
-            .padding(.horizontal, 20)
-            .padding(.top, 12)
 
-            HStack(spacing: 12) {
-                metricItem(title: "距離", value: String(format: "%.2f", tracker.distanceKm), unit: "km")
-                metricItem(title: "速度", value: String(format: "%.1f", averageSpeedKmh), unit: "km/h")
-            }
-            .padding(.horizontal, 20)
-            .padding(.top, 20)
-
-            VStack(alignment: .leading, spacing: 10) {
-                Text("目標（任意）")
-                    .font(.system(size: 11, weight: .bold))
-                    .tracking(1.2)
-                    .foregroundColor(Color.tasukiMutedText)
-
-                HStack(spacing: 10) {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("距離 (km)")
-                            .font(.system(size: 12, weight: .semibold))
-                            .foregroundColor(Color.tasukiPrimary)
-                        TextField("例: 5", text: $targetDistanceKmText)
-                            .keyboardType(.decimalPad)
-                            .textFieldStyle(.roundedBorder)
-                    }
-
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("時間 (分)")
-                            .font(.system(size: 12, weight: .semibold))
-                            .foregroundColor(Color.tasukiPrimary)
-                        TextField("例: 30", text: $targetDurationMinutesText)
-                            .keyboardType(.decimalPad)
-                            .textFieldStyle(.roundedBorder)
-                    }
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("時間 (分)")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundColor(Color.tasukiPrimary)
+                    TextField("例: 30", text: $targetDurationMinutesText)
+                        .keyboardType(.decimalPad)
+                        .textFieldStyle(.roundedBorder)
                 }
             }
-            .padding(.horizontal, 20)
-            .padding(.top, 16)
-
-            Spacer(minLength: 0)
-
-            Button {
-                beginRunStartCountdown(seconds: 5)
-                navigateToRunStartReady = false
-            } label: {
-                Text(runStartCountdownPhase != nil ? "準備中…" : "Lets RUN!")
-                    .font(.system(size: 18, weight: .bold))
-                    .foregroundColor(Color.tasukiOnBrandYellow)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 16)
-                    .background(Capsule().fill(Color.tasukiPrimaryButtonFill))
-            }
-            .buttonStyle(.plain)
-            .disabled(runStartCountdownPhase != nil)
-            .padding(.horizontal, 20)
-            .padding(.bottom, 20)
         }
-        .background(Color.tasukiDarkBackground.ignoresSafeArea())
-        .navigationTitle("")
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            ToolbarItem(placement: .principal) {
-                Text("RUN START")
-                    .font(.system(size: 21, weight: .heavy))
-                    .tracking(8)
-                    .foregroundColor(Color.tasukiPrimary)
-                    .shadow(color: .white.opacity(0.8), radius: 2, x: 0, y: 0)
-            }
-        }
-        .onAppear {
-            requestCurrentLocationOnIdleMap()
-        }
+        .padding(14)
+        .tasukiFlatCard()
     }
 
     private var mapCard: some View {
@@ -978,7 +911,7 @@ struct RunRecordingView: View {
         .transition(.opacity)
     }
 
-    private func beginRunStartCountdown(seconds: Int = 5) {
+    private func beginRunStartCountdown(seconds: Int = 3) {
         runStartCountdownTask?.cancel()
         runStartCountdownTask = Task { @MainActor in
             defer { runStartCountdownTask = nil }

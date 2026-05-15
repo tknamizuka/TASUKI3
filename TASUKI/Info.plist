@@ -36,6 +36,8 @@
     <string>走行距離、ワークアウト履歴、ルートデータを読み取り、アプリ内の走行記録表示およびバーチャル駅伝の提出に利用します。</string>
     <key>NSHealthUpdateUsageDescription</key>
     <string>ワークアウト連携と走行記録の更新のために、Healthデータへの書き込みアクセスを使用します。</string>
+    <key>NSMotionUsageDescription</key>
+    <string>ケイデンスや歩数ベースのランニング指標を計測し、走行中の統計表示と記録精度向上のためにモーションデータを使用します。</string>
 
 </dict>
 </plist>

@@ -5,18 +5,30 @@ import PhotosUI
 import MapKit
 import CoreLocation
 
+private enum ProfileRegistrationSaveError: LocalizedError {
+    case firestoreSaveTimeout
+
+    var errorDescription: String? {
+        switch self {
+        case .firestoreSaveTimeout:
+            return "保存処理がタイムアウトしました。通信状況を確認して再度お試しください。"
+        }
+    }
+}
+
 struct ProfileRegistrationView: View {
     @Environment(\.dismiss) var dismiss
     @Environment(\.openURL) private var openURL
     
     @EnvironmentObject var authManager: AuthManager
     @EnvironmentObject var userManager: UserManager
-    @AppStorage("skipProfileRegistration") private var skipProfileRegistration: Bool = false
     @AppStorage("runningDataSource") private var runningDataSourceRaw: String = RunningDataSource.all.rawValue
     @AppStorage("connectedRunningDevices") private var connectedRunningDevicesRaw: String = ""
     
     // 完了時のコールバック
     var onComplete: (() -> Void)? = nil
+    /// ステップ0で戻るとき、ログイン画面へ遷移させる（呼び出し側でサインアウト等を行う）
+    var onReturnToLogin: (() -> Void)? = nil
     
     // 入力値
     @State private var selectedPhoto: PhotosPickerItem? = nil
@@ -24,6 +36,7 @@ struct ProfileRegistrationView: View {
     @State private var username: String = ""
     @State private var selectedGender: String? = nil
     @State private var birthDate: Date = Calendar.current.date(from: DateComponents(year: 1998, month: 1, day: 1)) ?? Date()
+    @State private var birthDateText: String = "1998/01/01"
     @State private var selectedPrefecture: String = allPrefectures.first ?? "東京都"
     /// 検索キーワード（MapKit 補完用）
     @State private var activityAreaQuery: String = ""
@@ -53,7 +66,8 @@ struct ProfileRegistrationView: View {
     // 保存状態
     @State private var isSaving: Bool = false
     @State private var saveErrorMessage: String?
-    @State private var showSkipAlert: Bool = false
+    @State private var showReturnToLoginConfirm: Bool = false
+    @State private var didLoadRegistrationDraft: Bool = false
     
     private let genders = ["男性", "女性", "無回答"]
     
@@ -84,6 +98,10 @@ struct ProfileRegistrationView: View {
         if q.isEmpty { return purposes }
         return purposes.filter { $0.localizedCaseInsensitiveContains(q) }
     }
+
+    private var prefectureOptions: [String] {
+        allPrefectures
+    }
     
     var body: some View {
         NavigationStack {
@@ -91,9 +109,12 @@ struct ProfileRegistrationView: View {
                 Color.tasukiDarkBackground.ignoresSafeArea()
                 
                 VStack(spacing: 32) {
-                    progressBar
-                        .padding(.top, 24)
-                        .padding(.horizontal, 20)
+                    VStack(spacing: 0) {
+                        TasukiBrandedHeroHeader(title: "TASUKI")
+                        progressBar
+                            .padding(.top, 12)
+                            .padding(.horizontal, 20)
+                    }
                     
                     Spacer()
                     
@@ -150,7 +171,7 @@ struct ProfileRegistrationView: View {
                 ToolbarItem(placement: .navigationBarLeading) {
                     Button(action: {
                         if currentStep == 0 {
-                            showSkipAlert = true
+                            showReturnToLoginConfirm = true
                         } else {
                             withAnimation {
                                 currentStep = max(currentStep - 1, 0)
@@ -168,28 +189,33 @@ struct ProfileRegistrationView: View {
                     }
                 }
             }
-            .onTapGesture {
-                hideKeyboard()
-            }
-            .alert("登録せずに利用しますか？", isPresented: $showSkipAlert) {
+            .alert("ログイン画面に戻りますか？", isPresented: $showReturnToLoginConfirm) {
                 Button("キャンセル", role: .cancel) { }
-                Button("登録せずに利用する", role: .destructive) {
-                    skipProfileRegistration = true
-                    onComplete?()
+                Button("ログイン画面へ") {
+                    saveRegistrationDraftForReturnToLogin()
+                    onReturnToLogin?()
                 }
             } message: {
-                Text("プロフィールを登録せずにアプリを利用します。一部機能が制限される場合があります。")
+                Text("メールアドレスの確認や変更のためログイン画面に戻ります。入力中の内容はこの端末に保存され、同じアカウントで再度ログインすると続きから再開できます。")
             }
             .onAppear {
-                if let r = RunningDataSource(rawValue: runningDataSourceRaw), r != .all {
-                    selectedDevice = r
-                } else if let firstRaw = connectedRunningDevicesRaw.split(separator: ",").first.map(String.init),
-                          let s = RunningDataSource(rawValue: firstRaw), s != .all {
-                    selectedDevice = s
-                } else {
-                    selectedDevice = nil
+                if !didLoadRegistrationDraft {
+                    didLoadRegistrationDraft = true
+                    loadRegistrationDraftIfNeeded()
+                }
+                birthDateText = Self.birthDateDisplayString(from: birthDate)
+                if selectedDevice == nil {
+                    if let r = RunningDataSource(rawValue: runningDataSourceRaw), r != .all {
+                        selectedDevice = r
+                    } else if let firstRaw = connectedRunningDevicesRaw.split(separator: ",").first.map(String.init),
+                              let s = RunningDataSource(rawValue: firstRaw), s != .all {
+                        selectedDevice = s
+                    }
                 }
                 areaSearchCompleter.updateRegion(forPrefecture: selectedPrefecture)
+                if currentStep == 7, !activityAreaQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    areaSearchCompleter.setQuery(activityAreaQuery)
+                }
             }
             .onChange(of: selectedPrefecture) { _, newPref in
                 areaSearchCompleter.updateRegion(forPrefecture: newPref)
@@ -240,13 +266,14 @@ struct ProfileRegistrationView: View {
         case 4:
             return selectedGender != nil
         case 5:
+            guard let parsed = Self.parseBirthDate(from: birthDateText) else { return false }
             let now = Date()
             let calendar = Calendar.current
             guard let minDate = calendar.date(byAdding: .year, value: -80, to: now),
                   let maxDate = calendar.date(byAdding: .year, value: -18, to: now) else {
                 return true
             }
-            return (minDate...maxDate).contains(birthDate)
+            return (minDate...maxDate).contains(parsed)
         case 6:
             return !selectedPrefecture.isEmpty
         case 7:
@@ -304,25 +331,48 @@ struct ProfileRegistrationView: View {
                 }
             case 5:
                 questionTitle("生年月日を教えてください")
-                DatePicker(
-                    "生年月日",
-                    selection: $birthDate,
-                    in: allowedBirthDateRange,
-                    displayedComponents: .date
-                )
-                .datePickerStyle(.wheel)
-                .labelsHidden()
-                .environment(\.locale, Locale(identifier: "ja_JP"))
-                .frame(height: 150)
+                VStack(alignment: .leading, spacing: 8) {
+                    TextField("yyyy/mm/dd", text: $birthDateText)
+                        .textFieldStyle(.roundedBorder)
+                        .keyboardType(.numberPad)
+                        .onChange(of: birthDateText) { _, newValue in
+                            let formatted = Self.formattedBirthDateInput(from: newValue)
+                            if formatted != newValue {
+                                birthDateText = formatted
+                            }
+                            if let parsed = Self.parseBirthDate(from: formatted) {
+                                birthDate = parsed
+                            }
+                        }
+                    Text("数字のみ入力可（例: 1998/01/01）")
+                        .font(.caption)
+                        .foregroundColor(.gray)
+                }
             case 6:
                 questionTitle("お住まいの都道府県を教えてください")
-                Picker("都道府県", selection: $selectedPrefecture) {
-                    ForEach(allPrefectures, id: \.self) { prefecture in
-                        Text(prefecture).tag(prefecture)
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 0) {
+                        ForEach(prefectureOptions, id: \.self) { prefecture in
+                            Button {
+                                selectedPrefecture = prefecture
+                            } label: {
+                                HStack(spacing: 10) {
+                                    Image(systemName: selectedPrefecture == prefecture ? "checkmark.circle.fill" : "circle")
+                                        .foregroundColor(selectedPrefecture == prefecture ? Color.tasukiPrimary : .gray)
+                                    Text(prefecture)
+                                        .font(.system(size: 15, weight: .semibold))
+                                        .foregroundColor(Color.tasukiPrimary)
+                                    Spacer()
+                                }
+                                .padding(.vertical, 10)
+                                .padding(.horizontal, 4)
+                            }
+                            .buttonStyle(.plain)
+                            Divider()
+                        }
                     }
                 }
-                .pickerStyle(.wheel)
-                .frame(height: 180)
+                .frame(maxHeight: 240)
             case 7:
                 activityAreaSearchStep
             case 8:
@@ -546,6 +596,41 @@ struct ProfileRegistrationView: View {
             return completion.title
         }
         return "\(completion.title)（\(completion.subtitle)）"
+    }
+
+    private static func formattedBirthDateInput(from raw: String) -> String {
+        let digits = raw.filter(\.isNumber)
+        let limited = String(digits.prefix(8))
+        switch limited.count {
+        case 0...4:
+            return limited
+        case 5...6:
+            let y = limited.prefix(4)
+            let m = limited.dropFirst(4)
+            return "\(y)/\(m)"
+        default:
+            let y = limited.prefix(4)
+            let m = limited.dropFirst(4).prefix(2)
+            let d = limited.dropFirst(6)
+            return "\(y)/\(m)/\(d)"
+        }
+    }
+
+    private static func parseBirthDate(from text: String) -> Date? {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "ja_JP")
+        f.calendar = Calendar(identifier: .gregorian)
+        f.dateFormat = "yyyy/MM/dd"
+        f.isLenient = false
+        return f.date(from: text)
+    }
+
+    private static func birthDateDisplayString(from date: Date) -> String {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "ja_JP")
+        f.calendar = Calendar(identifier: .gregorian)
+        f.dateFormat = "yyyy/MM/dd"
+        return f.string(from: date)
     }
     
     private var profilePhotoPicker: some View {
@@ -779,15 +864,6 @@ struct ProfileRegistrationView: View {
         }
     }
 
-    /// 生年月日の選択可能範囲（18〜80歳）
-    private var allowedBirthDateRange: ClosedRange<Date> {
-        let now = Date()
-        let calendar = Calendar.current
-        let maxDate = calendar.date(byAdding: .year, value: -18, to: now) ?? now
-        let minDate = calendar.date(byAdding: .year, value: -80, to: now) ?? now
-        return minDate...maxDate
-    }
-    
     private func handleNext() {
         guard isCurrentStepValid else { return }
         
@@ -798,6 +874,67 @@ struct ProfileRegistrationView: View {
                 currentStep = min(currentStep + 1, totalSteps - 1)
             }
         }
+    }
+
+    private static func registrationDraftKey(uid: String) -> String {
+        "profileRegistrationDraft.\(uid)"
+    }
+
+    /// ログイン画面へ戻る直前に、同じアカウントで再ログインしたときの再開用に保存する。
+    private func saveRegistrationDraftForReturnToLogin() {
+        guard let uid = Auth.auth().currentUser?.uid else { return }
+        let jpegData = profileImage.flatMap { $0.jpegData(compressionQuality: 0.85) }
+        let draft = ProfileRegistrationDraft(
+            currentStep: currentStep,
+            username: username,
+            selectedGender: selectedGender,
+            birthDate: birthDate,
+            selectedPrefecture: selectedPrefecture,
+            activityArea: activityArea,
+            activityAreaQuery: activityAreaQuery,
+            selectedPurposes: selectedPurposes,
+            purposeQuery: purposeQuery,
+            termsAgreed: termsAgreed,
+            privacyPolicyAgreed: privacyPolicyAgreed,
+            termsReadToEnd: termsReadToEnd,
+            privacyReadToEnd: privacyReadToEnd,
+            selectedDeviceRaw: selectedDevice?.rawValue,
+            profileImageJPEGData: jpegData
+        )
+        guard let data = try? JSONEncoder().encode(draft) else { return }
+        UserDefaults.standard.set(data, forKey: Self.registrationDraftKey(uid: uid))
+    }
+
+    private func loadRegistrationDraftIfNeeded() {
+        guard let uid = Auth.auth().currentUser?.uid else { return }
+        let key = Self.registrationDraftKey(uid: uid)
+        guard let data = UserDefaults.standard.data(forKey: key),
+              let draft = try? JSONDecoder().decode(ProfileRegistrationDraft.self, from: data) else { return }
+        let maxStep = totalSteps - 1
+        currentStep = min(max(draft.currentStep, 0), maxStep)
+        username = draft.username
+        selectedGender = draft.selectedGender
+        birthDate = draft.birthDate
+        birthDateText = Self.birthDateDisplayString(from: draft.birthDate)
+        selectedPrefecture = draft.selectedPrefecture
+        activityArea = draft.activityArea
+        activityAreaQuery = draft.activityAreaQuery
+        selectedPurposes = draft.selectedPurposes
+        purposeQuery = draft.purposeQuery
+        termsAgreed = draft.termsAgreed
+        privacyPolicyAgreed = draft.privacyPolicyAgreed
+        termsReadToEnd = draft.termsReadToEnd
+        privacyReadToEnd = draft.privacyReadToEnd
+        if let raw = draft.selectedDeviceRaw, let s = RunningDataSource(rawValue: raw), s != .all {
+            selectedDevice = s
+        }
+        if let imgData = draft.profileImageJPEGData, let img = UIImage(data: imgData) {
+            profileImage = img
+        }
+    }
+
+    private func clearRegistrationDraft(for uid: String) {
+        UserDefaults.standard.removeObject(forKey: Self.registrationDraftKey(uid: uid))
     }
 
     private func saveProfile() {
@@ -832,7 +969,6 @@ struct ProfileRegistrationView: View {
                         UserDefaults.standard.set(selectedPrefecture + " " + activityArea, forKey: "myArea")
                         UserDefaults.standard.set(purposeForSave, forKey: "myPurpose")
                         self.isSaving = false
-                        self.skipProfileRegistration = false
                         EngagementSignals.touchSignificantInteraction()
                         self.onComplete?()
                     }
@@ -891,19 +1027,18 @@ struct ProfileRegistrationView: View {
                 monthlyGpsActivityCount: nil
             )
             
+            let uidForDraft = firebaseUser.uid
+            let result = await saveUserProfileWithTimeout(user: user)
             await MainActor.run {
-                userManager.saveUserProfile(user: user) { result in
-                    DispatchQueue.main.async {
-                        self.isSaving = false
-                        switch result {
-                        case .success:
-                            user.syncLocalProfileStorage()
-                            EngagementSignals.touchSignificantInteraction()
-                            self.onComplete?()
-                        case .failure(let error):
-                            self.saveErrorMessage = "保存に失敗しました。時間をおいて再度お試しください。（\(error.localizedDescription)）"
-                        }
-                    }
+                self.isSaving = false
+                switch result {
+                case .success:
+                    self.clearRegistrationDraft(for: uidForDraft)
+                    user.syncLocalProfileStorage()
+                    EngagementSignals.touchSignificantInteraction()
+                    self.onComplete?()
+                case .failure(let error):
+                    self.saveErrorMessage = Self.saveErrorMessageText(for: error)
                 }
             }
         }
@@ -918,15 +1053,67 @@ struct ProfileRegistrationView: View {
         connectedRunningDevicesRaw = one.rawValue
         runningDataSourceRaw = one.rawValue
     }
+
+    private func saveUserProfileWithTimeout(user: User, timeoutSeconds: UInt64 = 20) async -> Result<Void, Error> {
+        await withTaskGroup(of: Result<Void, Error>.self) { group in
+            group.addTask {
+                await withCheckedContinuation { continuation in
+                    userManager.saveUserProfile(user: user) { result in
+                        continuation.resume(returning: result)
+                    }
+                }
+            }
+            group.addTask {
+                try? await Task.sleep(nanoseconds: timeoutSeconds * 1_000_000_000)
+                return .failure(ProfileRegistrationSaveError.firestoreSaveTimeout)
+            }
+            let first = await group.next() ?? .failure(ProfileRegistrationSaveError.firestoreSaveTimeout)
+            group.cancelAll()
+            return first
+        }
+    }
+
+    private static func saveErrorMessageText(for error: Error) -> String {
+        let raw = error.localizedDescription
+        let lower = raw.lowercased()
+        if lower.contains("firestore api has not been used")
+            || lower.contains("firestore.googleapis.com")
+            || lower.contains("permission denied") {
+            return "Cloud Firestore API が無効のため保存できません。Google Cloud Console で Firestore API を有効化し、数分待ってから再試行してください。"
+        }
+        if let localized = error as? LocalizedError, let description = localized.errorDescription {
+            return description
+        }
+        return "保存に失敗しました。時間をおいて再度お試しください。（\(raw)）"
+    }
+}
+
+/// ログイン画面へ戻ったあと同じアカウントで再開するためのドラフト（UserDefaults）。
+private struct ProfileRegistrationDraft: Codable {
+    var currentStep: Int
+    var username: String
+    var selectedGender: String?
+    var birthDate: Date
+    var selectedPrefecture: String
+    var activityArea: String
+    var activityAreaQuery: String
+    var selectedPurposes: [String]
+    var purposeQuery: String
+    var termsAgreed: Bool
+    var privacyPolicyAgreed: Bool
+    var termsReadToEnd: Bool
+    var privacyReadToEnd: Bool
+    var selectedDeviceRaw: String?
+    var profileImageJPEGData: Data?
 }
 
 // MARK: - エリア検索候補の加工（住宅系の除外・駅・公園等の優先）
 
 private enum ActivityAreaCompletionFilter {
-    static let maxResults = 20
+    static let maxResults = 40
 
     private static let residentialMarkers: [String] = [
-        "丁目", "番地", "号室", "マンション", "アパート", "レジデンス", "コーポ", "ハイツ"
+        "番地", "号室", "マンション", "アパート", "レジデンス", "コーポ", "ハイツ"
     ]
 
     private static let priorityKeywords: [String] = [
@@ -948,6 +1135,9 @@ private enum ActivityAreaCompletionFilter {
 
     static func process(_ raw: [MKLocalSearchCompletion]) -> [MKLocalSearchCompletion] {
         let filtered = raw.filter { !shouldExclude($0) }
+        if filtered.count < 8 {
+            return Array(raw.prefix(maxResults))
+        }
         let sorted = filtered.sorted { priorityScore($0) > priorityScore($1) }
         return Array(sorted.prefix(maxResults))
     }
@@ -961,7 +1151,7 @@ final class ActivityAreaSearchCompleter: NSObject, ObservableObject, MKLocalSear
     
     private let completer: MKLocalSearchCompleter = {
         let c = MKLocalSearchCompleter()
-        c.resultTypes = [.pointOfInterest]
+        c.resultTypes = [.pointOfInterest, .address, .query]
         c.region = PrefectureMapRegions.japanWide
         return c
     }()

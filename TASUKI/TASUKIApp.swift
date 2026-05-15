@@ -66,8 +66,6 @@ struct TASUKIApp: App {
     @StateObject private var tabBarVisibility = TabBarVisibility()
     @State private var appState: AppState = .loading
     @State private var hasCompletedInitialCheck = false // 初回起動チェック完了フラグ
-    @AppStorage("skipProfileRegistration") private var skipProfileRegistration: Bool = false
-    
     private var cancellables = Set<AnyCancellable>()
     
     // アプリ起動時に一度だけ実行される初期化処理
@@ -113,12 +111,20 @@ struct TASUKIApp: App {
                         .environmentObject(authManager)
                         .environmentObject(userManager)
                 case .profileRegistration:
-                    ProfileRegistrationView(onComplete: {
-                        // プロフィール登録完了時のコールバック
-                        Task {
-                            await updateAppState()
+                    ProfileRegistrationView(
+                        onComplete: {
+                            Task {
+                                await updateAppState()
+                            }
+                        },
+                        onReturnToLogin: {
+                            authManager.signOut { _ in
+                                Task { @MainActor in
+                                    await updateAppState()
+                                }
+                            }
                         }
-                    })
+                    )
                     .environmentObject(authManager)
                     .environmentObject(userManager)
                 case .main:
@@ -233,14 +239,7 @@ struct TASUKIApp: App {
     private func checkUserStatus() async -> AppState {
         // Firebase Authチェック
         guard let user = Auth.auth().currentUser else {
-            // ログアウト時はスキップフラグもリセット
-            skipProfileRegistration = false
             return .login // 未ログイン
-        }
-        
-        // 「登録せずに利用する」が選択されている場合はプロフィール登録をスキップ
-        if skipProfileRegistration {
-            return .main
         }
         
         // プロフィール存在チェック (UserManagerを使用)

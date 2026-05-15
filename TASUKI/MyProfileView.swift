@@ -194,7 +194,7 @@ struct MyProfileView: View {
     private var statsSection: some View {
         VStack(alignment: .leading, spacing: 12) {
             sectionEyebrow("RUNNING STATS")
-
+            
             HStack(spacing: 12) {
                 statItem(title: "Avg Pace (月)", value: monthlyAveragePaceDisplay)
                 statItem(title: "Monthly Dist", value: monthlyDist)
@@ -372,7 +372,6 @@ struct MyProfileView: View {
             .tracking(1.2)
             .foregroundColor(.black)
     }
-
 
     private func statItem(title: String, value: String) -> some View {
         VStack(alignment: .leading, spacing: 6) {

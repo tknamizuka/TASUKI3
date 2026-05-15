@@ -12,6 +12,24 @@ struct TasukiWeeklyActivityLineChart: View {
     private var accent: Color {
         lineColor ?? Color.tasukiBrandYellow
     }
+    
+    private var lineStrokeColor: Color {
+        accent.opacity(0.98)
+    }
+    
+    private var pointFillColor: Color {
+        accent.opacity(0.95)
+    }
+    
+    private var shouldThinXAxisLabels: Bool {
+        points.count >= 7
+    }
+
+    private func shouldShowXAxisLabel(at index: Int) -> Bool {
+        guard shouldThinXAxisLabels else { return true }
+        if index == 0 || index == points.count - 1 { return true }
+        return index.isMultiple(of: 2)
+    }
 
     private var maxY: Double {
         max(points.map(\.distanceKm).max() ?? 0, 1)
@@ -81,9 +99,9 @@ struct TasukiWeeklyActivityLineChart: View {
                 .fill(
                     LinearGradient(
                         colors: [
-                            accent.opacity(0.42),
-                            accent.opacity(0.14),
-                            accent.opacity(0.03)
+                            accent.opacity(0.36),
+                            accent.opacity(0.12),
+                            accent.opacity(0.02)
                         ],
                         startPoint: .top,
                         endPoint: .bottom
@@ -103,7 +121,7 @@ struct TasukiWeeklyActivityLineChart: View {
                         }
                     }
                 }
-                .stroke(accent, style: StrokeStyle(lineWidth: 2.5, lineCap: .round, lineJoin: .round))
+                .stroke(lineStrokeColor, style: StrokeStyle(lineWidth: 3.2, lineCap: .round, lineJoin: .round))
                 .allowsHitTesting(false)
 
                 ForEach(Array(points.enumerated()), id: \.element.id) { index, point in
@@ -112,7 +130,7 @@ struct TasukiWeeklyActivityLineChart: View {
                     let y = topPadding + (1 - normalized) * plotHeight
 
                     Circle()
-                        .fill(selectedPointID == point.id ? Color.tasukiAccent : accent)
+                        .fill(selectedPointID == point.id ? Color.tasukiAccent : pointFillColor)
                         .overlay(
                             Circle()
                                 .stroke(Color.white.opacity(lineColor == nil ? 0.35 : 0.5), lineWidth: 1)
@@ -125,15 +143,19 @@ struct TasukiWeeklyActivityLineChart: View {
                             }
                         }
 
-                    Text(point.label)
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundColor(selectedPointID == point.id ? Color.tasukiAccent : .black)
-                        .position(x: x, y: height - 12)
-                        .onTapGesture {
-                            withAnimation(.easeInOut(duration: 0.15)) {
-                                selectedPointID = selectedPointID == point.id ? nil : point.id
+                    if shouldShowXAxisLabel(at: index) {
+                        Text(point.label)
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundColor(selectedPointID == point.id ? Color.tasukiAccent : .black)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.85)
+                            .position(x: x, y: height - 12)
+                            .onTapGesture {
+                                withAnimation(.easeInOut(duration: 0.15)) {
+                                    selectedPointID = selectedPointID == point.id ? nil : point.id
+                                }
                             }
-                        }
+                    }
                 }
 
                 if let selectedPoint,

@@ -15,7 +15,7 @@ extension User {
 
     /// 週次グラフの線・塗り用アクセント色。
     var tasukiStableChartAccentColor: Color {
-        Color(hue: tasukiStableVisualHue, saturation: 0.64, brightness: 0.88)
+        Color(hue: tasukiStableVisualHue, saturation: 0.8, brightness: 0.74)
     }
 }
 

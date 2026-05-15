@@ -23,9 +23,9 @@ struct MainTabView: View {
         ("person.fill", "Me")
     ]
 
-    /// `TASUKI_demo` と同じ: Home タブ以外はモード画面として扱い、下部メニューを隠す。`TabBarVisibility` でネスト画面がさらに隠す。
+    /// 下部タブは常時表示にする。
     private var shouldShowMenuBar: Bool {
-        mainTabRouter.selectedTab == 0 && !tabBarVisibility.isHidden
+        true
     }
 
     var body: some View {
@@ -48,7 +48,6 @@ struct MainTabView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .onAppear { screenWidth = w }
             .onChange(of: w) { _, newW in screenWidth = newW }
-            .simultaneousGesture(interactiveSwipeToHomeGesture(screenWidth: w))
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .environmentObject(mainTabRouter)
@@ -168,38 +167,6 @@ struct MainTabView: View {
                     .environmentObject(tabBarVisibility)
             }
         }
-    }
-
-    /// 右にスワイプしてパネルを動かし、閾値で Home に戻る（縦スクロールとの兼ね合いで横方向を優先）。
-    private func interactiveSwipeToHomeGesture(screenWidth: CGFloat) -> some Gesture {
-        DragGesture(minimumDistance: 28, coordinateSpace: .local)
-            .onChanged { value in
-                guard mainTabRouter.selectedTab != 0 else { return }
-                guard !mainTabRouter.suppressBackToHomeOverlay else { return }
-                let dx = value.translation.width
-                let dy = abs(value.translation.height)
-                guard dx > 0, dx > dy * 0.65 else { return }
-                panelSlideOffset = min(dx, screenWidth)
-            }
-            .onEnded { value in
-                guard mainTabRouter.selectedTab != 0 else { return }
-                guard !mainTabRouter.suppressBackToHomeOverlay else {
-                    withAnimation(.spring(response: 0.38, dampingFraction: 0.88)) {
-                        panelSlideOffset = 0
-                    }
-                    return
-                }
-                let dx = value.translation.width
-                let predicted = value.predictedEndTranslation.width
-                let shouldComplete = dx >= 240 || predicted >= 380
-                if shouldComplete {
-                    finishSwipeTransitionToHome(usingWidth: screenWidth)
-                } else {
-                    withAnimation(.spring(response: 0.38, dampingFraction: 0.88)) {
-                        panelSlideOffset = 0
-                    }
-                }
-            }
     }
 
     private func finishSwipeTransitionToHome(usingWidth: CGFloat) {

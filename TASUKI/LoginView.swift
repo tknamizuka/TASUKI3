@@ -16,17 +16,6 @@ enum LoginSheetItem: Identifiable {
 struct LoginView: View {
     @EnvironmentObject var authManager: AuthManager
 
-    /// メールアドレス欄に許可する半角英数字と記号（この集合以外は入力・貼り付けともに破棄）
-    private static let emailInputAllowedScalars: CharacterSet = {
-        var cs = CharacterSet()
-        cs.formUnion(.decimalDigits)
-        cs.formUnion(CharacterSet(charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"))
-        for symbol in ["@", ".", "_", "%", "+", "-"] {
-            cs.insert(charactersIn: symbol)
-        }
-        return cs
-    }()
-
     @State private var email: String = ""
     @State private var password: String = ""
     @State private var errorMessage: String = ""
@@ -60,12 +49,6 @@ struct LoginView: View {
                         .textInputAutocapitalization(.never)
                         .textContentType(.emailAddress)
                         .autocorrectionDisabled(true)
-                        .onChange(of: email) { _, newValue in
-                            let normalized = normalizeEmailInput(newValue)
-                            if normalized != newValue {
-                                email = normalized
-                            }
-                        }
                         .padding()
                         .background(
                             RoundedRectangle(cornerRadius: 12)
@@ -188,12 +171,14 @@ struct LoginView: View {
     }
     
     private func handleSignIn() {
-        guard !email.isEmpty, !password.isEmpty else {
+        let normalizedEmail = normalizeEmailForAuth(email)
+        guard !normalizedEmail.isEmpty, !password.isEmpty else {
             errorMessage = "メールアドレスとパスワードを入力してください。"
             showError = true
             return
         }
-        authManager.signIn(email: email, password: password) { result in
+        email = normalizedEmail
+        authManager.signIn(email: normalizedEmail, password: password) { result in
             switch result {
             case .success:
                 break
@@ -204,20 +189,20 @@ struct LoginView: View {
         }
     }
 
-    private func normalizeEmailInput(_ value: String) -> String {
-        let half = value.applyingTransform(.fullwidthToHalfwidth, reverse: false) ?? value
-        return String(
-            half.unicodeScalars.filter { Self.emailInputAllowedScalars.contains($0) }
-        )
+    private func normalizeEmailForAuth(_ value: String) -> String {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.applyingTransform(.fullwidthToHalfwidth, reverse: false) ?? trimmed
     }
     
     private func handleSignUp() {
-        guard !email.isEmpty, !password.isEmpty else {
+        let normalizedEmail = normalizeEmailForAuth(email)
+        guard !normalizedEmail.isEmpty, !password.isEmpty else {
             errorMessage = "メールアドレスとパスワードを入力してください。"
             showError = true
             return
         }
-        authManager.signUp(email: email, password: password) { result in
+        email = normalizedEmail
+        authManager.signUp(email: normalizedEmail, password: password) { result in
             switch result {
             case .success:
                 break

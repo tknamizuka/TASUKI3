@@ -890,6 +890,16 @@ struct TeamView: View {
                             ekidenLoadingCard
                         }
                     }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 14)
+                    .background(
+                        RoundedRectangle(cornerRadius: 14)
+                            .fill(Color.white)
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 14)
+                            .stroke(Color.black.opacity(0.06), lineWidth: 1)
+                    )
                     .padding(.horizontal, 20)
                     .padding(.top, 20)
 
