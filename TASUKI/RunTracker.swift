@@ -41,6 +41,8 @@ final class RunTracker: NSObject, ObservableObject {
     @Published private(set) var trackingStartedAt: Date?
     @Published private(set) var averageCadenceSpm: Double?
     @Published private(set) var maxCadenceSpm: Double?
+    /// 走行中に1秒ごとに更新。経過時間・ペースなどのUIが `Timer.publish` に依存せず確実に再描画されるようにする。
+    @Published private(set) var trackingUIHeartbeatAt: Date = Date()
     
     private let locationManager = CLLocationManager()
     private let pedometer = CMPedometer()
@@ -67,6 +69,7 @@ final class RunTracker: NSObject, ObservableObject {
     private var didPromptAlwaysAuthorizationWhileTracking = false
     private var cadenceSampleCount: Int = 0
     private var cadenceSampleSum: Double = 0
+    private var trackingUIHeartbeatTimer: Timer?
     
     override private init() {
         super.init()
@@ -183,9 +186,11 @@ final class RunTracker: NSObject, ObservableObject {
         promptAlwaysAuthorizationIfNeeded()
         RunLiveActivityManager.shared.beginIfPossible()
         RealityMiningManager.shared.trackEvent(name: "run_tracking_start")
+        startTrackingUIHeartbeat()
     }
     
     func stop() {
+        stopTrackingUIHeartbeat()
         RunLiveActivityManager.shared.endIfNeeded()
         if isPaused, let pausedAt {
             accumulatedPausedSeconds += Date().timeIntervalSince(pausedAt)
@@ -200,6 +205,24 @@ final class RunTracker: NSObject, ObservableObject {
         )
         isPaused = false
         isTracking = false
+    }
+
+    private func startTrackingUIHeartbeat() {
+        stopTrackingUIHeartbeat()
+        trackingUIHeartbeatAt = Date()
+        let timer = Timer(timeInterval: 1.0, repeats: true) { [weak self] _ in
+            guard let self, self.isTracking else { return }
+            DispatchQueue.main.async {
+                self.trackingUIHeartbeatAt = Date()
+            }
+        }
+        trackingUIHeartbeatTimer = timer
+        RunLoop.main.add(timer, forMode: .common)
+    }
+
+    private func stopTrackingUIHeartbeat() {
+        trackingUIHeartbeatTimer?.invalidate()
+        trackingUIHeartbeatTimer = nil
     }
 
     func pause() {

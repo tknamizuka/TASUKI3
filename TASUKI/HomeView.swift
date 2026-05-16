@@ -6,7 +6,6 @@
 //
 
 import SwiftUI
-import Combine
 
 /// HealthKit 取得待ちの間に円グラフへ出すサンプル値（黄→紫の弧の見た目用。取得後は実距離に切り替わる）。
 private enum MonthlyGoalRingSample {
@@ -37,8 +36,6 @@ struct HomeView: View {
     @EnvironmentObject private var conversationManager: ConversationManager
     @EnvironmentObject private var joinedPracticesStore: JoinedPracticesStore
     @AppStorage("runningDataSource") private var runningDataSourceRaw: String = RunningDataSource.all.rawValue
-    @State private var runBannerTick = Date()
-    private let runBannerTimer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
     init(
         currentDistance: Double = 0.0,
         goalDistance: Double = 100.0,
@@ -289,11 +286,6 @@ struct HomeView: View {
             conversationManager.refreshUnreadCount()
             activityStore.refreshFromRemote()
         }
-        .onReceive(runBannerTimer) { date in
-            if runTracker.isTracking {
-                runBannerTick = date
-            }
-        }
         .onChange(of: runningDataSourceRaw) { _, _ in
             let isPreview = ProcessInfo.processInfo.environment["XCODE_RUNNING_FOR_PREVIEWS"] == "1"
             if !usePreviewData, !isPreview {
@@ -306,6 +298,11 @@ struct HomeView: View {
                 isHealthKitLoading = false
             }
         }
+    }
+
+    private var activeRunBannerElapsedSeconds: TimeInterval {
+        _ = runTracker.trackingUIHeartbeatAt
+        return runTracker.elapsedSeconds(now: Date())
     }
 
     private var activeRunHomeBanner: some View {
@@ -322,7 +319,7 @@ struct HomeView: View {
                         .tracking(1.2)
                         .foregroundColor(Color.tasukiPrimary.opacity(0.75))
                     HStack(spacing: 16) {
-                        Text(formatRunElapsed(runTracker.elapsedSeconds(now: runBannerTick)))
+                        Text(formatRunElapsed(activeRunBannerElapsedSeconds))
                             .font(.system(size: 32, weight: .bold))
                             .foregroundColor(Color.tasukiPrimary)
                             .monospacedDigit()

@@ -45,6 +45,7 @@ struct LoginView: View {
                 // 入力フォーム
                 VStack(spacing: 16) {
                     TextField("メールアドレス", text: $email)
+                        .tasukiCredentialInputTypography()
                         .keyboardType(.emailAddress)
                         .textInputAutocapitalization(.never)
                         .textContentType(.emailAddress)
@@ -56,6 +57,7 @@ struct LoginView: View {
                         )
                     
                     SecureField("パスワード", text: $password)
+                        .tasukiCredentialInputTypography()
                         .textInputAutocapitalization(.never)
                         .textContentType(.password)
                         .padding()
@@ -72,7 +74,7 @@ struct LoginView: View {
                         handleSignIn()
                     }) {
                         Text("ログイン")
-                            .font(.system(size: 16, weight: .bold))
+                            .font(TasukiUI.credentialInputFont)
                             .foregroundColor(Color.tasukiOnBrandYellow)
                             .frame(maxWidth: .infinity)
                             .padding()
@@ -85,7 +87,7 @@ struct LoginView: View {
                         handleSignUp()
                     }) {
                         Text("新規登録")
-                            .font(.system(size: 16, weight: .bold))
+                            .font(TasukiUI.credentialInputFont)
                             .foregroundColor(Color.tasukiPrimary)
                             .frame(maxWidth: .infinity)
                             .padding()

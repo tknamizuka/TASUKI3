@@ -134,6 +134,8 @@ enum TasukiUI {
     static let cardPadding: CGFloat = 16
     static let sectionSpacing: CGFloat = 14
     static let iconSize: CGFloat = 20
+    /// メール・パスワード・生年月日など資格情報系入力と「ログイン」ボタン文字の字体を揃える
+    static let credentialInputFont: Font = .system(size: 16, weight: .bold)
 }
 
 /// SF Symbol をブランド黄の塗り + `tasukiOnBrandYellow` の縁取り（8 方向オフセット）で表示する。
@@ -248,6 +250,12 @@ extension View {
                 RoundedRectangle(cornerRadius: corner)
                     .fill(Color.tasukiDarkCardSecondary)
             )
+    }
+
+    /// メール・パスワード・生年月日入力のフォント・色を統一
+    func tasukiCredentialInputTypography() -> some View {
+        self.font(TasukiUI.credentialInputFont)
+            .foregroundColor(Color.tasukiPrimary)
     }
 }
 

@@ -1,6 +1,5 @@
 import SwiftUI
 import MapKit
-import Combine
 import CoreLocation
 
 struct RunRecordingView: View {
@@ -16,7 +15,6 @@ struct RunRecordingView: View {
     /// 0 のときは推定に 65kg を使う
     @AppStorage("runnerWeightKg") private var runnerWeightKg: Double = 0
 
-    @State private var now = Date()
     @State private var trackingMapCamera: MapCameraPosition = .region(
         MKCoordinateRegion(
             center: CLLocationCoordinate2D(latitude: 35.68, longitude: 139.76),
@@ -41,10 +39,9 @@ struct RunRecordingView: View {
     @State private var runStartCountdownPhase: Int? = nil
     @State private var runStartCountdownTask: Task<Void, Never>? = nil
 
-    private let elapsedTimer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
-
     private var elapsedSeconds: TimeInterval {
-        tracker.elapsedSeconds(now: now)
+        _ = tracker.trackingUIHeartbeatAt
+        return tracker.elapsedSeconds(now: Date())
     }
 
     private var currentPaceText: String {
@@ -237,7 +234,6 @@ struct RunRecordingView: View {
                     )
                 }
         }
-        .onReceive(elapsedTimer) { now = $0 }
         .onAppear {
             AgentDebugLog.log(
                 location: "RunRecordingView.onAppear",
@@ -334,7 +330,7 @@ struct RunRecordingView: View {
         }
         .background(Color.tasukiDarkBackground)
         .ignoresSafeArea(edges: .top)
-        .onChange(of: now) { _, _ in
+        .onChange(of: tracker.trackingUIHeartbeatAt) { _, _ in
             syncTrackingMapCamera()
         }
         .onChange(of: tracker.distanceKm) { _, _ in
@@ -789,8 +785,15 @@ struct RunRecordingView: View {
                         .font(.system(size: 12, weight: .semibold))
                         .foregroundColor(Color.tasukiPrimary)
                     TextField("例: 5", text: $targetDistanceKmText)
+                        .textFieldStyle(.plain)
+                        .tasukiCredentialInputTypography()
                         .keyboardType(.decimalPad)
-                        .textFieldStyle(.roundedBorder)
+                        .padding(.vertical, 8)
+                        .overlay(alignment: .bottom) {
+                            Rectangle()
+                                .fill(Color.tasukiPrimary.opacity(0.35))
+                                .frame(height: 1)
+                        }
                 }
 
                 VStack(alignment: .leading, spacing: 4) {
@@ -798,8 +801,15 @@ struct RunRecordingView: View {
                         .font(.system(size: 12, weight: .semibold))
                         .foregroundColor(Color.tasukiPrimary)
                     TextField("例: 30", text: $targetDurationMinutesText)
+                        .textFieldStyle(.plain)
+                        .tasukiCredentialInputTypography()
                         .keyboardType(.decimalPad)
-                        .textFieldStyle(.roundedBorder)
+                        .padding(.vertical, 8)
+                        .overlay(alignment: .bottom) {
+                            Rectangle()
+                                .fill(Color.tasukiPrimary.opacity(0.35))
+                                .frame(height: 1)
+                        }
                 }
             }
         }
@@ -924,7 +934,6 @@ struct RunRecordingView: View {
                 runStartCountdownPhase = nil
                 recordingSheetFraction = recordingSheetMaxFraction
                 tracker.start()
-                now = Date()
             } catch {
                 runStartCountdownPhase = nil
             }
@@ -1080,7 +1089,7 @@ struct RunRecordingView: View {
     private func finishAndPrepareDraft() {
         let endedAt = Date()
         let distanceKm = tracker.distanceKm
-        let durationSeconds = max(tracker.elapsedSeconds(now: now), 1)
+        let durationSeconds = max(tracker.elapsedSeconds(now: Date()), 1)
         let elapsedWallSeconds: TimeInterval
         if let started = tracker.trackingStartedAt {
             elapsedWallSeconds = max(1, endedAt.timeIntervalSince(started))

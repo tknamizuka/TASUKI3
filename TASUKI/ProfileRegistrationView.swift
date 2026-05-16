@@ -36,7 +36,7 @@ struct ProfileRegistrationView: View {
     @State private var username: String = ""
     @State private var selectedGender: String? = nil
     @State private var birthDate: Date = Calendar.current.date(from: DateComponents(year: 1998, month: 1, day: 1)) ?? Date()
-    @State private var birthDateText: String = "1998/01/01"
+    @State private var birthDateText: String = ""
     @State private var selectedPrefecture: String = allPrefectures.first ?? "東京都"
     /// 検索キーワード（MapKit 補完用）
     @State private var activityAreaQuery: String = ""
@@ -93,12 +93,6 @@ struct ProfileRegistrationView: View {
         selectedPurposes.joined(separator: ", ")
     }
     
-    private var filteredRegistrationPurposes: [String] {
-        let q = purposeQuery.trimmingCharacters(in: .whitespaces)
-        if q.isEmpty { return purposes }
-        return purposes.filter { $0.localizedCaseInsensitiveContains(q) }
-    }
-
     private var prefectureOptions: [String] {
         allPrefectures
     }
@@ -158,6 +152,11 @@ struct ProfileRegistrationView: View {
                         .tint(Color.tasukiPrimary)
                 }
             }
+            .simultaneousGesture(
+                TapGesture().onEnded {
+                    hideKeyboard()
+                }
+            )
             .navigationTitle("プロフィール登録")
             .navigationBarTitleDisplayMode(.inline)
             .navigationBarBackButtonHidden(true)
@@ -203,7 +202,6 @@ struct ProfileRegistrationView: View {
                     didLoadRegistrationDraft = true
                     loadRegistrationDraftIfNeeded()
                 }
-                birthDateText = Self.birthDateDisplayString(from: birthDate)
                 if selectedDevice == nil {
                     if let r = RunningDataSource(rawValue: runningDataSourceRaw), r != .all {
                         selectedDevice = r
@@ -314,12 +312,20 @@ struct ProfileRegistrationView: View {
                 questionTitle("プロフィール写真を選択してください")
                 profilePhotoPicker
             case 3:
-                questionTitle("お名前を教えてください")
+                questionTitle("ニックネームを教えてください")
                 TextField("例）Hiro", text: $username)
-                    .textFieldStyle(.roundedBorder)
+                    .textFieldStyle(.plain)
                     .keyboardType(.default)
                     .textInputAutocapitalization(.never)
                     .textContentType(.name)
+                    .foregroundColor(Color.tasukiPrimary)
+                    .padding(.vertical, 10)
+                    .padding(.top, -10)
+                    .overlay(alignment: .bottom) {
+                        Rectangle()
+                            .fill(Color.tasukiPrimary.opacity(0.35))
+                            .frame(height: 1)
+                    }
             case 4:
                 questionTitle("性別を教えてください")
                 HStack(spacing: 12) {
@@ -332,9 +338,16 @@ struct ProfileRegistrationView: View {
             case 5:
                 questionTitle("生年月日を教えてください")
                 VStack(alignment: .leading, spacing: 8) {
-                    TextField("yyyy/mm/dd", text: $birthDateText)
-                        .textFieldStyle(.roundedBorder)
+                    TextField("YYYY/MM/DD", text: $birthDateText)
+                        .textFieldStyle(.plain)
+                        .tasukiCredentialInputTypography()
                         .keyboardType(.numberPad)
+                        .padding(.vertical, 10)
+                        .overlay(alignment: .bottom) {
+                            Rectangle()
+                                .fill(Color.tasukiPrimary.opacity(0.35))
+                                .frame(height: 1)
+                        }
                         .onChange(of: birthDateText) { _, newValue in
                             let formatted = Self.formattedBirthDateInput(from: newValue)
                             if formatted != newValue {
@@ -468,16 +481,11 @@ struct ProfileRegistrationView: View {
     private var purposeSearchStep: some View {
         VStack(alignment: .leading, spacing: 16) {
             questionTitle("走る目的を教えてください")
-            Text("キーワードで絞り込み、候補をタップして追加できます（複数選択可）")
+            Text("当てはまる目的を選択してください（複数選択可）")
                 .font(.subheadline)
                 .foregroundColor(.gray)
                 .frame(maxWidth: .infinity, alignment: .leading)
-            
-            TextField("例）サブ3、健康", text: $purposeQuery)
-                .textFieldStyle(.roundedBorder)
-                .textInputAutocapitalization(.none)
-                .disableAutocorrection(true)
-            
+
             if !selectedPurposes.isEmpty {
                 Text("選択中")
                     .font(.caption.weight(.semibold))
@@ -497,26 +505,23 @@ struct ProfileRegistrationView: View {
             
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 0) {
-                    if filteredRegistrationPurposes.isEmpty {
-                        Text("候補が見つかりませんでした")
-                            .font(.footnote)
-                            .foregroundColor(.gray)
-                            .padding(.vertical, 8)
-                    } else {
-                        ForEach(filteredRegistrationPurposes, id: \.self) { item in
-                            Button {
-                                togglePurpose(item)
-                            } label: {
+                    ForEach(purposes, id: \.self) { item in
+                        Button {
+                            togglePurpose(item)
+                        } label: {
+                            HStack(spacing: 10) {
+                                Image(systemName: selectedPurposes.contains(item) ? "checkmark.circle.fill" : "circle")
+                                    .foregroundColor(selectedPurposes.contains(item) ? Color.tasukiPrimary : .gray)
                                 Text(item)
-                                    .font(.body.weight(.semibold))
+                                    .font(.system(size: 15, weight: .semibold))
                                     .foregroundColor(Color.tasukiPrimary)
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                                    .padding(.vertical, 10)
-                                    .padding(.horizontal, 4)
+                                Spacer()
                             }
-                            .buttonStyle(.plain)
-                            Divider()
+                            .padding(.vertical, 10)
+                            .padding(.horizontal, 4)
                         }
+                        .buttonStyle(.plain)
+                        Divider()
                     }
                 }
             }
