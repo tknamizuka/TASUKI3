@@ -108,6 +108,24 @@ enum RunningDataSource: String, CaseIterable, Identifiable {
             return false
         }
     }
+
+    /// `HKSourceQuery` 結果をデータソース別に絞る。Apple 系は名前だけだと「○○のiPhone」等で漏れるため bundleIdentifier も見る。
+    fileprivate func matchesHealthKitSource(_ source: HKSource) -> Bool {
+        switch self {
+        case .all:
+            return true
+        case .appleHealth:
+            let bid = source.bundleIdentifier.lowercased()
+            if bid.hasPrefix("com.apple.") {
+                return true
+            }
+            let name = source.name.lowercased()
+            return sourceKeywords.contains { name.contains($0) }
+        default:
+            let name = source.name.lowercased()
+            return sourceKeywords.contains { name.contains($0) }
+        }
+    }
 }
 
 /// 期間内のランニングワークアウト1件（目標距離通過タイムはルートがあれば算出）
@@ -148,11 +166,22 @@ struct RunningWorkoutInfo: Identifiable {
 
 /// HealthKit との連携を担当するマネージャ
 final class HealthKitManager {
-    
+
+    /// `HKSourceQuery` のあと、日付述語に足すソース述語の組み立て結果。
+    /// `NSPredicate(value: false)` は HealthKit 内部で落ちるため使わない。
+    private enum SourceFilterBuildResult {
+        /// `.all`：ソースで絞らない。
+        case unrestricted
+        /// `HKQuery.predicateForObjects(from:)` でソース限定。
+        case sourceOnly(NSPredicate)
+        /// 期間内にキーワード一致ソースが0件。クエリは実行せず空扱い。
+        case noMatchingSourcesInRange
+    }
+
     static let shared = HealthKitManager()
-    
+
     private let healthStore = HKHealthStore()
-    
+
     private init() {}
     
     /// HealthKit からウォーキング＋ランニング距離・ワークアウト・ルートを読み取るための権限をリクエストする
@@ -216,7 +245,7 @@ final class HealthKitManager {
             let error = NSError(domain: "HealthKit", code: 0, userInfo: [
                 NSLocalizedDescriptionKey: "HealthKit is not available on this device."
             ])
-            completion(.failure(error))
+            DispatchQueue.main.async { completion(.failure(error)) }
             return
         }
         
@@ -224,7 +253,7 @@ final class HealthKitManager {
             let error = NSError(domain: "HealthKit", code: 1, userInfo: [
                 NSLocalizedDescriptionKey: "distanceWalkingRunning type is not available."
             ])
-            completion(.failure(error))
+            DispatchQueue.main.async { completion(.failure(error)) }
             return
         }
         
@@ -234,19 +263,32 @@ final class HealthKitManager {
             let error = NSError(domain: "HealthKit", code: 2, userInfo: [
                 NSLocalizedDescriptionKey: "Failed to calculate start of month."
             ])
-            completion(.failure(error))
+            DispatchQueue.main.async { completion(.failure(error)) }
             return
         }
         
         let predicate = HKQuery.predicateForSamples(withStart: startOfMonth, end: now, options: .strictStartDate)
 
-        predicateForDataSource(sampleType: distanceType, basePredicate: predicate, dataSource: dataSource) { [weak self] sourcePredicate in
+        predicateForDataSource(sampleType: distanceType, basePredicate: predicate, dataSource: dataSource) { [weak self] filterResult in
             guard let self = self else { return }
             let finalPredicate: NSPredicate
-            if let sourcePredicate = sourcePredicate {
-                finalPredicate = NSCompoundPredicate(andPredicateWithSubpredicates: [predicate, sourcePredicate])
-            } else {
+            switch filterResult {
+            case .noMatchingSourcesInRange:
+                DispatchQueue.main.async {
+                    RealityMiningManager.shared.trackEvent(
+                        name: "healthkit_source_filter_empty",
+                        properties: [
+                            "fetch_type": "monthly_distance",
+                            "data_source": dataSource.rawValue
+                        ]
+                    )
+                    completion(.success(0.0))
+                }
+                return
+            case .unrestricted:
                 finalPredicate = predicate
+            case .sourceOnly(let sourcePredicate):
+                finalPredicate = NSCompoundPredicate(andPredicateWithSubpredicates: [predicate, sourcePredicate])
             }
 
             let query = HKStatisticsQuery(quantityType: distanceType,
@@ -377,22 +419,24 @@ final class HealthKitManager {
         healthStore.execute(q)
     }
 
-    private func predicateForDataSource(sampleType: HKSampleType, basePredicate: NSPredicate, dataSource: RunningDataSource, completion: @escaping (NSPredicate?) -> Void) {
+    private func predicateForDataSource(
+        sampleType: HKSampleType,
+        basePredicate: NSPredicate,
+        dataSource: RunningDataSource,
+        completion: @escaping (SourceFilterBuildResult) -> Void
+    ) {
         guard dataSource != .all else {
-            completion(nil)
+            completion(.unrestricted)
             return
         }
 
         let sourceQuery = HKSourceQuery(sampleType: sampleType, samplePredicate: basePredicate) { _, sources, _ in
-            let filtered = (sources ?? []).filter { source in
-                let sourceName = source.name.lowercased()
-                return dataSource.sourceKeywords.contains { sourceName.contains($0) }
-            }
+            let filtered = (sources ?? []).filter { dataSource.matchesHealthKitSource($0) }
             guard !filtered.isEmpty else {
-                completion(NSPredicate(value: false))
+                completion(.noMatchingSourcesInRange)
                 return
             }
-            completion(HKQuery.predicateForObjects(from: Set(filtered)))
+            completion(.sourceOnly(HKQuery.predicateForObjects(from: Set(filtered))))
         }
         healthStore.execute(sourceQuery)
     }
@@ -418,13 +462,17 @@ final class HealthKitManager {
         }
         let predicate = HKQuery.predicateForSamples(withStart: start, end: end, options: .strictStartDate)
         let workoutType = HKObjectType.workoutType()
-        predicateForDataSource(sampleType: workoutType, basePredicate: predicate, dataSource: dataSource) { [weak self] sourcePredicate in
+        predicateForDataSource(sampleType: workoutType, basePredicate: predicate, dataSource: dataSource) { [weak self] filterResult in
             guard let self = self else { return }
             let finalPredicate: NSPredicate
-            if let sourcePredicate = sourcePredicate {
-                finalPredicate = NSCompoundPredicate(andPredicateWithSubpredicates: [predicate, sourcePredicate])
-            } else {
+            switch filterResult {
+            case .noMatchingSourcesInRange:
+                DispatchQueue.main.async { completion(.success([])) }
+                return
+            case .unrestricted:
                 finalPredicate = predicate
+            case .sourceOnly(let sourcePredicate):
+                finalPredicate = NSCompoundPredicate(andPredicateWithSubpredicates: [predicate, sourcePredicate])
             }
 
             let workoutQuery = HKSampleQuery(sampleType: workoutType, predicate: finalPredicate, limit: HKObjectQueryNoLimit, sortDescriptors: [NSSortDescriptor(key: HKSampleSortIdentifierStartDate, ascending: false)]) { [weak self] _, samples, error in

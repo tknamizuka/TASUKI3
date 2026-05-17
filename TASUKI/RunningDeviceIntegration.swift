@@ -20,8 +20,8 @@ enum RunningDeviceIntegration {
         }
 
         openCompanionAppURLs(for: source, openURL: openURL) { companionPart in
-            RunActivityStore.shared.refreshFromRemote()
-            DispatchQueue.main.async {
+            Task { @MainActor in
+                RunActivityStore.shared.refreshFromRemote()
                 completion(
                     "\(companionPart) この取得元を選んだときの距離・タイムトライアルは、TASUKIに保存された走行記録のうち \(source.displayName) 由来のものだけを使います（ヘルスケアは読みません）。"
                 )
@@ -43,20 +43,18 @@ enum RunningDeviceIntegration {
             }
 
             HealthKitManager.shared.fetchRunningDistanceThisMonth(dataSource: .appleHealth) { result in
-                switch result {
-                case .failure(let err):
-                    DispatchQueue.main.async {
+                Task { @MainActor in
+                    switch result {
+                    case .failure(let err):
                         completion("ヘルスケアからの読み取りに失敗しました：\(err.localizedDescription)")
-                    }
-                case .success(let km):
-                    RunActivityStore.shared.refreshFromRemote()
-                    let distancePart: String
-                    if km > 0 {
-                        distancePart = "今月の距離（約\(String(format: "%.1f", km))km）をヘルスケアで確認しました。"
-                    } else {
-                        distancePart = "今月ヘルスケアに記録されたランはまだありません。"
-                    }
-                    DispatchQueue.main.async {
+                    case .success(let km):
+                        RunActivityStore.shared.refreshFromRemote()
+                        let distancePart: String
+                        if km > 0 {
+                            distancePart = "今月の距離（約\(String(format: "%.1f", km))km）をヘルスケアで確認しました。"
+                        } else {
+                            distancePart = "今月ヘルスケアに記録されたランはまだありません。"
+                        }
                         completion(distancePart)
                     }
                 }
