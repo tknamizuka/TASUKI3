@@ -99,9 +99,9 @@ struct TasukiWeeklyActivityLineChart: View {
                 .fill(
                     LinearGradient(
                         colors: [
-                            accent.opacity(0.36),
-                            accent.opacity(0.12),
-                            accent.opacity(0.02)
+                            accent.opacity(0.58),
+                            accent.opacity(0.34),
+                            accent.opacity(0.14)
                         ],
                         startPoint: .top,
                         endPoint: .bottom
@@ -214,7 +214,7 @@ struct TasukiWeeklyActivityLineChart: View {
     }()
 
     private static func tooltipWeekRangeLabel(for weekStart: Date) -> String {
-        let cal = Calendar.current
+        let cal = Calendar.tasukiActivityWeekCalendar
         guard let interval = cal.dateInterval(of: .weekOfYear, for: weekStart) else {
             return tooltipDayFormatter.string(from: weekStart)
         }
@@ -227,7 +227,7 @@ struct TasukiWeeklyActivityLineChart: View {
     /// その週の暦日ごとの合計距離（記録なしは 0.0 km）。
     private static func dailyDistanceLines(for point: WeeklyActivityChartPoint, activities: [RunActivity]?) -> [String] {
         guard let activities else { return [] }
-        let cal = Calendar.current
+        let cal = Calendar.tasukiActivityWeekCalendar
         guard let interval = cal.dateInterval(of: .weekOfYear, for: point.weekAnchor) else { return [] }
         var byDay: [Date: Double] = [:]
         for a in activities where interval.contains(a.startedAt) {

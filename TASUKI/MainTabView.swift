@@ -154,7 +154,7 @@ struct MainTabView: View {
                 .environmentObject(coachCertification)
                 .environmentObject(mainTabRouter)
         case 2:
-            TeamView()
+            TeamView(useMockTeamFlow: true)
         case 3:
             FindView()
         case 4:

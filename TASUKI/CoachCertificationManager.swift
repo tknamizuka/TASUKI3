@@ -48,6 +48,12 @@ final class CoachCertificationManager: ObservableObject {
         }
         #endif
 
+        // Firestore API 未有効時も `addSnapshotListener` は WatchStream を張り続けログが出るため、EKIDEN と同じ開発フラグで購読を止める。
+        if TasukiDevelopmentFlags.skipFirestoreEkidenTabReads {
+            applyUserDocumentData(nil)
+            return
+        }
+
         let db = Firestore.firestore()
         listener = db.collection("users").document(uid).addSnapshotListener { [weak self] snapshot, _ in
             guard let self else { return }

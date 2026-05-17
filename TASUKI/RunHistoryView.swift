@@ -643,6 +643,7 @@ struct RunHistoryMapView: View {
                 }
             }
         }
+        .frame(minWidth: 1, minHeight: 1)
     }
 
     private func smoothCoordinates(_ raw: [CLLocationCoordinate2D], window: Int = 5) -> [CLLocationCoordinate2D] {

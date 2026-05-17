@@ -774,6 +774,7 @@ struct TimeTrialRoomView: View {
                                     .stroke(Color.tasukiAccent, lineWidth: 4)
                             }
                         }
+                        .frame(minWidth: 1, maxWidth: .infinity, minHeight: 1)
                         .frame(height: 260)
                         .clipShape(RoundedRectangle(cornerRadius: 14))
                     }

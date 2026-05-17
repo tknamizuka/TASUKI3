@@ -38,6 +38,9 @@ struct RunRecordingView: View {
     /// 「走行を開始」後の 3→2→1。nil のときは表示しない。
     @State private var runStartCountdownPhase: Int? = nil
     @State private var runStartCountdownTask: Task<Void, Never>? = nil
+    /// ペース表示は `RunTracker` の1秒ハートビートのタイミングでのみ更新（GPSのたびに数字が細かく動かないようにする）
+    @State private var paceDisplayElapsedSeconds: TimeInterval = 0
+    @State private var paceDisplayDistanceKm: Double = 0
 
     private var elapsedSeconds: TimeInterval {
         _ = tracker.trackingUIHeartbeatAt
@@ -45,11 +48,16 @@ struct RunRecordingView: View {
     }
 
     private var currentPaceText: String {
-        guard tracker.distanceKm > 0 else { return "--:--/km" }
-        let secPerKm = elapsedSeconds / tracker.distanceKm
+        guard paceDisplayDistanceKm > 0 else { return "--:--/km" }
+        let secPerKm = paceDisplayElapsedSeconds / paceDisplayDistanceKm
         let m = Int(secPerKm) / 60
         let s = Int(secPerKm) % 60
         return String(format: "%d:%02d/km", m, s)
+    }
+
+    private func syncPaceDisplaySnapshot(anchor: Date = Date()) {
+        paceDisplayElapsedSeconds = tracker.elapsedSeconds(now: anchor)
+        paceDisplayDistanceKm = tracker.distanceKm
     }
 
     private var routeCoordinates: [CLLocationCoordinate2D] {
@@ -213,10 +221,17 @@ struct RunRecordingView: View {
         .onChange(of: tracker.isTracking) { _, isOn in
             if isOn {
                 recordingSheetFraction = recordingSheetMaxFraction
+                syncPaceDisplaySnapshot()
             } else {
+                paceDisplayElapsedSeconds = 0
+                paceDisplayDistanceKm = 0
                 tracker.startMapPreviewLocationUpdates()
                 syncIdleMapCameraFromTracker()
             }
+        }
+        .onChange(of: tracker.trackingUIHeartbeatAt) { _, anchor in
+            guard tracker.isTracking else { return }
+            syncPaceDisplaySnapshot(anchor: anchor)
         }
         .onChange(of: tracker.lastKnownCoordinate?.latitude) { _, _ in
             if !tracker.isTracking {
@@ -276,7 +291,7 @@ struct RunRecordingView: View {
 
             VStack(spacing: 0) {
                 ZStack(alignment: .bottom) {
-                    trackingMapBackgroundLayer(height: contentH, width: geo.size.width, contentHeight: contentH)
+                    trackingMapBackgroundLayer(height: contentH, width: max(1, geo.size.width), contentHeight: contentH)
 
                     recordingTrackingSheet(totalHeight: contentH, topSafeInset: geo.safeAreaInsets.top, contentHeight: contentH)
                         .frame(height: sheetH)
@@ -372,7 +387,9 @@ struct RunRecordingView: View {
 
     /// 走行中: 記録シートの下に敷く全幅マップ（常に同じ領域に配置し、シートで覆う／見せる）。
     private func trackingMapBackgroundLayer(height: CGFloat, width: CGFloat, contentHeight: CGFloat) -> some View {
-        ZStack(alignment: .topTrailing) {
+        let w = max(1, width)
+        let h = max(1, height)
+        return ZStack(alignment: .topTrailing) {
             Map(position: $trackingMapCamera, interactionModes: [.pan, .zoom, .rotate]) {
                 if displayRouteCoordinates.count >= 2 {
                     MapPolyline(coordinates: displayRouteCoordinates)
@@ -394,7 +411,7 @@ struct RunRecordingView: View {
                     }
                 }
             }
-            .frame(width: width, height: height)
+            .frame(width: w, height: h)
             .allowsHitTesting(recordingSheetFraction < recordingSheetCollapsedThreshold(contentHeight: contentHeight))
 
             if tracker.lastKnownCoordinate != nil {
@@ -407,7 +424,7 @@ struct RunRecordingView: View {
                     .allowsHitTesting(false)
             }
         }
-        .frame(width: width, height: height)
+        .frame(width: w, height: h)
         .clipped()
         .simultaneousGesture(recordingSheetResizeGesture(contentHeight: height))
     }
@@ -845,6 +862,7 @@ struct RunRecordingView: View {
                             .stroke(Color.tasukiAccent, lineWidth: 4)
                     }
                 }
+                .frame(minWidth: 1, maxWidth: .infinity, minHeight: 1)
                 .frame(height: 240)
                 .clipShape(RoundedRectangle(cornerRadius: 14))
                 .tasukiFlatCard()

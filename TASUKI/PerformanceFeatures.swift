@@ -4,6 +4,15 @@ import Combine
 import FirebaseAuth
 import FirebaseFirestore
 
+extension Calendar {
+    /// 週次アクティビティ（今週距離・回数・チャート・振り返り）の週境界。locale に依らず月曜始まりで統一する。
+    static var tasukiActivityWeekCalendar: Calendar {
+        var c = Calendar.current
+        c.firstWeekday = 2 // Monday (1 = Sunday)
+        return c
+    }
+}
+
 struct CodableCoordinate: Codable, Hashable {
     let latitude: Double
     let longitude: Double
@@ -463,17 +472,17 @@ final class RunActivityStore: ObservableObject {
     }
 
     /// 今週（`calendar` の `weekOfYear`）に含まれる走行。Me / Run の Activity と「今週の振り返り」で同一データを参照する。
-    func activitiesInCurrentWeek(now: Date = Date(), calendar: Calendar = .current) -> [RunActivity] {
+    func activitiesInCurrentWeek(now: Date = Date(), calendar: Calendar = .tasukiActivityWeekCalendar) -> [RunActivity] {
         guard let weekInterval = calendar.dateInterval(of: .weekOfYear, for: now) else { return [] }
         return activities.filter { weekInterval.contains($0.startedAt) }
     }
 
-    func weeklyDistanceKm(now: Date = Date(), calendar: Calendar = .current) -> Double {
+    func weeklyDistanceKm(now: Date = Date(), calendar: Calendar = .tasukiActivityWeekCalendar) -> Double {
         activitiesInCurrentWeek(now: now, calendar: calendar).reduce(0) { $0 + $1.distanceKm }
     }
 
-    func weeklyRunCount(now: Date = Date()) -> Int {
-        activitiesInCurrentWeek(now: now).count
+    func weeklyRunCount(now: Date = Date(), calendar: Calendar = .tasukiActivityWeekCalendar) -> Int {
+        activitiesInCurrentWeek(now: now, calendar: calendar).count
     }
 
     // MARK: - TASUKI Run 記録（`run_recorder`）集計 · My Profile など
@@ -597,7 +606,7 @@ final class RunActivityStore: ObservableObject {
     func weeklyActivityChartPoints(
         weeks: Int = 8,
         now: Date = Date(),
-        calendar: Calendar = .current
+        calendar: Calendar = .tasukiActivityWeekCalendar
     ) -> [WeeklyActivityChartPoint] {
         let real = weeklyChartRows(weeks: weeks, now: now, calendar: calendar)
         if real.contains(where: { $0.distanceKm > 0 }) {
@@ -1022,9 +1031,10 @@ final class TrainingPlanStore: ObservableObject {
     }
 
     private func completionKey() -> String {
-        let calendar = Calendar.current
-        let week = calendar.component(.weekOfYear, from: Date())
-        let year = calendar.component(.yearForWeekOfYear, from: Date())
+        let calendar = Calendar.tasukiActivityWeekCalendar
+        let now = Date()
+        let week = calendar.component(.weekOfYear, from: now)
+        let year = calendar.component(.yearForWeekOfYear, from: now)
         return completedPrefix + "\(year)-\(week)"
     }
 

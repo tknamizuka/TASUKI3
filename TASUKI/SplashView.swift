@@ -26,18 +26,9 @@ struct SplashView: View {
                     }
             }
             
-            // 3. ロゴ（紫＋ブランド黄のアクセントライン）
-            VStack(spacing: 16) {
-                Text("TASUKI")
-                    .font(.system(size: 60, weight: .heavy))
-                    .foregroundColor(Color.tasukiPrimary)
-                    .tracking(10)
-                    .opacity(opacity)
-                Capsule()
-                    .fill(Color.tasukiBrandYellow)
-                    .frame(width: 120, height: 5)
-                    .opacity(opacity)
-            }
+            // 3. ロゴ（Home ヒーローと同一デザイン: バンドルロゴ + タイポ + 白シャドウ）
+            TasukiBrandedHeroHeader(title: "TASUKI", applyHomeHeroTopInset: false)
+                .opacity(opacity)
         }
         .onAppear {
             // ロゴのアニメーション

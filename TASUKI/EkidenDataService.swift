@@ -251,6 +251,34 @@ final class EkidenDataService {
     static let shared = EkidenDataService()
     private lazy var db = Firestore.firestore()
 
+    /// Firestore が未有効・権限不備のとき SDK の Watch/Write 再接続が続き EKIDEN タブが重くなるのを防ぐ（駅伝の読み取りのみモックへフォールバック）。
+    private static var firestoreEkidenReadsCircuitOpen = false
+    private static let firestoreEkidenCircuitLock = NSLock()
+
+    private static var shouldBypassFirestoreEkidenReads: Bool {
+        TasukiDevelopmentFlags.skipFirestoreEkidenTabReads || firestoreEkidenReadsCircuitOpen
+    }
+
+    private static func markFirestoreEkidenCircuitOpenIfNeeded(_ error: Error) {
+        let ns = error as NSError
+        let desc = ns.localizedDescription
+        let apiDisabled =
+            desc.contains("Cloud Firestore API has not been used")
+            || desc.contains("SERVICE_DISABLED")
+            || (desc.contains("Firestore") && desc.contains("disabled"))
+        let permissionDenied =
+            (ns.domain.contains("Firestore") && ns.code == 7)
+            || desc.contains("PERMISSION_DENIED")
+        guard apiDisabled || permissionDenied else { return }
+        firestoreEkidenCircuitLock.lock()
+        defer { firestoreEkidenCircuitLock.unlock() }
+        guard !firestoreEkidenReadsCircuitOpen else { return }
+        firestoreEkidenReadsCircuitOpen = true
+        #if DEBUG
+        print("[TASUKI][EkidenDataService] Ekiden Firestore reads bypassed for this process: \(desc.prefix(140))")
+        #endif
+    }
+
     private init() {}
 
     /// チームのアクティブ駅伝イベント・エントリー・区間を取得
@@ -259,7 +287,7 @@ final class EkidenDataService {
     ///   - isSampleTeam: サンプルチームの場合 true（モックデータを返す）
     /// - Returns: イベント・エントリー・区間・メンバー名・暫定順位（イベントがない場合は nil）
     func loadEkidenState(teamId: String, isSampleTeam: Bool) async -> EkidenViewState? {
-        if isSampleTeam || teamId.hasPrefix("example") {
+        if Self.shouldBypassFirestoreEkidenReads || isSampleTeam || teamId.hasPrefix("example") {
             return await loadMockEkidenState(teamId: teamId)
         }
 
@@ -677,12 +705,16 @@ final class EkidenDataService {
                 totalTeams: mapRows.isEmpty ? 1 : mapRows.count
             )
         } catch {
+            Self.markFirestoreEkidenCircuitOpenIfNeeded(error)
             return nil
         }
     }
 
     /// 区間賞ランキング（`ekiden_events/{eventId}/leg_rankings/{legIndex}`）
     func loadLegRankingSnapshot(eventId: String, legIndex: Int) async -> EkidenLegRankingSnapshot? {
+        if Self.shouldBypassFirestoreEkidenReads {
+            return nil
+        }
         guard legIndex >= 0 else { return nil }
         do {
             let doc = try await db.collection("ekiden_events").document(eventId)
@@ -692,6 +724,7 @@ final class EkidenDataService {
             guard doc.exists, let data = doc.data() else { return nil }
             return EkidenLegRankingSnapshot.parse(legIndex: legIndex, data: data)
         } catch {
+            Self.markFirestoreEkidenCircuitOpenIfNeeded(error)
             return nil
         }
     }
@@ -1324,7 +1357,7 @@ final class EkidenDataService {
     /// イベント内の全エントリーの順位を返す（コースマップ UI 用）。
     /// 箱根10区プリセットでは「全区間を規定提出で完走したチーム」は合計タイム昇順（早いほど上位）、それ以外は進捗（距離・区間）優先。
     func loadEventTeamRankingMapRows(eventId: String, isSampleTeam: Bool) async -> [EkidenTeamRankingMapRow] {
-        if isSampleTeam {
+        if isSampleTeam || Self.shouldBypassFirestoreEkidenReads {
             return await buildSampleTeamRankingMapRows12(eventId: eventId)
         }
 
@@ -1404,6 +1437,7 @@ final class EkidenDataService {
                 )
             }
         } catch {
+            Self.markFirestoreEkidenCircuitOpenIfNeeded(error)
             return []
         }
     }

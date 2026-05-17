@@ -16,6 +16,8 @@ struct TasukiBrandedHeroHeader: View {
     var compactToolbarStyle: Bool = false
     /// `compactToolbarStyle` 時の字間（未指定時は 8）。
     var compactTitleTracking: CGFloat?
+    /// Home スクロール先頭向けの上インセット。スプラッシュ等で中央寄せするときは `false`。
+    var applyHomeHeroTopInset: Bool = true
 
     var body: some View {
         Group {
@@ -52,7 +54,7 @@ struct TasukiBrandedHeroHeader: View {
                     .frame(width: geo.size.width, height: geo.size.height)
                 }
                 .frame(height: 136)
-                .padding(.top, 20)
+                .padding(.top, applyHomeHeroTopInset ? 20 : 0)
             }
         }
     }

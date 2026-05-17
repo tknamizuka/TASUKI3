@@ -317,6 +317,12 @@ private enum CursorDebugIngest72380d {
     static let sessionId = "72380d"
     private static let ingestURL = URL(string: "http://127.0.0.1:7277/ingest/e0cb0106-0f93-4658-bd23-3791397c06c2")!
 
+    /// 環境変数 `TASUKI_CURSOR_DEBUG_INGEST=1` のときだけ localhost ingest へ POST する。
+    /// 未設定のままだと接続失敗が大量に出てメインスレッドのジェスチャ処理に悪影響することがある。
+    private static var isHttpIngestEnabled: Bool {
+        ProcessInfo.processInfo.environment["TASUKI_CURSOR_DEBUG_INGEST"] == "1"
+    }
+
     /// シミュレータからホストのワークスペース `.cursor/debug-72380d.log` へ追記（ingest が届かないときの証跡用）。
     private static func appendNDJSONLineToHostWorkspace(_ line: String) {
         #if targetEnvironment(simulator)
@@ -353,16 +359,24 @@ private enum CursorDebugIngest72380d {
         if let runId {
             payload["runId"] = runId
         }
+        let sendHTTP = isHttpIngestEnabled
         guard let json = try? JSONSerialization.data(withJSONObject: payload),
               let line = String(data: json, encoding: .utf8) else { return }
-        print("[CursorDebug 72380d] \(line)")
-        appendNDJSONLineToHostWorkspace(line)
-        var req = URLRequest(url: ingestURL)
-        req.httpMethod = "POST"
-        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        req.setValue(sessionId, forHTTPHeaderField: "X-Debug-Session-Id")
-        req.httpBody = json
-        URLSession.shared.dataTask(with: req).resume()
+        if sendHTTP {
+            print("[CursorDebug 72380d] \(line)")
+        }
+
+        DispatchQueue.global(qos: .utility).async {
+            appendNDJSONLineToHostWorkspace(line)
+            guard sendHTTP else { return }
+            var req = URLRequest(url: ingestURL)
+            req.httpMethod = "POST"
+            req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            req.setValue(sessionId, forHTTPHeaderField: "X-Debug-Session-Id")
+            req.httpBody = json
+            req.timeoutInterval = 0.75
+            URLSession.shared.dataTask(with: req).resume()
+        }
     }
 }
 #endif

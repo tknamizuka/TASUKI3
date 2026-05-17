@@ -10,6 +10,37 @@ import UIKit
 import FirebaseAuth
 import FirebaseFirestore
 
+/// EKIDEN / Distance など `TeamView` 内で日付表示に使うフォーマッタ（`body` 再評価ごとの生成を避けスクロール負荷を下げる）。
+private enum TeamViewDateFormatting {
+    static let monthDay: DateFormatter = {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "ja_JP")
+        f.dateFormat = "M/d"
+        return f
+    }()
+
+    static let monthDayKanji: DateFormatter = {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "ja_JP")
+        f.dateFormat = "M月d日"
+        return f
+    }()
+
+    static let isoDay: DateFormatter = {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "ja_JP")
+        f.dateFormat = "yyyy-MM-dd"
+        return f
+    }()
+
+    static let relativeShort: RelativeDateTimeFormatter = {
+        let f = RelativeDateTimeFormatter()
+        f.locale = Locale(identifier: "ja_JP")
+        f.unitsStyle = .short
+        return f
+    }()
+}
+
 // MARK: - Team Member Model
 struct TeamMember: Identifiable {
     let id = UUID()
@@ -260,15 +291,15 @@ struct TeamView: View {
     
     // 日付フォーマット
     var monthEndDateString: String {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "ja_JP")
-        formatter.dateFormat = "M月d日"
-        return formatter.string(from: monthEndDate)
+        TeamViewDateFormatting.monthDayKanji.string(from: monthEndDate)
     }
     
     /// 本番かつ未ログインでは EKIDEN チームフローをサンプル（モック）で動かす
     private var isSampleTeamFlow: Bool {
-        useMockTeamFlow || TasukiDevelopmentFlags.skipFirestoreEkidenTabReads || Auth.auth().currentUser == nil
+        useMockTeamFlow
+            || TasukiDevelopmentFlags.skipFirestoreEkidenTabReads
+            || TasukiDevelopmentFlags.useUltraLightEkidenTabMock
+            || Auth.auth().currentUser == nil
     }
     
     /// 参加チームID（本番の `userTeamId` またはプレビュー用）
@@ -442,20 +473,31 @@ struct TeamView: View {
             }
         }
         .task {
+            guard !TasukiDevelopmentFlags.useUltraLightEkidenTabMock else { return }
             await EkidenDeviceSampleDataSeeder.seedIfNeeded()
         }
         .onAppear {
-            if isSampleTeamFlow || debugPreviewTeamId != nil {
+            if TasukiDevelopmentFlags.useUltraLightEkidenTabMock {
+                userTeamId = "example_owner"
+                teamDetailNavTeamId = "example_owner"
+                userDistanceTeamId = nil
+                isResolvingEntryState = false
+                detachUserTeamFieldsListener()
+            } else if isSampleTeamFlow || debugPreviewTeamId != nil {
                 isResolvingEntryState = false
             } else {
                 isResolvingEntryState = true
                 attachUserTeamFieldsListener()
             }
-            if userTeamId == nil, isSampleTeamFlow, let savedId = UserDefaults.standard.string(forKey: "myTeamId"), !savedId.isEmpty {
+            if !TasukiDevelopmentFlags.useUltraLightEkidenTabMock,
+               userTeamId == nil, isSampleTeamFlow,
+               let savedId = UserDefaults.standard.string(forKey: "myTeamId"), !savedId.isEmpty {
                 userTeamId = savedId
                 teamDetailNavTeamId = savedId
             }
-            if userDistanceTeamId == nil, isSampleTeamFlow, let savedDist = UserDefaults.standard.string(forKey: "myDistanceTeamId"), !savedDist.isEmpty {
+            if !TasukiDevelopmentFlags.useUltraLightEkidenTabMock,
+               userDistanceTeamId == nil, isSampleTeamFlow,
+               let savedDist = UserDefaults.standard.string(forKey: "myDistanceTeamId"), !savedDist.isEmpty {
                 userDistanceTeamId = savedDist
             }
             scheduleRefreshEkidenOverlayHomeSuppress()
@@ -472,8 +514,11 @@ struct TeamView: View {
             teamModeSwitcher
                 .padding(.horizontal, 20)
                 .padding(.top, 12)
+                .frame(maxWidth: .infinity)
+                .background(Color.tasukiDarkBackground)
             selectedModeContent
         }
+        .background(Color.tasukiDarkBackground)
         .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
@@ -496,25 +541,13 @@ struct TeamView: View {
                 }
             }
         }
-        .highPriorityGesture(
-            DragGesture(minimumDistance: 28, coordinateSpace: .local)
-                .onEnded { value in
-                    let horizontal = value.translation.width
-                    let vertical = abs(value.translation.height)
-                    guard vertical < 90 else { return }
-                    guard abs(horizontal) >= 70 else { return }
-                    if horizontal < 0 {
-                        moveToNextMode()
-                    } else {
-                        moveToPreviousMode()
-                    }
-                }
-        )
     }
 
     /// 所属済み時のメインUI（`body` の型推論負荷を下げるため切り出し）
     private var teamJoinedRootView: some View {
         teamJoinedChromeView
+        .toolbarBackground(Color.tasukiDarkBackground, for: .navigationBar)
+        .toolbarBackground(.visible, for: .navigationBar)
         .sheet(isPresented: $showTeamChatSheet) {
             TeamDualTeamChatSheetView(
                 initialChannel: teamChatOpenChannel,
@@ -589,6 +622,10 @@ struct TeamView: View {
         }
         .onAppear {
             selectedCondition = myCondition
+            if TasukiDevelopmentFlags.useUltraLightEkidenTabMock {
+                refreshFirestoreTeamAssociations()
+                return
+            }
             if let tid = resolvedTeamId, !tid.isEmpty {
                 if teamDetailNavTeamId.isEmpty { teamDetailNavTeamId = tid }
                 if userTeamId == nil, let d = debugPreviewTeamId, !d.isEmpty {
@@ -598,9 +635,11 @@ struct TeamView: View {
             }
         }
         .onChange(of: userTeamId) { _, _ in
+            guard !TasukiDevelopmentFlags.useUltraLightEkidenTabMock else { return }
             refreshFirestoreTeamAssociations()
         }
         .onChange(of: userDistanceTeamId) { _, _ in
+            guard !TasukiDevelopmentFlags.useUltraLightEkidenTabMock else { return }
             refreshFirestoreTeamAssociations()
         }
         .alert("TASUKIをつなぐ", isPresented: $showPassTasukiConfirm) {
@@ -666,6 +705,22 @@ struct TeamView: View {
                 .fill(Color.tasukiMutedText.opacity(0.2))
                 .frame(height: 1)
         }
+        // 全体に付けると ScrollView の縦ドラッグと競合し EKIDEN がスクロール不能になるため、タブバー領域のみ横スワイプでモード切替
+        .contentShape(Rectangle())
+        .highPriorityGesture(
+            DragGesture(minimumDistance: 28, coordinateSpace: .local)
+                .onEnded { value in
+                    let horizontal = value.translation.width
+                    let vertical = abs(value.translation.height)
+                    guard vertical < 90 else { return }
+                    guard abs(horizontal) >= 70 else { return }
+                    if horizontal < 0 {
+                        moveToNextMode()
+                    } else {
+                        moveToPreviousMode()
+                    }
+                }
+        )
     }
 
     private func modeSwitchButton(title: String, mode: TeamMode) -> some View {
@@ -876,6 +931,70 @@ struct TeamView: View {
         }
     }
 
+    /// EKIDEN: Firestore の `teams` ドキュメント ID とエントリー・イベントの対応（テキストのみでスクロール負荷は小さい）
+    private var teamEkidenContextBanner: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("表示しているチーム")
+                .font(.system(size: 12, weight: .bold))
+                .foregroundColor(Color.tasukiMutedText)
+            Text("メンバー管理・チャットは Firestore の teams コレクションのドキュメント ID にひもづきます。")
+                .font(.system(size: 11))
+                .foregroundColor(Color.tasukiMutedText.opacity(0.92))
+                .fixedSize(horizontal: false, vertical: true)
+            Text(ekidenChatTeamId.isEmpty ? "（チーム未設定）" : ekidenChatTeamId)
+                .font(.system(size: 13, weight: .semibold, design: .monospaced))
+                .foregroundColor(Color.tasukiPrimary)
+            if let s = ekidenLineState {
+                Text("エントリー \(s.entry.id) · イベント \(s.event.id) · \(s.event.legCount)区間")
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundColor(Color.tasukiMutedText.opacity(0.85))
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            if TasukiDevelopmentFlags.useUltraLightEkidenTabMock {
+                Text("開発用: ウルトラライトEKIDENは example_owner に固定しています。")
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundColor(Color.tasukiAccentOrange)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 10)
+                .fill(Color.white.opacity(0.06))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 10)
+                .stroke(Color.tasukiMutedText.opacity(0.22), lineWidth: 1)
+        )
+    }
+
+    /// ScrollView 内で `GeometryReader` による再レイアウトループを避け、進捗幅だけ `scaleEffect` で表す
+    private func tasukiFractionProgressBar(fraction: Double, height: CGFloat, cornerRadius: CGFloat) -> some View {
+        let f = CGFloat(min(max(fraction, 0), 1))
+        let fill = LinearGradient(
+            colors: [
+                Color(hex: "C5DB00"),
+                Color.tasukiBrandYellow,
+                Color(hex: "FFF59E")
+            ],
+            startPoint: .leading,
+            endPoint: .trailing
+        )
+        return ZStack(alignment: .leading) {
+            RoundedRectangle(cornerRadius: cornerRadius)
+                .fill(Color.tasukiDarkCardSecondary)
+                .frame(height: height)
+            RoundedRectangle(cornerRadius: cornerRadius)
+                .fill(fill)
+                .frame(maxWidth: .infinity)
+                .scaleEffect(x: f, anchor: .leading)
+                .frame(height: height)
+        }
+        .frame(maxWidth: .infinity)
+        .frame(height: height)
+    }
+
     private var ekidenContent: some View {
         ZStack {
             Color.tasukiDarkBackground
@@ -883,6 +1002,10 @@ struct TeamView: View {
 
             ScrollView(showsIndicators: false) {
                 VStack(spacing: 20) {
+                    teamEkidenContextBanner
+                        .padding(.horizontal, 20)
+                        .padding(.top, 8)
+
                     Group {
                         if let ekiden = ekidenLineState {
                             ekidenProgressCard(ekiden, isReadOnly: !ekiden.isWithinEventWindow)
@@ -1614,6 +1737,14 @@ struct TeamView: View {
 
     /// Firestore の `users.teamId` / `users.distanceTeamId` と `teams/*` を同期（各タブ用の状態を別々に更新）
     private func refreshFirestoreTeamAssociations() {
+        if TasukiDevelopmentFlags.useUltraLightEkidenTabMock {
+            let tid = "example_owner"
+            loadTeamOwner(teamId: tid, slot: .ekiden)
+            Task { await loadEkidenState(teamId: tid) }
+            isOwnerDistanceTeam = false
+            distanceLineState = nil
+            return
+        }
         let ek = ekidenChatTeamId
         let dist = distanceChatTeamId
         if !ek.isEmpty {
@@ -1653,6 +1784,8 @@ struct TeamView: View {
         await MainActor.run {
             if teamId == ek && !ek.isEmpty {
                 ekidenLineState = state
+                // 区間賞はシート表示時に `reload` で読む（タブ初回の二重取得とメインスレッド更新を避ける）
+                legRankingSnapshot = nil
                 if selectedMode == .ekiden {
                     legRankingSelectedLegIndex = defaultLegIdx
                 }
@@ -1662,23 +1795,6 @@ struct TeamView: View {
                 if selectedMode == .distanceChallenge {
                     legRankingSelectedLegIndex = defaultLegIdx
                 }
-            }
-        }
-        guard let s = state else {
-            await MainActor.run {
-                if teamId == ek { legRankingSnapshot = nil }
-            }
-            return
-        }
-        let snap: EkidenLegRankingSnapshot?
-        if isSample {
-            snap = EkidenLegRankingSnapshot.buildMock(from: s, legIndex: defaultLegIdx)
-        } else {
-            snap = await EkidenDataService.shared.loadLegRankingSnapshot(eventId: s.event.id, legIndex: defaultLegIdx)
-        }
-        await MainActor.run {
-            if teamId == ek {
-                legRankingSnapshot = snap
             }
         }
     }
@@ -1842,17 +1958,11 @@ struct TeamView: View {
     }
 
     private func shortRelativeTime(_ date: Date) -> String {
-        let f = RelativeDateTimeFormatter()
-        f.locale = Locale(identifier: "ja_JP")
-        f.unitsStyle = .short
-        return f.localizedString(for: date, relativeTo: Date())
+        TeamViewDateFormatting.relativeShort.localizedString(for: date, relativeTo: Date())
     }
 
     private func dayKeyString(_ date: Date) -> String {
-        let f = DateFormatter()
-        f.locale = Locale(identifier: "ja_JP")
-        f.dateFormat = "yyyy-MM-dd"
-        return f.string(from: date)
+        TeamViewDateFormatting.isoDay.string(from: date)
     }
 
     private func guestCheerStorageKey(teamId: String, dayKey: String) -> String {
@@ -2048,6 +2158,17 @@ struct TeamView: View {
             }
             return
         }
+        if TasukiDevelopmentFlags.skipFirestoreEkidenTabReads {
+            DispatchQueue.main.async {
+                switch slot {
+                case .ekiden:
+                    self.isOwnerEkidenTeam = false
+                case .distance:
+                    self.isOwnerDistanceTeam = false
+                }
+            }
+            return
+        }
         guard let currentUid = Auth.auth().currentUser?.uid else {
             return
         }
@@ -2123,11 +2244,8 @@ struct TeamView: View {
         let calendar = Calendar.current
         let now = Date()
         let remainingDays = max(0, calendar.dateComponents([.day], from: now, to: state.event.endAt).day ?? 0)
-        let dateFormatter = DateFormatter()
-        dateFormatter.locale = Locale(identifier: "ja_JP")
-        dateFormatter.dateFormat = "M/d"
-        let startStr = dateFormatter.string(from: state.event.startAt)
-        let endStr = dateFormatter.string(from: state.event.endAt)
+        let startStr = TeamViewDateFormatting.monthDay.string(from: state.event.startAt)
+        let endStr = TeamViewDateFormatting.monthDay.string(from: state.event.endAt)
         
         let currentLegIndex = state.entry.currentLegIndex
         let legProgress: Double
@@ -2251,28 +2369,11 @@ struct TeamView: View {
                     .foregroundColor(.black)
             }
             
-            GeometryReader { geometry in
-                ZStack(alignment: .leading) {
-                    RoundedRectangle(cornerRadius: 12)
-                        .fill(Color.tasukiDarkCardSecondary)
-                        .frame(height: 20)
-                    
-                    RoundedRectangle(cornerRadius: 12)
-                        .fill(
-                            LinearGradient(
-                                colors: [
-                                    Color(hex: "C5DB00"),
-                                    Color.tasukiBrandYellow,
-                                    Color(hex: "FFF59E")
-                                ],
-                                startPoint: .leading,
-                                endPoint: .trailing
-                            )
-                        )
-                        .frame(width: geometry.size.width * CGFloat(min(legProgress / 100, 1.0)), height: 20)
-                }
-            }
-            .frame(height: 20)
+            tasukiFractionProgressBar(
+                fraction: min(legProgress / 100, 1.0),
+                height: 20,
+                cornerRadius: 12
+            )
             
             Text(progressCaption)
                 .font(.system(size: 12))
@@ -2693,28 +2794,11 @@ struct TeamView: View {
                 .font(.system(size: 14, weight: .regular))
                 .foregroundColor(.black)
             
-            GeometryReader { geometry in
-                ZStack(alignment: .leading) {
-                    RoundedRectangle(cornerRadius: 12)
-                        .fill(Color.tasukiDarkCardSecondary)
-                        .frame(height: 24)
-                    
-                    RoundedRectangle(cornerRadius: 12)
-                        .fill(
-                            LinearGradient(
-                                colors: [
-                                    Color(hex: "C5DB00"),
-                                    Color.tasukiBrandYellow,
-                                    Color(hex: "FFF59E")
-                                ],
-                                startPoint: .leading,
-                                endPoint: .trailing
-                            )
-                        )
-                        .frame(width: geometry.size.width * CGFloat(progressPercentage / 100), height: 24)
-                }
-            }
-            .frame(height: 24)
+            tasukiFractionProgressBar(
+                fraction: min(progressPercentage, 100) / 100,
+                height: 24,
+                cornerRadius: 12
+            )
             
             HStack {
                 Text("\(Int(currentDistance))km")

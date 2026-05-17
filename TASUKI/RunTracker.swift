@@ -60,7 +60,7 @@ final class RunTracker: NSObject, ObservableObject {
     private let minSegmentDistanceMeters: CLLocationDistance = 2
     private let minRoutePointDistanceMeters: CLLocationDistance = 3
     private let maxRunningSpeedMps: CLLocationSpeed = 8.5
-    private let warmupDurationSeconds: TimeInterval = 40
+    private let warmupDurationSeconds: TimeInterval = 10
     private let warmupMaxRunningSpeedMps: CLLocationSpeed = 7.0
     private let routeSmoothingWindowSize = 5
     /// 走行開始前の地図プレビュー用に位置更新のみ行う（距離・ルートには加えない）

@@ -5,7 +5,7 @@ struct WeeklyReflectionView: View {
     @ObservedObject private var activityStore = RunActivityStore.shared
 
     private var weekInterval: DateInterval? {
-        Calendar.current.dateInterval(of: .weekOfYear, for: Date())
+        Calendar.tasukiActivityWeekCalendar.dateInterval(of: .weekOfYear, for: Date())
     }
 
     /// Me / Run 記録の Activity と同じ `RunActivityStore` 集計。
@@ -18,7 +18,7 @@ struct WeeklyReflectionView: View {
 
     private var restDays: Int {
         guard let weekInterval else { return 0 }
-        let cal = Calendar.current
+        let cal = Calendar.tasukiActivityWeekCalendar
         var count = 0
         var day = weekInterval.start
         while day < weekInterval.end {

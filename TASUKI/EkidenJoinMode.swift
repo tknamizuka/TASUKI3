@@ -35,7 +35,9 @@ enum EkidenJoinMode: String, CaseIterable, Identifiable, Hashable {
     /// モード選択カード上部のイメージ（`Assets.xcassets` の名前。`nil` のときはシステムアイコンを表示）
     var selectionHeroAssetName: String? {
         switch self {
-        case .realEkiden: return "runner"
+        case .realEkiden:
+            // バンドルに `runner` が無い環境では毎回アセット探索ログが出るため、SF Symbol ヒーローを使う。
+            return nil
         case .enjoyEkiden: return nil
         }
     }

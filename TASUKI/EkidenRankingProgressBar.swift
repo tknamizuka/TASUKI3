@@ -44,7 +44,7 @@ struct EkidenTeamsCourseProgressBar: View {
                     .foregroundColor(Color.tasukiMutedText)
             } else {
                 GeometryReader { geo in
-                    let w = geo.size.width
+                    let w = max(1, geo.size.width)
                     let barTop: CGFloat = 22
                     let barH: CGFloat = 12
                     let barMidY = barTop + barH / 2
@@ -87,6 +87,8 @@ struct EkidenTeamsCourseProgressBar: View {
                         }
                     }
                 }
+                .frame(maxWidth: .infinity)
+                .frame(minWidth: 1)
                 .frame(height: 48)
 
                 HStack(alignment: .firstTextBaseline, spacing: 6) {

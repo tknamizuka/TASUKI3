@@ -36,7 +36,7 @@ enum FindMockWeeklyActivity {
     }
 
     /// ユーザーごとにばらつくサンプル週次距離（左が過去、右が今週）。
-    static func chartPoints(for user: User, weeks: Int = 8, now: Date = Date(), calendar: Calendar = .current) -> [WeeklyActivityChartPoint] {
+    static func chartPoints(for user: User, weeks: Int = 8, now: Date = Date(), calendar: Calendar = .tasukiActivityWeekCalendar) -> [WeeklyActivityChartPoint] {
         let template: [Double] = [12.0, 18.5, 10.2, 21.3, 16.4, 22.1, 19.8, 24.0]
         let seed = stableSeed(for: user)
         let shift = Int(seed % UInt64(max(template.count, 1)))
