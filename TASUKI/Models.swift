@@ -122,7 +122,7 @@ struct User: Identifiable, Codable {
     var latitude: Double
     var longitude: Double
     var distanceFromUserMock: Double
-    /// 今月の GPS 走行回数（マッチング用。未設定時は nil）
+    /// 旧フィールド（Firestore 互換）。Find のマッチングでは使用しない。
     var monthlyGpsActivityCount: Int? = nil
     
     // 計算プロパティ: オンライン判定 (24時間以内)

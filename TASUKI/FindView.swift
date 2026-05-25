@@ -61,8 +61,9 @@ struct FindView: View {
     @AppStorage("myBestHalf") private var myBestHalf: String = ""
     @AppStorage("myAvgPace") private var myAvgPace: String = "5:30/km"
     @AppStorage("myRunningSpots") private var myRunningSpots: String = "皇居"
-    @AppStorage("runningDataSource") private var runningDataSourceRaw: String = RunningDataSource.all.rawValue
-    @ObservedObject private var activityStore = RunActivityStore.shared
+    @AppStorage("myArea") private var myArea: String = "Tokyo, Setagaya"
+    @AppStorage("mySchedule") private var mySchedule: String = "平日夜, 土日午前"
+    @AppStorage("myMonthlyDist") private var myMonthlyDist: String = "150km"
     
     // Practices用 詳細フィルター
     @State private var practiceFilterDate: Date? = nil  // 日時で絞り込む（nil=指定なし）
@@ -92,10 +93,6 @@ struct FindView: View {
         let first = myRunningSpots.split(separator: ",").first.map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
         if let f = first, !f.isEmpty { return f }
         return "よく走るエリア"
-    }
-
-    private var selectedRunningDataSource: RunningDataSource {
-        RunningDataSource(rawValue: runningDataSourceRaw) ?? .all
     }
 
     /// Runners / Practices 共通のフィルタ・ソート済みユーザー（件数制限なし）
@@ -174,30 +171,18 @@ struct FindView: View {
         refreshMatchingUsers()
     }
 
-    /// `discoverUserPool` に対し、自分の月間 GPS と候補プロフィールでマッチ度を計算する。
+    /// `discoverUserPool` に対し、自分・候補ともプロフィール登録値のみでマッチ度を計算する（GPS 記録は使わない）。
     private func refreshMatchingUsers() {
-        let ds = selectedRunningDataSource
-        let myPace: Double?
-        let myRuns: Int
-        let centroid: (latitude: Double, longitude: Double)?
-        if ds.usesHealthKitForQueries {
-            myPace = activityStore.monthlyAveragePaceSecondsPerKm()
-            myRuns = activityStore.monthlyRunCount()
-            centroid = activityStore.monthlyRouteCentroid()
-        } else {
-            myPace = activityStore.monthlyAveragePaceSecondsPerKm(matching: ds)
-            myRuns = activityStore.monthlyRunCount(matching: ds)
-            centroid = activityStore.monthlyRouteCentroid(matching: ds)
-        }
-        let fallback = myAvgPace.isEmpty ? "5:30/km" : myAvgPace
+        let paceLabel = myAvgPace.isEmpty ? "5:30/km" : myAvgPace
+        let myMonthlyKm = FindMatchScore.monthlyDistanceKm(from: myMonthlyDist)
         matchingUsers = discoverUserPool.map { user in
             var u = user
             u.matchRate = FindMatchScore.compute(
-                myPaceSecPerKm: myPace,
-                myMonthlyGpsRuns: myRuns,
-                myRunLatitude: centroid?.latitude,
-                myRunLongitude: centroid?.longitude,
-                myAvgPaceFallback: fallback,
+                myAvgPace: paceLabel,
+                myRunningSpots: myRunningSpots,
+                myArea: myArea,
+                mySchedule: mySchedule,
+                myMonthlyDistanceKm: myMonthlyKm,
                 candidate: user
             )
             return u
@@ -560,18 +545,16 @@ struct FindView: View {
                 )
             }
             .onAppear {
-                activityStore.refreshFromRemote()
                 refreshMatchingUsers()
             }
             .task {
                 await loadDiscoverUsersFromFirestore()
             }
-            .onChange(of: activityStore.activities.count) { _, _ in
-                refreshMatchingUsers()
-            }
-            .onChange(of: runningDataSourceRaw) { _, _ in
-                refreshMatchingUsers()
-            }
+            .onChange(of: myAvgPace) { _, _ in refreshMatchingUsers() }
+            .onChange(of: myRunningSpots) { _, _ in refreshMatchingUsers() }
+            .onChange(of: myArea) { _, _ in refreshMatchingUsers() }
+            .onChange(of: mySchedule) { _, _ in refreshMatchingUsers() }
+            .onChange(of: myMonthlyDist) { _, _ in refreshMatchingUsers() }
             .overlay(alignment: .bottomTrailing) {
                 // 新規募集ボタン（Practicesモードの時だけ表示）— 白地・紺アクセント
                 if selectedMode == "Practices" {
@@ -699,7 +682,7 @@ struct FindView: View {
     }
 
     // MARK: - Runner Card View (User型用)
-    /// `useSpotBasedCopy`: 未検索のおすすめ表示では GPS ではなく「よく走る場所」で近いように見せる
+    /// `useSpotBasedCopy`: 未検索のおすすめ表示ではプロフィールの「よく走る場所」を強調
     private func runnerCardView(user: User, useSpotBasedCopy: Bool) -> some View {
         HStack(spacing: 15) {
             // 丸型プロフィール画像（名前の左側に配置）

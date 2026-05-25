@@ -11,6 +11,28 @@ final class RunLiveActivityManager {
 
     private init() {}
 
+    /// 初回起動時: Live Activity の利用可否をシステムに確認（短いプレースホルダを即終了）。
+    func requestAuthorizationProbeIfNeeded() async {
+        guard ActivityAuthorizationInfo().areActivitiesEnabled else { return }
+
+        let state = RunTrackingActivityAttributes.ContentState(
+            timeText: "00:00",
+            distanceText: "0.00 km",
+            paceText: "--:--/km",
+            isPaused: false
+        )
+        do {
+            let probe = try await Activity.request(
+                attributes: RunTrackingActivityAttributes(),
+                content: ActivityContent(state: state, staleDate: nil),
+                pushType: nil
+            )
+            await probe.end(nil, dismissalPolicy: .immediate)
+        } catch {
+            // 拡張未埋め込み・ユーザー拒否など
+        }
+    }
+
     func beginIfPossible() {
         guard ActivityAuthorizationInfo().areActivitiesEnabled else { return }
         guard activity == nil else {

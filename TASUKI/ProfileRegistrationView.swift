@@ -975,6 +975,9 @@ struct ProfileRegistrationView: View {
                         UserDefaults.standard.set(purposeForSave, forKey: "myPurpose")
                         self.isSaving = false
                         EngagementSignals.touchSignificantInteraction()
+                    }
+                    await TasukiFirstLaunchPermissions.requestOnProfileRegistrationIfNeeded()
+                    await MainActor.run {
                         self.onComplete?()
                     }
                     return
@@ -1034,6 +1037,7 @@ struct ProfileRegistrationView: View {
             
             let uidForDraft = firebaseUser.uid
             let result = await saveUserProfileWithTimeout(user: user)
+            var registrationSucceeded = false
             await MainActor.run {
                 self.isSaving = false
                 switch result {
@@ -1041,9 +1045,15 @@ struct ProfileRegistrationView: View {
                     self.clearRegistrationDraft(for: uidForDraft)
                     user.syncLocalProfileStorage()
                     EngagementSignals.touchSignificantInteraction()
-                    self.onComplete?()
+                    registrationSucceeded = true
                 case .failure(let error):
                     self.saveErrorMessage = Self.saveErrorMessageText(for: error)
+                }
+            }
+            if registrationSucceeded {
+                await TasukiFirstLaunchPermissions.requestOnProfileRegistrationIfNeeded()
+                await MainActor.run {
+                    self.onComplete?()
                 }
             }
         }

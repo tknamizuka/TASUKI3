@@ -11,6 +11,11 @@ struct RunRecordingView: View {
     @ObservedObject private var qaStore = CoachQAStore.shared
     @EnvironmentObject private var coachCertification: CoachCertificationManager
     @EnvironmentObject private var mainTabRouter: MainTabRouter
+    @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.openURL) private var openURL
+    private let runTabIndex = 1
+
+    @State private var showAlwaysLocationBeforeRunAlert = false
     @AppStorage("myName") private var myName: String = "Hiro"
     /// 0 のときは推定に 65kg を使う
     @AppStorage("runnerWeightKg") private var runnerWeightKg: Double = 0
@@ -195,6 +200,10 @@ struct RunRecordingView: View {
                                 .padding(.horizontal, 20)
                                 .padding(.bottom, 20)
 
+                            locationAlwaysPermissionPromptSection(compact: false)
+                                .padding(.horizontal, 20)
+                                .padding(.bottom, 20)
+
                             primaryStartRunButton
                                 .padding(.horizontal, 20)
                                 .padding(.bottom, 20)
@@ -260,6 +269,7 @@ struct RunRecordingView: View {
                 ]
             )
             activityStore.refreshFromRemote()
+            tracker.setRunScreenVisible(true)
             if !tracker.isTracking {
                 tracker.startMapPreviewLocationUpdates()
                 syncIdleMapCameraFromTracker()
@@ -269,7 +279,24 @@ struct RunRecordingView: View {
             runStartCountdownTask?.cancel()
             runStartCountdownTask = nil
             runStartCountdownPhase = nil
+            tracker.setRunScreenVisible(false)
             tracker.stopMapPreviewLocationUpdates()
+        }
+        .onChange(of: mainTabRouter.selectedTab) { _, tab in
+            tracker.setRunScreenVisible(tab == runTabIndex)
+        }
+        .onChange(of: scenePhase) { _, phase in
+            tracker.handleScenePhase(phase)
+        }
+        .alert("位置情報を「常に許可」にしてください", isPresented: $showAlwaysLocationBeforeRunAlert) {
+            Button("設定を開く") {
+                openAppSettingsForAlwaysLocation()
+            }
+            Button("このまま開始", role: .cancel) {
+                beginRunStartCountdown(seconds: 3)
+            }
+        } message: {
+            Text("スリープ中も記録を続けるには「常に許可」が必要です。設定アプリで変更できます。")
         }
         .fullScreenCover(item: $postRunDraft) { draft in
             PostRunFlowView(draft: draft, onActivitySavedAndDismiss: onEkidenActivitySaved)
@@ -438,12 +465,18 @@ struct RunRecordingView: View {
                 VStack(spacing: 0) {
                     recordingSheetDragHandleRow(compact: true)
                     recordingCompactYellowStatsBar
+                    locationAlwaysPermissionPromptSection(compact: true)
+                        .padding(.horizontal, 12)
+                        .padding(.bottom, 6)
                 }
             } else {
                 VStack(spacing: 0) {
                     recordingSheetDragHandleRow(compact: false)
                         .padding(.top, hintTopPadding)
                     recordingExpandedYellowHeaderBlock
+                    locationAlwaysPermissionPromptSection(compact: true)
+                        .padding(.horizontal, 20)
+                        .padding(.bottom, 8)
                     trackingStatsBlock
                     Spacer(minLength: 0)
                 }
@@ -773,13 +806,31 @@ struct RunRecordingView: View {
         }
     }
 
+    @ViewBuilder
+    private func locationAlwaysPermissionPromptSection(compact: Bool) -> some View {
+        if tracker.isLocationPermissionBlocked {
+            LocationAlwaysPermissionPromptCard(reason: .deniedOrRestricted, compact: compact)
+        } else if tracker.needsAlwaysLocationUpgrade {
+            LocationAlwaysPermissionPromptCard(reason: .whenInUseOnly, compact: compact)
+        }
+    }
+
+    private func openAppSettingsForAlwaysLocation() {
+        guard let url = URL(string: UIApplication.openSettingsURLString) else { return }
+        openURL(url)
+    }
+
     /// 旧 CHALLENGE 行の位置。カウントダウン後に `beginRunStartCountdown` と同じフローで記録開始。
     private var primaryStartRunButton: some View {
         Button {
-            beginRunStartCountdown(seconds: 3)
+            if tracker.needsAlwaysLocationUpgrade {
+                showAlwaysLocationBeforeRunAlert = true
+            } else {
+                beginRunStartCountdown(seconds: 3)
+            }
         } label: {
-            Text(runStartCountdownPhase != nil ? "準備中…" : "Lets RUN!")
-                .font(.system(size: 16, weight: .bold))
+            Text(runStartCountdownPhase != nil ? "準備中…" : "Let's RUN")
+                .font(.system(size: 17, weight: .bold))
                 .foregroundColor(Color.tasukiOnBrandYellow)
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 14)
@@ -879,7 +930,9 @@ struct RunRecordingView: View {
                     .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12))
                 }
             }
-            if let err = tracker.locationError, !tracker.isTracking {
+            if tracker.isLocationPermissionBlocked, !tracker.isTracking {
+                LocationAlwaysPermissionPromptCard(reason: .deniedOrRestricted, compact: true)
+            } else if let err = tracker.locationError, !tracker.isTracking {
                 Text(err)
                     .font(.caption)
                     .foregroundColor(Color.tasukiAccentOrange)
@@ -929,11 +982,7 @@ struct RunRecordingView: View {
         ZStack {
             Color.black.opacity(0.55)
                 .ignoresSafeArea()
-            Text("\(phase)")
-                .font(.system(size: 72, weight: .bold))
-                .foregroundColor(Color.tasukiBrandYellow)
-                .monospacedDigit()
-                .shadow(color: .black.opacity(0.35), radius: 8, y: 4)
+            RunStartCountdownFireworkOverlay(phase: phase)
         }
         .allowsHitTesting(true)
         .transition(.opacity)
@@ -1403,6 +1452,80 @@ struct RunRecordingView: View {
             ascent = "上昇 -- m"
         }
         return "\(cadence) ・ \(ascent)"
+    }
+}
+
+// MARK: - Run start countdown (firework-style)
+
+/// 走行開始前の 3→2→1。数字を画面下から打ち上げ、火花が散るような演出。
+private struct RunStartCountdownFireworkOverlay: View {
+    let phase: Int
+
+    var body: some View {
+        GeometryReader { geo in
+            RunStartCountdownFireworkPhaseContent(phase: phase, size: geo.size)
+        }
+    }
+}
+
+private struct RunStartCountdownFireworkPhaseContent: View {
+    let phase: Int
+    let size: CGSize
+
+    @State private var launched = false
+
+    private var launchDistance: CGFloat {
+        min(size.height * 0.42, 340)
+    }
+
+    private var center: CGPoint {
+        CGPoint(x: size.width / 2, y: size.height / 2)
+    }
+
+    var body: some View {
+        ZStack {
+            ForEach(0..<16, id: \.self) { i in
+                fireworkSpark(index: i)
+            }
+
+            Text("\(phase)")
+                .font(.system(size: 72, weight: .bold))
+                .foregroundColor(Color.tasukiBrandYellow)
+                .monospacedDigit()
+                .shadow(color: .black.opacity(0.35), radius: 8, y: 4)
+                .shadow(color: Color.tasukiAccent.opacity(launched ? 0.5 : 0), radius: launched ? 24 : 0, y: 0)
+                .offset(y: launched ? 0 : launchDistance)
+                .scaleEffect(launched ? 1.0 : 0.38)
+                .opacity(launched ? 1.0 : 0.45)
+                .animation(.spring(response: 0.52, dampingFraction: 0.72), value: launched)
+        }
+        .frame(width: size.width, height: size.height)
+        .contentShape(Rectangle())
+        .task(id: phase) {
+            launched = false
+            try? await Task.sleep(nanoseconds: 45_000_000)
+            launched = true
+        }
+    }
+
+    private func fireworkSpark(index: Int) -> some View {
+        let c = center
+        let startX = c.x + CGFloat((index % 5) - 2) * 9
+        let startY = c.y + launchDistance * 0.52
+        let angle = -Double.pi * 0.58 + (Double(index) / 15.0) * Double.pi * 1.16
+        let radius: CGFloat = 88 + CGFloat(index % 5) * 22
+        let endX = c.x + CGFloat(cos(angle)) * radius
+        let endY = c.y + CGFloat(sin(angle)) * radius * 0.52
+        let hue = (0.11 + Double(index) * 0.055).truncatingRemainder(dividingBy: 1)
+        let sparkColor = Color(hue: hue, saturation: 0.82, brightness: 1)
+
+        return Circle()
+            .fill(sparkColor)
+            .frame(width: CGFloat(4 + (index % 3)), height: CGFloat(4 + (index % 3)))
+            .blur(radius: index % 4 == 0 ? 1.4 : 0)
+            .position(launched ? CGPoint(x: endX, y: endY) : CGPoint(x: startX, y: startY))
+            .opacity(launched ? 0 : 0.92)
+            .animation(.easeOut(duration: 0.7).delay(Double(index) * 0.022), value: launched)
     }
 }
 

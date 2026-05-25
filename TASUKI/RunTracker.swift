@@ -9,6 +9,7 @@ import Foundation
 import Combine
 import CoreLocation
 import CoreMotion
+import SwiftUI
 
 struct RunTrackPoint: Codable, Hashable {
     let timestamp: Date
@@ -63,10 +64,9 @@ final class RunTracker: NSObject, ObservableObject {
     private let warmupDurationSeconds: TimeInterval = 10
     private let warmupMaxRunningSpeedMps: CLLocationSpeed = 7.0
     private let routeSmoothingWindowSize = 5
-    /// 走行開始前の地図プレビュー用に位置更新のみ行う（距離・ルートには加えない）
+    /// 走行開始前の地図プレビュー用に位置更新のみ行う（距離・ルートには加えない）。Run 画面表示中かつフォアグラウンドのみ。
     private var isPreviewingMapLocation = false
-    /// バックグラウンド記録のため「常に」を一度案内したか
-    private var didPromptAlwaysAuthorizationWhileTracking = false
+    private var isRunScreenVisible = false
     private var cadenceSampleCount: Int = 0
     private var cadenceSampleSum: Double = 0
     private var trackingUIHeartbeatTimer: Timer?
@@ -81,12 +81,53 @@ final class RunTracker: NSObject, ObservableObject {
         locationManager.allowsBackgroundLocationUpdates = false
     }
     
-    func requestPermissionIfNeeded() {
+    /// 位置情報は「常に許可」のみ案内する（`requestWhenInUseAuthorization` は使わない）。
+    func requestAlwaysPermissionIfNeeded() {
         switch locationManager.authorizationStatus {
-        case .notDetermined:
-            locationManager.requestWhenInUseAuthorization()
+        case .notDetermined, .authorizedWhenInUse:
+            locationManager.requestAlwaysAuthorization()
         default:
             break
+        }
+    }
+
+    /// コールドスタート時: 前回セッションの位置更新が残っていても距離計測しないよう停止する。
+    func prepareForApplicationLaunch() {
+        isTracking = false
+        isPaused = false
+        isPreviewingMapLocation = false
+        isRunScreenVisible = false
+        haltLocationUpdatesCompletely()
+    }
+
+    /// Run タブ／走行画面の表示状態（タブ切替でプレビュー GPS を止める）
+    func setRunScreenVisible(_ visible: Bool) {
+        isRunScreenVisible = visible
+        if visible {
+            syncMapPreviewIfNeeded()
+        } else {
+            stopMapPreviewLocationUpdates()
+        }
+    }
+
+    /// フォアグラウンド／バックグラウンド遷移
+    func handleScenePhase(_ phase: ScenePhase) {
+        switch phase {
+        case .active:
+            if isTracking, !isPaused {
+                applyBackgroundLocationPolicyForTracking()
+                locationManager.startUpdatingLocation()
+            } else {
+                syncMapPreviewIfNeeded()
+            }
+        case .inactive, .background:
+            if isTracking, !isPaused, canUseBackgroundLocationWhileTracking {
+                applyBackgroundLocationPolicyForTracking()
+            } else {
+                haltLocationUpdatesCompletely()
+            }
+        @unknown default:
+            haltLocationUpdatesCompletely()
         }
     }
 
@@ -94,15 +135,40 @@ final class RunTracker: NSObject, ObservableObject {
     func startMapPreviewLocationUpdates() {
         guard !isTracking else { return }
         isPreviewingMapLocation = true
-        requestPermissionIfNeeded()
-        locationManager.startUpdatingLocation()
+        syncMapPreviewIfNeeded()
     }
 
     /// 走行開始前プレビューをやめる（バッテリー負荷軽減）。記録中は何もしない。
     func stopMapPreviewLocationUpdates() {
         guard !isTracking else { return }
         isPreviewingMapLocation = false
+        if !isTracking {
+            haltLocationUpdatesCompletely()
+        }
+    }
+
+    private func syncMapPreviewIfNeeded() {
+        guard isPreviewingMapLocation, !isTracking, isRunScreenVisible else {
+            if !isTracking {
+                haltLocationUpdatesCompletely()
+            }
+            return
+        }
+        requestAlwaysPermissionIfNeeded()
+        locationManager.allowsBackgroundLocationUpdates = false
+        locationManager.showsBackgroundLocationIndicator = false
+        locationManager.startUpdatingLocation()
+    }
+
+    private var canUseBackgroundLocationWhileTracking: Bool {
+        locationManager.authorizationStatus == .authorizedAlways
+    }
+
+    /// 走行中以外は位置更新を完全停止（バックグラウンド取得も無効化）
+    private func haltLocationUpdatesCompletely() {
         locationManager.stopUpdatingLocation()
+        locationManager.allowsBackgroundLocationUpdates = false
+        locationManager.showsBackgroundLocationIndicator = false
     }
 
     /// UI 用: 位置情報が使えるか
@@ -118,30 +184,41 @@ final class RunTracker: NSObject, ObservableObject {
     var authorizationStatus: CLAuthorizationStatus {
         locationManager.authorizationStatus
     }
-    
-    /// スリープ中も記録するため「常に許可」を案内（走行セッション中・1回まで）
-    private func promptAlwaysAuthorizationIfNeeded() {
-        guard isTracking else { return }
-        guard locationManager.authorizationStatus == .authorizedWhenInUse else { return }
-        guard !didPromptAlwaysAuthorizationWhileTracking else { return }
-        didPromptAlwaysAuthorizationWhileTracking = true
-        locationManager.requestAlwaysAuthorization()
+
+    /// 「使用中のみ」のため、ロック中のバックグラウンド計測ができない状態。
+    var needsAlwaysLocationUpgrade: Bool {
+        locationManager.authorizationStatus == .authorizedWhenInUse
+    }
+
+    var isLocationPermissionBlocked: Bool {
+        switch locationManager.authorizationStatus {
+        case .denied, .restricted:
+            return true
+        default:
+            return false
+        }
     }
     
     private func applyBackgroundLocationPolicyForTracking() {
         let status = locationManager.authorizationStatus
         guard status == .authorizedAlways || status == .authorizedWhenInUse else {
-            locationManager.allowsBackgroundLocationUpdates = false
+            haltLocationUpdatesCompletely()
             return
         }
         locationManager.pausesLocationUpdatesAutomatically = false
-        locationManager.allowsBackgroundLocationUpdates = true
-        locationManager.showsBackgroundLocationIndicator = true
+        if status == .authorizedAlways {
+            locationManager.allowsBackgroundLocationUpdates = true
+            locationManager.showsBackgroundLocationIndicator = true
+        } else {
+            locationManager.allowsBackgroundLocationUpdates = false
+            locationManager.showsBackgroundLocationIndicator = false
+        }
     }
-    
+
     func start() {
         isPreviewingMapLocation = false
-        requestPermissionIfNeeded()
+        haltLocationUpdatesCompletely()
+        requestAlwaysPermissionIfNeeded()
         let previewCoordinate = lastKnownCoordinate
         lastLocation = nil
         lastAltitude = nil
@@ -178,12 +255,10 @@ final class RunTracker: NSObject, ObservableObject {
         cadenceSampleSum = 0
         averageCadenceSpm = nil
         maxCadenceSpm = nil
-        didPromptAlwaysAuthorizationWhileTracking = false
         applyBackgroundLocationPolicyForTracking()
         locationManager.startUpdatingLocation()
         startCadenceUpdates()
         isTracking = true
-        promptAlwaysAuthorizationIfNeeded()
         RunLiveActivityManager.shared.beginIfPossible()
         RealityMiningManager.shared.trackEvent(name: "run_tracking_start")
         startTrackingUIHeartbeat()
@@ -196,8 +271,7 @@ final class RunTracker: NSObject, ObservableObject {
             accumulatedPausedSeconds += Date().timeIntervalSince(pausedAt)
             self.pausedAt = nil
         }
-        locationManager.allowsBackgroundLocationUpdates = false
-        locationManager.stopUpdatingLocation()
+        haltLocationUpdatesCompletely()
         stopCadenceUpdates()
         RealityMiningManager.shared.trackEvent(
             name: "run_tracking_stop",
@@ -227,7 +301,7 @@ final class RunTracker: NSObject, ObservableObject {
 
     func pause() {
         guard isTracking, !isPaused else { return }
-        locationManager.stopUpdatingLocation()
+        haltLocationUpdatesCompletely()
         stopCadenceUpdates()
         pausedAt = Date()
         isPaused = true
@@ -246,6 +320,9 @@ final class RunTracker: NSObject, ObservableObject {
     }
     
     func reset() {
+        if !isTracking {
+            haltLocationUpdatesCompletely()
+        }
         lastLocation = nil
         lastAltitude = nil
         distanceKm = 0
@@ -302,6 +379,9 @@ final class RunTracker: NSObject, ObservableObject {
 extension RunTracker: CLLocationManagerDelegate {
     func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
         guard !locations.isEmpty else { return }
+
+        // 走行セッション外の更新は無視（バックグラウンド取得の取りこぼし防止）
+        guard isTracking || (isPreviewingMapLocation && isRunScreenVisible) else { return }
 
         // 走行前: 地図の現在地ピンのみ更新（ルート・距離は触らない）
         if isPreviewingMapLocation && !isTracking {
@@ -447,9 +527,11 @@ extension RunTracker: CLLocationManagerDelegate {
                     properties: ["state": "denied_or_restricted"]
                 )
             case .authorizedAlways, .authorizedWhenInUse:
-                if self.isTracking {
+                if self.isTracking, !self.isPaused {
                     self.applyBackgroundLocationPolicyForTracking()
-                    self.promptAlwaysAuthorizationIfNeeded()
+                    self.locationManager.startUpdatingLocation()
+                } else {
+                    self.syncMapPreviewIfNeeded()
                 }
                 RealityMiningManager.shared.trackEvent(
                     name: "location_permission_state",

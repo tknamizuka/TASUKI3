@@ -28,6 +28,9 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         configureTabBarAppearance()
         TasukiHandoffNotifier.requestAuthorizationIfNeeded()
         PointService.shared.resetMonthlyIfNeeded()
+        Task { @MainActor in
+            RunTracker.shared.prepareForApplicationLaunch()
+        }
         // #region agent log
         DebugSession658Log.log(
             location: "AppDelegate.didFinishLaunching",
@@ -167,7 +170,8 @@ struct TASUKIApp: App {
                     await updateAppState()
                 }
             }
-            .onChange(of: scenePhase) { newPhase in
+            .onChange(of: scenePhase) { _, newPhase in
+                RunTracker.shared.handleScenePhase(newPhase)
                 switch newPhase {
                 case .active:
                     RealityMiningManager.shared.trackEvent(name: "app_foreground")
@@ -196,15 +200,18 @@ struct TASUKIApp: App {
         RealityMiningManager.shared.trackEvent(name: "app_session_start")
         // 1. 現在時刻を記録
         let startTime = Date()
+
+        // 2. 初回起動時のみ: 位置情報（常に許可）・Live Activity の許可確認（スプラッシュ中）
+        await TasukiFirstLaunchPermissions.requestOnFirstAppLaunchIfNeeded()
         
-        // 2. ユーザーの状態チェック（非同期）
+        // 3. ユーザーの状態チェック（非同期）
         let nextState = await checkUserStatus()
         
-        // 3. 経過時間を計算
+        // 4. 経過時間を計算
         let elapsedTime = Date().timeIntervalSince(startTime)
         let minDisplayTime: TimeInterval = 2.0 // 2秒固定
         
-        // 4. 2秒に満たない場合、残りの時間だけ待機
+        // 5. 2秒に満たない場合、残りの時間だけ待機
         if elapsedTime < minDisplayTime {
             let remainingTime = minDisplayTime - elapsedTime
             do {
@@ -214,10 +221,10 @@ struct TASUKIApp: App {
             }
         }
         
-        // 5. 初回チェック完了フラグを設定
+        // 6. 初回チェック完了フラグを設定
         hasCompletedInitialCheck = true
         
-        // 6. メインスレッドで画面を切り替え
+        // 7. メインスレッドで画面を切り替え
         withAnimation {
             self.appState = nextState
         }
