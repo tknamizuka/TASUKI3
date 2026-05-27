@@ -11,14 +11,23 @@ import UIKit
 // MARK: - Partner Detail View
 struct PartnerDetailView: View {
     let user: User
+    let ownerFirebaseUid: String?
 
+    @State private var displayUser: User
+    @State private var remoteActivities: [RunActivity] = []
+    @State private var isLoadingRemoteData = false
     @State private var connectionStatus: ConnectionStatus
     @State private var showAlert = false
     @State private var alertMessage = ""
     @State private var showRequestAlert = false
 
-    init(user: User? = nil, initialStatus: ConnectionStatus = .none) {
-        self.user = user ?? mockUser
+    private let userManager = UserManager()
+
+    init(user: User? = nil, ownerFirebaseUid: String? = nil, initialStatus: ConnectionStatus = .none) {
+        let resolved = user ?? mockUser
+        self.user = resolved
+        self.ownerFirebaseUid = ownerFirebaseUid ?? resolved.firebaseUid
+        _displayUser = State(initialValue: resolved)
         _connectionStatus = State(initialValue: initialStatus)
     }
 
@@ -30,8 +39,9 @@ struct PartnerDetailView: View {
             ScrollView(showsIndicators: false) {
                 VStack(spacing: 0) {
                     UserPublicProfileScrollContent(
-                        user: user,
-                        activityChartPoints: [],
+                        user: displayUser,
+                        remoteActivities: remoteActivities,
+                        isLoadingRemoteActivities: isLoadingRemoteData,
                         heroAccessory: .partnerOnline
                     )
 
@@ -52,6 +62,9 @@ struct PartnerDetailView: View {
                     .foregroundColor(.black)
             }
         }
+        .onAppear {
+            loadRemoteProfileAndActivities()
+        }
         .alert("リクエスト送信完了", isPresented: $showAlert) {
             Button("OK", role: .cancel) { }
         } message: {
@@ -66,6 +79,33 @@ struct PartnerDetailView: View {
             }
         } message: {
             Text("相手にパートナー申請を送ります。よろしいですか？")
+        }
+    }
+
+    private func loadRemoteProfileAndActivities() {
+        guard let uid = ownerFirebaseUid, !uid.isEmpty else { return }
+        isLoadingRemoteData = true
+
+        let group = DispatchGroup()
+
+        group.enter()
+        userManager.fetchPublicProfile(firebaseUid: uid) { result in
+            if case .success(let profile) = result {
+                displayUser = profile
+            }
+            group.leave()
+        }
+
+        group.enter()
+        RunActivityStore.shared.fetchActivitiesForUser(firebaseUid: uid) { result in
+            if case .success(let activities) = result {
+                remoteActivities = activities
+            }
+            group.leave()
+        }
+
+        group.notify(queue: .main) {
+            isLoadingRemoteData = false
         }
     }
 

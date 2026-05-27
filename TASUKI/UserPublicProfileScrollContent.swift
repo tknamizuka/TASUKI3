@@ -1,10 +1,12 @@
 import SwiftUI
 
 /// 他ユーザーを表示するときのプロフィール本文（`MyProfileView` と同じセクション・項目構成）。
-/// `activityChartPoints` が空のときは週次グラフをプレースホルダー表示（Find モックなどで非空を渡すとグラフを表示）。
+/// `remoteActivities` が空のときは Firestore プロフィール項目（`avgPace` / `monthlyDistance` 等）をサマリーに表示。
 struct UserPublicProfileScrollContent: View {
     let user: User
     let activityChartPoints: [WeeklyActivityChartPoint]
+    let remoteActivities: [RunActivity]
+    let isLoadingRemoteActivities: Bool
     let heroAccessory: HeroAccessory
 
     enum HeroAccessory {
@@ -15,24 +17,85 @@ struct UserPublicProfileScrollContent: View {
         case none
     }
 
-    private var monthlyDistDisplay: String {
-        "\(Int(user.monthlyDistance))km / \(Int(user.monthlyTarget))km"
+    init(
+        user: User,
+        activityChartPoints: [WeeklyActivityChartPoint] = [],
+        remoteActivities: [RunActivity] = [],
+        isLoadingRemoteActivities: Bool = false,
+        heroAccessory: HeroAccessory
+    ) {
+        self.user = user
+        self.activityChartPoints = activityChartPoints
+        self.remoteActivities = remoteActivities
+        self.isLoadingRemoteActivities = isLoadingRemoteActivities
+        self.heroAccessory = heroAccessory
     }
 
-    /// 週次チャートありのときは右端（今週）のモック距離を表示。
+    private var activityStats: RunActivityCollectionStats {
+        RunActivityCollectionStats(activities: remoteActivities)
+    }
+
+    private var hasRemoteActivityStats: Bool {
+        !remoteActivities.isEmpty
+    }
+
     private var weeklyDistanceStatDisplay: String {
+        if hasRemoteActivityStats {
+            return String(format: "%.1f km", activityStats.weeklyDistanceKm())
+        }
         guard let last = activityChartPoints.last else { return "—" }
         return String(format: "%.1f km", last.distanceKm)
     }
 
-    /// 週次チャートありのときのモック回数（サンプル値）。
     private var weeklyRunCountStatDisplay: String {
+        if hasRemoteActivityStats {
+            return "\(activityStats.weeklyRunCount()) 回"
+        }
         guard !activityChartPoints.isEmpty else { return "—" }
         var h = Hasher()
         h.combine(user.name)
         h.combine(user.monthlyGpsActivityCount)
         let n = (abs(h.finalize()) % 5) + 2
-        return "\(n)"
+        return "\(n) 回"
+    }
+
+    private var monthlyDistanceStatDisplay: String {
+        if hasRemoteActivityStats {
+            return String(format: "%.1f km", activityStats.monthlyDistanceKm())
+        }
+        return String(format: "%.1f km", user.monthlyDistance)
+    }
+
+    private var paceSummaryDisplay: String {
+        if hasRemoteActivityStats {
+            return activityStats.monthlyAveragePaceDisplayLabel()
+        }
+        let trimmed = user.avgPace.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? "--:--/km" : trimmed
+    }
+
+    private var monthlyRunCountSummaryDisplay: String {
+        if hasRemoteActivityStats {
+            return "\(activityStats.monthlyRunCount()) 回"
+        }
+        if let count = user.monthlyGpsActivityCount, count > 0 {
+            return "\(count) 回"
+        }
+        return "0 回"
+    }
+
+    private var caloriesSummaryDisplay: String {
+        if hasRemoteActivityStats {
+            return activityStats.monthlyTotalCaloriesDisplayLabel()
+        }
+        return "-- kcal"
+    }
+
+    private var resolvedWeeklyDistanceChartPoints: [WeeklyActivityChartPoint] {
+        if hasRemoteActivityStats {
+            return activityStats.dailyActivityChartPoints()
+        }
+        return activityChartPoints
     }
 
     private var areaDisplay: String {
@@ -148,14 +211,22 @@ struct UserPublicProfileScrollContent: View {
             HStack(spacing: 14) {
                 graphStatActivity(title: "今週距離", value: weeklyDistanceStatDisplay)
                 graphStatActivity(title: "今週回数", value: weeklyRunCountStatDisplay)
-                graphStatActivity(title: "今月距離", value: String(format: "%.1f km", user.monthlyDistance))
+                graphStatActivity(title: "今月距離", value: monthlyDistanceStatDisplay)
             }
 
-            if activityChartPoints.isEmpty {
+            if isLoadingRemoteActivities {
                 ZStack {
                     RoundedRectangle(cornerRadius: 12)
                         .fill(Color.gray.opacity(0.08))
-                    Text("週次のグラフは本人の Me 画面でのみ表示されます")
+                    ProgressView()
+                }
+                .frame(height: 190)
+                .padding(.horizontal, 4)
+            } else if resolvedWeeklyDistanceChartPoints.isEmpty {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 12)
+                        .fill(Color.gray.opacity(0.08))
+                    Text("週次の走行記録がまだありません")
                         .font(.system(size: 13, weight: .medium))
                         .foregroundColor(.black.opacity(0.45))
                         .multilineTextAlignment(.center)
@@ -164,21 +235,62 @@ struct UserPublicProfileScrollContent: View {
                 .frame(height: 190)
                 .padding(.horizontal, 4)
             } else {
-                TasukiWeeklyActivityLineChart(points: activityChartPoints, lineColor: user.tasukiStableChartAccentColor)
-                    .frame(height: 190)
-                    .padding(.horizontal, 4)
+                TasukiWeeklyActivityLineChart(
+                    points: resolvedWeeklyDistanceChartPoints,
+                    lineColor: user.tasukiStableChartAccentColor,
+                    usesDailyPoints: hasRemoteActivityStats
+                )
+                .frame(height: 190)
+                .padding(.horizontal, 4)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private var statsSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 14) {
             sectionEyebrow("RUNNING STATS")
 
-            HStack(spacing: 12) {
-                statItem(title: "Avg Pace (月)", value: user.avgPace)
-                statItem(title: "Monthly Dist", value: monthlyDistDisplay)
+            VStack(spacing: 14) {
+                TasukiRunningStatTrendChartCard(
+                    title: "平均ペース",
+                    summaryValue: paceSummaryDisplay,
+                    points: hasRemoteActivityStats
+                        ? activityStats.dailyAveragePaceChartPoints()
+                        : [],
+                    yAxisValueFormatter: { TasukiChartPaceFormat.yAxisLabel(secondsPerKm: $0) }
+                )
+                TasukiRunningStatTrendChartCard(
+                    title: "今月距離",
+                    summaryValue: monthlyDistanceStatDisplay,
+                    points: hasRemoteActivityStats
+                        ? activityStats.dailyActivityChartPoints()
+                        : [],
+                    yAxisValueFormatter: { String(format: "%.0f", $0) }
+                )
+                TasukiRunningStatTrendChartCard(
+                    title: "走行回数",
+                    summaryValue: monthlyRunCountSummaryDisplay,
+                    points: hasRemoteActivityStats
+                        ? activityStats.dailyRunCountChartPoints()
+                        : [],
+                    yAxisValueFormatter: { String(format: "%.0f", $0) }
+                )
+                TasukiRunningStatTrendChartCard(
+                    title: "消費カロリー",
+                    summaryValue: caloriesSummaryDisplay,
+                    points: hasRemoteActivityStats
+                        ? activityStats.dailyCaloriesChartPoints()
+                        : [],
+                    yAxisValueFormatter: { String(format: "%.0f", $0) }
+                )
+            }
+            .overlay {
+                if isLoadingRemoteActivities {
+                    RoundedRectangle(cornerRadius: 12)
+                        .fill(Color.tasukiDarkBackground.opacity(0.55))
+                    ProgressView()
+                }
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -239,20 +351,6 @@ struct UserPublicProfileScrollContent: View {
             .font(.system(size: 11, weight: .bold))
             .tracking(1.2)
             .foregroundColor(.black)
-    }
-
-    private func statItem(title: String, value: String) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(title)
-                .font(.system(size: 12))
-                .foregroundColor(.black)
-            Text(value)
-                .font(.system(size: 18, weight: .bold))
-                .foregroundColor(.black)
-                .lineLimit(1)
-                .minimumScaleFactor(0.8)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private func graphStatActivity(title: String, value: String) -> some View {

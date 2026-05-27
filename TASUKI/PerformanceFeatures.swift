@@ -222,7 +222,7 @@ struct RunActivityLapSplit: Codable, Hashable {
     var paceSecondsPerKm: Double
 }
 
-/// 週次距離チャート用（`RunActivityStore.weeklyActivityChartPoints` · Me の Activity と Run 記録で同一描画に使う）。
+/// 週次・日次トレンドチャート用（`distanceKm` は距離以外の指標でも Y 値として流用）。
 struct WeeklyActivityChartPoint: Identifiable, Equatable {
     let id: String
     let weekAnchor: Date
@@ -237,6 +237,273 @@ struct WeeklyActivityChartPoint: Identifiable, Equatable {
         let w = calendar.component(.weekOfYear, from: weekAnchor)
         self.id = "\(y)-w\(w)"
     }
+
+    /// 日次チャート用。`axisLabel` が nil の日は横軸ラベルを出さない（週始まりのみ週表記）。
+    init(dayAnchor: Date, axisLabel: String?, value: Double, calendar: Calendar) {
+        let day = calendar.startOfDay(for: dayAnchor)
+        self.weekAnchor = day
+        self.label = axisLabel ?? ""
+        self.distanceKm = value
+        let y = calendar.component(.year, from: day)
+        let m = calendar.component(.month, from: day)
+        let d = calendar.component(.day, from: day)
+        self.id = String(format: "%04d-%02d-%02d", y, m, d)
+    }
+}
+
+fileprivate func tasukiWeekStartAxisLabel(for day: Date, calendar: Calendar) -> String? {
+    guard let interval = calendar.dateInterval(of: .weekOfYear, for: day) else { return nil }
+    guard calendar.isDate(day, inSameDayAs: interval.start) else { return nil }
+    return RunActivityStore.shortWeekChartLabel(for: day, calendar: calendar)
+}
+
+fileprivate func tasukiDailyMetricChartRows(
+    activities: [RunActivity],
+    weeks: Int,
+    now: Date,
+    calendar: Calendar,
+    valueForDay: (Date, [RunActivity]) -> Double
+) -> [WeeklyActivityChartPoint] {
+    let today = calendar.startOfDay(for: now)
+    let totalDays = max(weeks * 7, 2)
+    return (0..<totalDays).map { idx in
+        let dayOffset = idx - (totalDays - 1)
+        let day = calendar.date(byAdding: .day, value: dayOffset, to: today) ?? today
+        let normalizedDay = calendar.startOfDay(for: day)
+        let value = valueForDay(normalizedDay, activities)
+        let axisLabel = tasukiWeekStartAxisLabel(for: normalizedDay, calendar: calendar)
+        return WeeklyActivityChartPoint(dayAnchor: normalizedDay, axisLabel: axisLabel, value: value, calendar: calendar)
+    }
+}
+
+fileprivate func tasukiDailyDistanceDemoChartRows(
+    weeks: Int,
+    now: Date,
+    calendar: Calendar
+) -> [WeeklyActivityChartPoint] {
+    let weeklyTemplate: [Double] = [12.0, 18.5, 10.2, 21.3, 16.4, 22.1, 19.8, 24.0]
+    let today = calendar.startOfDay(for: now)
+    let totalDays = max(weeks * 7, 2)
+    return (0..<totalDays).map { idx in
+        let dayOffset = idx - (totalDays - 1)
+        let day = calendar.date(byAdding: .day, value: dayOffset, to: today) ?? today
+        let normalizedDay = calendar.startOfDay(for: day)
+        let weeksFromEnd = (totalDays - 1 - idx) / 7
+        let weekIdx = max(0, min(weeks - 1, weeks - 1 - weeksFromEnd))
+        let weekTotal = weeklyTemplate[min(weekIdx, weeklyTemplate.count - 1)]
+        let dayInWeek = (totalDays - 1 - idx) % 7
+        let weights: [Double] = [0.9, 1.1, 0.75, 1.25, 0.85, 1.15, 1.0]
+        let weightSum = weights.reduce(0, +)
+        let value = weekTotal * (weights[dayInWeek] / weightSum)
+        let axisLabel = tasukiWeekStartAxisLabel(for: normalizedDay, calendar: calendar)
+        return WeeklyActivityChartPoint(dayAnchor: normalizedDay, axisLabel: axisLabel, value: value, calendar: calendar)
+    }
+}
+
+extension Notification.Name {
+    /// `RunActivityStore` が走行記録を追加・更新したとき（Home など背面タブの即時更新用）。
+    static let tasukiRunActivitiesDidChange = Notification.Name("tasukiRunActivitiesDidChange")
+}
+
+/// 任意ユーザーの `RunActivity` 一覧から公開プロフィール用の集計・グラフを生成する。
+struct RunActivityCollectionStats {
+    let activities: [RunActivity]
+
+    func activitiesInCurrentMonth(now: Date = Date()) -> [RunActivity] {
+        let calendar = Calendar.current
+        guard let startOfMonth = calendar.date(from: calendar.dateComponents([.year, .month], from: now)) else {
+            return []
+        }
+        return activities.filter { $0.startedAt >= startOfMonth && $0.startedAt <= now }
+    }
+
+    func activitiesInCurrentWeek(
+        now: Date = Date(),
+        calendar: Calendar = .tasukiActivityWeekCalendar
+    ) -> [RunActivity] {
+        guard let interval = calendar.dateInterval(of: .weekOfYear, for: now) else { return [] }
+        return activities.filter { interval.contains($0.startedAt) }
+    }
+
+    func weeklyDistanceKm(now: Date = Date(), calendar: Calendar = .tasukiActivityWeekCalendar) -> Double {
+        activitiesInCurrentWeek(now: now, calendar: calendar).reduce(0) { $0 + $1.distanceKm }
+    }
+
+    func weeklyRunCount(now: Date = Date(), calendar: Calendar = .tasukiActivityWeekCalendar) -> Int {
+        activitiesInCurrentWeek(now: now, calendar: calendar).count
+    }
+
+    func monthlyDistanceKm(now: Date = Date()) -> Double {
+        activitiesInCurrentMonth(now: now).reduce(0) { $0 + $1.distanceKm }
+    }
+
+    func monthlyRunCount(now: Date = Date()) -> Int {
+        activitiesInCurrentMonth(now: now).count
+    }
+
+    func monthlyAveragePaceDisplayLabel(now: Date = Date()) -> String {
+        let acts = activitiesInCurrentMonth(now: now)
+        var totalDist = 0.0
+        var totalDur = 0.0
+        for a in acts {
+            totalDist += max(0, a.distanceKm)
+            totalDur += max(0, a.durationSeconds)
+        }
+        guard totalDist > 0.01 else { return "--:--/km" }
+        let sec = totalDur / totalDist
+        let m = Int(sec) / 60
+        let s = Int(sec) % 60
+        return String(format: "%d:%02d/km", m, s)
+    }
+
+    func monthlyTotalCaloriesDisplayLabel(now: Date = Date()) -> String {
+        let sum = activitiesInCurrentMonth(now: now)
+            .compactMap(\.metrics?.caloriesKcal)
+            .filter { $0 > 0 }
+            .reduce(0, +)
+        guard sum > 0 else { return "-- kcal" }
+        return "\(sum) kcal"
+    }
+
+    func weeklyActivityChartPoints(
+        weeks: Int = 8,
+        now: Date = Date(),
+        calendar: Calendar = .tasukiActivityWeekCalendar
+    ) -> [WeeklyActivityChartPoint] {
+        weeklyMetricChartRows(weeks: weeks, now: now, calendar: calendar) { interval in
+            activities
+                .filter { interval.contains($0.startedAt) }
+                .reduce(0) { $0 + $1.distanceKm }
+        }
+    }
+
+    func weeklyRunCountChartPoints(
+        weeks: Int = 8,
+        now: Date = Date(),
+        calendar: Calendar = .tasukiActivityWeekCalendar
+    ) -> [WeeklyActivityChartPoint] {
+        weeklyMetricChartRows(weeks: weeks, now: now, calendar: calendar) { interval in
+            Double(activities.filter { interval.contains($0.startedAt) }.count)
+        }
+    }
+
+    func weeklyCaloriesChartPoints(
+        weeks: Int = 8,
+        now: Date = Date(),
+        calendar: Calendar = .tasukiActivityWeekCalendar
+    ) -> [WeeklyActivityChartPoint] {
+        weeklyMetricChartRows(weeks: weeks, now: now, calendar: calendar) { interval in
+            Double(
+                activities
+                    .filter { interval.contains($0.startedAt) }
+                    .compactMap(\.metrics?.caloriesKcal)
+                    .filter { $0 > 0 }
+                    .reduce(0, +)
+            )
+        }
+    }
+
+    func weeklyAveragePaceChartPoints(
+        weeks: Int = 8,
+        now: Date = Date(),
+        calendar: Calendar = .tasukiActivityWeekCalendar
+    ) -> [WeeklyActivityChartPoint] {
+        weeklyMetricChartRows(weeks: weeks, now: now, calendar: calendar) { interval in
+            let weekActs = activities.filter { interval.contains($0.startedAt) }
+            var totalDist = 0.0
+            var totalDur = 0.0
+            for a in weekActs {
+                totalDist += max(0, a.distanceKm)
+                totalDur += max(0, a.durationSeconds)
+            }
+            guard totalDist > 0.01 else { return 0 }
+            return totalDur / totalDist
+        }
+    }
+
+    func dailyActivityChartPoints(
+        weeks: Int = 8,
+        now: Date = Date(),
+        calendar: Calendar = .tasukiActivityWeekCalendar
+    ) -> [WeeklyActivityChartPoint] {
+        let real = tasukiDailyMetricChartRows(activities: activities, weeks: weeks, now: now, calendar: calendar) { day, acts in
+            acts.filter { calendar.isDate($0.startedAt, inSameDayAs: day) }.reduce(0) { $0 + $1.distanceKm }
+        }
+        if real.contains(where: { $0.distanceKm > 0 }) {
+            return real
+        }
+        return tasukiDailyDistanceDemoChartRows(weeks: weeks, now: now, calendar: calendar)
+    }
+
+    func dailyRunCountChartPoints(
+        weeks: Int = 8,
+        now: Date = Date(),
+        calendar: Calendar = .tasukiActivityWeekCalendar
+    ) -> [WeeklyActivityChartPoint] {
+        tasukiDailyMetricChartRows(activities: activities, weeks: weeks, now: now, calendar: calendar) { day, acts in
+            Double(acts.filter { calendar.isDate($0.startedAt, inSameDayAs: day) }.count)
+        }
+    }
+
+    func dailyCaloriesChartPoints(
+        weeks: Int = 8,
+        now: Date = Date(),
+        calendar: Calendar = .tasukiActivityWeekCalendar
+    ) -> [WeeklyActivityChartPoint] {
+        tasukiDailyMetricChartRows(activities: activities, weeks: weeks, now: now, calendar: calendar) { day, acts in
+            Double(
+                acts
+                    .filter { calendar.isDate($0.startedAt, inSameDayAs: day) }
+                    .compactMap(\.metrics?.caloriesKcal)
+                    .filter { $0 > 0 }
+                    .reduce(0, +)
+            )
+        }
+    }
+
+    func dailyAveragePaceChartPoints(
+        weeks: Int = 8,
+        now: Date = Date(),
+        calendar: Calendar = .tasukiActivityWeekCalendar
+    ) -> [WeeklyActivityChartPoint] {
+        tasukiDailyMetricChartRows(activities: activities, weeks: weeks, now: now, calendar: calendar) { day, acts in
+            let dayActs = acts.filter { calendar.isDate($0.startedAt, inSameDayAs: day) }
+            var totalDist = 0.0
+            var totalDur = 0.0
+            for a in dayActs {
+                totalDist += max(0, a.distanceKm)
+                totalDur += max(0, a.durationSeconds)
+            }
+            guard totalDist > 0.01 else { return 0 }
+            return totalDur / totalDist
+        }
+    }
+
+    private func weeklyMetricChartRows(
+        weeks: Int,
+        now: Date,
+        calendar: Calendar,
+        valueForInterval: (DateInterval) -> Double
+    ) -> [WeeklyActivityChartPoint] {
+        (0..<weeks).map { idx in
+            let offset = idx - (weeks - 1)
+            let targetDate = calendar.date(byAdding: .weekOfYear, value: offset, to: now) ?? now
+            guard let interval = calendar.dateInterval(of: .weekOfYear, for: targetDate) else {
+                return WeeklyActivityChartPoint(
+                    weekAnchor: targetDate,
+                    label: RunActivityStore.shortWeekChartLabel(for: targetDate, calendar: calendar),
+                    distanceKm: 0,
+                    calendar: calendar
+                )
+            }
+            return WeeklyActivityChartPoint(
+                weekAnchor: interval.start,
+                label: RunActivityStore.shortWeekChartLabel(for: interval.start, calendar: calendar),
+                distanceKm: valueForInterval(interval),
+                calendar: calendar
+            )
+        }
+    }
 }
 
 @MainActor
@@ -244,6 +511,8 @@ final class RunActivityStore: ObservableObject {
     static let shared = RunActivityStore()
 
     @Published private(set) var activities: [RunActivity] = []
+    /// 走行記録の追加・更新・リモート同期のたびに増える。Home など非表示タブの UI 更新トリガーに使う。
+    @Published private(set) var activityRevision: UInt = 0
 
     private let storageKey = "tasuki.run_activities.v1"
     private let maxStoredCount = 300
@@ -256,6 +525,42 @@ final class RunActivityStore: ObservableObject {
 
     func refreshFromRemote() {
         syncFromRemoteIfNeeded()
+    }
+
+    /// 他ユーザーの Firestore `users/{uid}/activities` を取得（公開プロフィール表示用）。
+    func fetchActivitiesForUser(
+        firebaseUid: String,
+        limit: Int? = nil,
+        completion: @escaping (Result<[RunActivity], Error>) -> Void
+    ) {
+        let capped = max(1, min(limit ?? maxStoredCount, maxStoredCount))
+        db.collection("users")
+            .document(firebaseUid)
+            .collection("activities")
+            .order(by: "startedAt", descending: true)
+            .limit(to: capped)
+            .getDocuments { [weak self] snapshot, error in
+                if let error {
+                    completion(.failure(error))
+                    return
+                }
+                guard let self else {
+                    completion(.success([]))
+                    return
+                }
+                let list = (snapshot?.documents ?? []).compactMap { doc in
+                    self.parseActivityFromFirestoreData(doc.data())
+                }
+                completion(.success(list.sorted { $0.startedAt > $1.startedAt }))
+            }
+    }
+
+    func fetchActivitiesForUser(firebaseUid: String, limit: Int? = nil) async throws -> [RunActivity] {
+        try await withCheckedThrowingContinuation { continuation in
+            fetchActivitiesForUser(firebaseUid: firebaseUid, limit: limit) { result in
+                continuation.resume(with: result)
+            }
+        }
     }
 
     @discardableResult
@@ -294,6 +599,7 @@ final class RunActivityStore: ObservableObject {
         }
         save()
         uploadActivityIfPossible(activity)
+        bumpActivityRevision()
         EngagementSignals.touchSignificantInteraction()
         RealityMiningManager.shared.trackEvent(
             name: "run_activity_saved",
@@ -312,6 +618,7 @@ final class RunActivityStore: ObservableObject {
         activities[idx].postRunMood = postRunMood
         save()
         uploadActivityIfPossible(activities[idx])
+        bumpActivityRevision()
         RealityMiningManager.shared.trackEvent(
             name: "run_activity_subjective_updated",
             properties: [:]
@@ -324,10 +631,16 @@ final class RunActivityStore: ObservableObject {
         activities[idx].note = note
         save()
         uploadActivityIfPossible(activities[idx])
+        bumpActivityRevision()
         RealityMiningManager.shared.trackEvent(
             name: "run_activity_metadata_updated",
             properties: [:]
         )
+    }
+
+    private func bumpActivityRevision() {
+        activityRevision &+= 1
+        NotificationCenter.default.post(name: .tasukiRunActivitiesDidChange, object: nil)
     }
 
     func daysSinceLastRun(now: Date = Date()) -> Int {
@@ -680,6 +993,64 @@ final class RunActivityStore: ObservableObject {
         }
     }
 
+    func dailyActivityChartPoints(
+        weeks: Int = 8,
+        now: Date = Date(),
+        calendar: Calendar = .tasukiActivityWeekCalendar
+    ) -> [WeeklyActivityChartPoint] {
+        let real = tasukiDailyMetricChartRows(activities: activities, weeks: weeks, now: now, calendar: calendar) { day, acts in
+            acts.filter { calendar.isDate($0.startedAt, inSameDayAs: day) }.reduce(0) { $0 + $1.distanceKm }
+        }
+        if real.contains(where: { $0.distanceKm > 0 }) {
+            return real
+        }
+        return tasukiDailyDistanceDemoChartRows(weeks: weeks, now: now, calendar: calendar)
+    }
+
+    func dailyRunCountChartPoints(
+        weeks: Int = 8,
+        now: Date = Date(),
+        calendar: Calendar = .tasukiActivityWeekCalendar
+    ) -> [WeeklyActivityChartPoint] {
+        tasukiDailyMetricChartRows(activities: activities, weeks: weeks, now: now, calendar: calendar) { day, acts in
+            Double(acts.filter { calendar.isDate($0.startedAt, inSameDayAs: day) }.count)
+        }
+    }
+
+    func dailyCaloriesChartPoints(
+        weeks: Int = 8,
+        now: Date = Date(),
+        calendar: Calendar = .tasukiActivityWeekCalendar
+    ) -> [WeeklyActivityChartPoint] {
+        tasukiDailyMetricChartRows(activities: activities, weeks: weeks, now: now, calendar: calendar) { day, acts in
+            Double(
+                acts
+                    .filter { calendar.isDate($0.startedAt, inSameDayAs: day) }
+                    .compactMap(\.metrics?.caloriesKcal)
+                    .filter { $0 > 0 }
+                    .reduce(0, +)
+            )
+        }
+    }
+
+    func dailyAveragePaceChartPoints(
+        weeks: Int = 8,
+        now: Date = Date(),
+        calendar: Calendar = .tasukiActivityWeekCalendar
+    ) -> [WeeklyActivityChartPoint] {
+        tasukiDailyMetricChartRows(activities: activities, weeks: weeks, now: now, calendar: calendar) { day, acts in
+            let dayActs = acts.filter { calendar.isDate($0.startedAt, inSameDayAs: day) }
+            var totalDist = 0.0
+            var totalDur = 0.0
+            for a in dayActs {
+                totalDist += max(0, a.distanceKm)
+                totalDur += max(0, a.durationSeconds)
+            }
+            guard totalDist > 0.01 else { return 0 }
+            return totalDur / totalDist
+        }
+    }
+
     private func weeklyDistanceChartRows(
         weeks: Int,
         now: Date,
@@ -719,10 +1090,50 @@ final class RunActivityStore: ObservableObject {
         }
     }
 
-    private static func shortWeekChartLabel(for date: Date, calendar: Calendar) -> String {
+    fileprivate static func shortWeekChartLabel(for date: Date, calendar: Calendar) -> String {
         let month = calendar.component(.month, from: date)
         let day = calendar.component(.day, from: date)
         return "\(month)/\(day)"
+    }
+
+    private func parseActivityFromFirestoreData(_ data: [String: Any]) -> RunActivity? {
+        guard
+            let idString = data["id"] as? String,
+            let id = UUID(uuidString: idString),
+            let startedAt = (data["startedAt"] as? Timestamp)?.dateValue(),
+            let endedAt = (data["endedAt"] as? Timestamp)?.dateValue(),
+            let durationSeconds = data["durationSeconds"] as? Double,
+            let distanceKm = data["distanceKm"] as? Double
+        else {
+            return nil
+        }
+        let routeRaw = data["route"] as? [[String: Double]] ?? []
+        let route = routeRaw.compactMap { item -> CodableCoordinate? in
+            guard let lat = item["lat"], let lon = item["lon"] else { return nil }
+            return CodableCoordinate(latitude: lat, longitude: lon)
+        }
+        let source = data["source"] as? String ?? "unknown"
+        let title = data["title"] as? String
+        let note = data["note"] as? String
+        let perceivedEffort = data["perceivedEffort"] as? Int
+        let postRunMood = data["postRunMood"] as? Int
+        let metrics = parseMetrics(from: data["metrics"])
+        return withBackfilledMetricsIfNeeded(
+            RunActivity(
+                id: id,
+                startedAt: startedAt,
+                endedAt: endedAt,
+                durationSeconds: durationSeconds,
+                distanceKm: distanceKm,
+                route: route,
+                source: source,
+                title: title,
+                note: note,
+                perceivedEffort: perceivedEffort,
+                postRunMood: postRunMood,
+                metrics: metrics
+            )
+        )
     }
 
     private func load() {
@@ -840,6 +1251,7 @@ final class RunActivityStore: ObservableObject {
                         self.activities = Array(self.activities.prefix(self.maxStoredCount))
                     }
                     self.save()
+                    self.bumpActivityRevision()
                 }
             }
     }

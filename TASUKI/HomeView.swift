@@ -64,14 +64,11 @@ struct HomeView: View {
         if ringShowsSampleWhileLoading {
             return MonthlyGoalRingSample.currentKm
         }
-        let fromActivities: Double
         if selectedRunningDataSource.usesHealthKitForQueries {
-            fromActivities = activityMonthlyDistanceKm
-        } else {
-            fromActivities = activityStore.monthlyDistanceKm(matching: selectedRunningDataSource)
+            // HealthKit 由来 + アプリ内記録（run_recorder）。保存直後も tasuki 側が即反映される。
+            return currentDistance + activityStore.tasukiRecorderMonthlyDistanceKm()
         }
-        // 活動記録がある場合は HealthKit / 集計より先に Home 進捗へ即反映する
-        return max(currentDistance, fromActivities)
+        return activityStore.monthlyDistanceKm(matching: selectedRunningDataSource)
     }
 
     private var ringGoalKm: Double {
@@ -280,11 +277,11 @@ struct HomeView: View {
                 loadDistanceFromHealthKit()
             }
         }
-        .onChange(of: activityStore.activities.count) { _ in
-            // Home の進捗リングは Activity 記録に直接連動させる。
-            if !activityStore.activities.isEmpty {
-                isHealthKitLoading = false
-            }
+        .onChange(of: activityStore.activityRevision) { _, _ in
+            refreshHomeProgressRing()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .tasukiRunActivitiesDidChange)) { _ in
+            refreshHomeProgressRing()
         }
     }
 
@@ -348,6 +345,30 @@ struct HomeView: View {
         return String(format: "%02d:%02d", m, s)
     }
 
+    private func refreshHomeProgressRing() {
+        if !activityStore.activities.isEmpty {
+            isHealthKitLoading = false
+        }
+
+        let ds = selectedRunningDataSource
+        if ds.usesHealthKitForQueries {
+            let isPreview = ProcessInfo.processInfo.environment["XCODE_RUNNING_FOR_PREVIEWS"] == "1"
+            if !usePreviewData, !isPreview {
+                loadDistanceFromHealthKit()
+            }
+        } else {
+            let km = activityStore.monthlyDistanceKm(matching: ds)
+            currentDistance = km
+            if km == 0 {
+                healthKitError = "\(ds.displayName) 由来の TASUKI 内記録が今月はまだありません"
+            } else {
+                healthKitError = nil
+            }
+        }
+
+        RankPromotionManager.shared.evaluateMonthlyDistancePromotion(monthlyKm: ringCurrentKm)
+    }
+
     private func loadDistanceFromHealthKit() {
         if !selectedRunningDataSource.usesHealthKitForQueries {
             isHealthKitLoading = false
@@ -374,12 +395,13 @@ struct HomeView: View {
                 switch result {
                 case .success(let km):
                     currentDistance = km
-                    if km == 0, selectedRunningDataSource != .all {
+                    if km == 0, activityStore.tasukiRecorderMonthlyDistanceKm() <= 0,
+                       selectedRunningDataSource != .all {
                         healthKitError = "\(selectedRunningDataSource.displayName) の記録が見つかりません"
                     } else {
                         healthKitError = nil
                     }
-                    RankPromotionManager.shared.evaluateMonthlyDistancePromotion(monthlyKm: km)
+                    RankPromotionManager.shared.evaluateMonthlyDistancePromotion(monthlyKm: ringCurrentKm)
                 case .failure(let err):
                     healthKitError = err.localizedDescription
                 }

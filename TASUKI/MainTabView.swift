@@ -40,8 +40,8 @@ struct MainTabView: View {
                     nonHomeTabRoot(for: mainTabRouter.selectedTab)
                         .frame(width: w, height: geo.size.height)
                         .offset(x: panelSlideOffset)
-                        .background(Color.tasukiDarkBackground)
-                        .clipped()
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                        .background(Color.tasukiDarkBackground.ignoresSafeArea(edges: .bottom))
                         .shadow(color: Color.black.opacity(panelSlideOffset > 2 ? 0.18 : 0), radius: 10, x: -6, y: 0)
                 }
             }

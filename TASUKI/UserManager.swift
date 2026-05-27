@@ -164,7 +164,8 @@ final class UserManager: ObservableObject {
                 for doc in snapshot?.documents ?? [] {
                     if doc.documentID == myUid { continue }
                     do {
-                        let user = try Self.parseUserFromFirestoreData(doc.data())
+                        var user = try Self.parseUserFromFirestoreData(doc.data())
+                        user.firebaseUid = doc.documentID
                         users.append(user)
                     } catch {
                         continue
@@ -178,6 +179,29 @@ final class UserManager: ObservableObject {
         try await withCheckedThrowingContinuation { continuation in
             fetchDiscoverUsers(limit: limit) { result in
                 continuation.resume(with: result)
+            }
+        }
+    }
+
+    /// 他ユーザーの公開プロフィール（`public_profiles/{uid}`）を取得。
+    func fetchPublicProfile(firebaseUid: String, completion: @escaping (Result<User, Error>) -> Void) {
+        db.collection("public_profiles").document(firebaseUid).getDocument { snapshot, error in
+            if let error {
+                completion(.failure(error))
+                return
+            }
+            guard let data = snapshot?.data(), snapshot?.exists == true else {
+                completion(.failure(NSError(domain: "UserManager",
+                                            code: -4,
+                                            userInfo: [NSLocalizedDescriptionKey: "公開プロフィールが見つかりません。"])))
+                return
+            }
+            do {
+                var user = try Self.parseUserFromFirestoreData(data)
+                user.firebaseUid = firebaseUid
+                completion(.success(user))
+            } catch {
+                completion(.failure(error))
             }
         }
     }

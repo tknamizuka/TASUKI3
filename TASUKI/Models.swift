@@ -124,6 +124,8 @@ struct User: Identifiable, Codable {
     var distanceFromUserMock: Double
     /// 旧フィールド（Firestore 互換）。Find のマッチングでは使用しない。
     var monthlyGpsActivityCount: Int? = nil
+    /// Firestore `public_profiles/{uid}` のドキュメント ID（他ユーザー activity 取得用）。
+    var firebaseUid: String? = nil
     
     // 計算プロパティ: オンライン判定 (24時間以内)
     var isOnline: Bool {
@@ -263,6 +265,12 @@ struct PartnerUser: Identifiable {
     let connectionStyle: ConnectionStyle
     /// TASUKI累計ポイント（バッジ表示用、未指定時0）
     var totalPoints: Int = 0
+    /// Firestore 公開プロフィール UID
+    var firebaseUid: String? = nil
+    /// プロフィール上の今月距離（km）
+    var monthlyDistance: Double = 0
+    /// プロフィール上の平均ペース表示
+    var avgPace: String = ""
 
     init(
         id: UUID = UUID(),
@@ -288,7 +296,10 @@ struct PartnerUser: Identifiable {
         activeTime: String,
         easyPace: String,
         connectionStyle: ConnectionStyle,
-        totalPoints: Int = 0
+        totalPoints: Int = 0,
+        firebaseUid: String? = nil,
+        monthlyDistance: Double = 0,
+        avgPace: String = ""
     ) {
         self.id = id
         self.name = name
@@ -314,6 +325,9 @@ struct PartnerUser: Identifiable {
         self.easyPace = easyPace
         self.connectionStyle = connectionStyle
         self.totalPoints = totalPoints
+        self.firebaseUid = firebaseUid
+        self.monthlyDistance = monthlyDistance
+        self.avgPace = avgPace
     }
     
     // 互換性のためのプロパティ
@@ -359,9 +373,9 @@ struct PartnerUser: Identifiable {
             schedule: self.runningSchedule.rawValue,
             nextRace: self.nextRace ?? "",
             targetTime: self.targetTime ?? "",
-            monthlyDistance: 0.0,
+            monthlyDistance: self.monthlyDistance,
             monthlyTarget: 0.0,
-            avgPace: self.easyPace,
+            avgPace: self.avgPace.isEmpty ? self.easyPace : self.avgPace,
             totalPoints: self.totalPoints,
             monthlyPoints: 0,
             matchRate: 0,
@@ -370,7 +384,8 @@ struct PartnerUser: Identifiable {
             latitude: 0.0,
             longitude: 0.0,
             distanceFromUserMock: 0.0,
-            monthlyGpsActivityCount: nil
+            monthlyGpsActivityCount: nil,
+            firebaseUid: self.firebaseUid
         )
     }
 }
@@ -415,7 +430,10 @@ extension User {
             activeTime: active,
             easyPace: avgPace.isEmpty ? pace : avgPace,
             connectionStyle: conn,
-            totalPoints: totalPoints
+            totalPoints: totalPoints,
+            firebaseUid: firebaseUid,
+            monthlyDistance: monthlyDistance,
+            avgPace: avgPace
         )
     }
 

@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Me の Activity と Run 記録で同一の週次距離チャート（`WeeklyActivityChartPoint` を表示）。
+/// Me の Activity と Run 記録で使うトレンドチャート（`WeeklyActivityChartPoint` を表示）。
 struct TasukiWeeklyActivityLineChart: View {
     let points: [WeeklyActivityChartPoint]
     /// `nil` のときはブランドイエロー（Me 画面など）。指定時は他ユーザー向けの固定アクセント色。
@@ -11,7 +11,11 @@ struct TasukiWeeklyActivityLineChart: View {
     var yAxisValueFormatter: ((Double) -> String)? = nil
     /// 最古週の横軸ラベルを右へ寄せ、0km ラベルと重ならないようにする。
     var insetOldestWeekXAxisLabel: Bool = true
+    /// true のとき日次ポイントで描画し、横軸ラベルは週始まりのみ表示。
+    var usesDailyPoints: Bool = false
     @State private var selectedPointID: String?
+
+    private let yAxisTickCount = 6
 
     private var accent: Color {
         lineColor ?? Color.tasukiBrandYellow
@@ -24,12 +28,27 @@ struct TasukiWeeklyActivityLineChart: View {
     private var pointFillColor: Color {
         accent.opacity(0.95)
     }
-    
-    private var shouldThinXAxisLabels: Bool {
-        points.count >= 7
+
+    private var lineWidth: CGFloat {
+        usesDailyPoints ? 2.2 : 3.2
     }
 
-    private func shouldShowXAxisLabel(at index: Int) -> Bool {
+    private var pointDiameter: CGFloat {
+        usesDailyPoints ? 5 : 7
+    }
+
+    private var selectedPointDiameter: CGFloat {
+        usesDailyPoints ? 7 : 10
+    }
+    
+    private var shouldThinXAxisLabels: Bool {
+        !usesDailyPoints && points.count >= 7
+    }
+
+    private func shouldShowXAxisLabel(at index: Int, point: WeeklyActivityChartPoint) -> Bool {
+        if usesDailyPoints {
+            return !point.label.isEmpty
+        }
         guard shouldThinXAxisLabels else { return true }
         if index == 0 || index == points.count - 1 { return true }
         return index.isMultiple(of: 2)
@@ -55,7 +74,7 @@ struct TasukiWeeklyActivityLineChart: View {
         GeometryReader { proxy in
             let width = proxy.size.width
             let height = proxy.size.height
-            let yAxisWidth: CGFloat = 26
+            let yAxisWidth: CGFloat = 30
             let leftPadding: CGFloat = yAxisWidth + 6
             let bottomPadding: CGFloat = 28
             let topPadding: CGFloat = 10
@@ -64,34 +83,26 @@ struct TasukiWeeklyActivityLineChart: View {
             let count = max(points.count, 2)
 
             ZStack {
-                VStack(alignment: .leading, spacing: 0) {
-                    Text(formatYAxisValue(maxY))
-                        .font(.system(size: 9, weight: .medium))
-                        .foregroundColor(Color.tasukiMutedText)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.7)
-                    Spacer(minLength: 0)
-                    Text(formatYAxisValue(0))
-                        .font(.system(size: 9, weight: .medium))
-                        .foregroundColor(Color.tasukiMutedText)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.7)
-                }
-                .frame(width: yAxisWidth, alignment: .leading)
-                .padding(.top, topPadding)
-                .padding(.bottom, bottomPadding)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                .allowsHitTesting(false)
+                ForEach(0..<yAxisTickCount, id: \.self) { tick in
+                    let ratio = CGFloat(tick) / CGFloat(max(yAxisTickCount - 1, 1))
+                    let y = topPadding + plotHeight * (1 - ratio)
+                    let tickValue = maxY * Double(ratio)
 
-                ForEach(0..<4, id: \.self) { row in
-                    let ratio = CGFloat(row) / 3
-                    let y = topPadding + plotHeight * ratio
                     Path { path in
                         path.move(to: CGPoint(x: leftPadding, y: y))
                         path.addLine(to: CGPoint(x: width, y: y))
                     }
-                    .stroke(Color.gray.opacity(0.2), style: StrokeStyle(lineWidth: 1, dash: [4, 3]))
+                    .stroke(Color.gray.opacity(tick == 0 ? 0.28 : 0.2), style: StrokeStyle(lineWidth: 1, dash: tick == 0 ? [] : [4, 3]))
                     .allowsHitTesting(false)
+
+                    Text(formatYAxisValue(tickValue))
+                        .font(.system(size: 8, weight: .medium))
+                        .foregroundColor(Color.tasukiMutedText)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.65)
+                        .frame(width: yAxisWidth, alignment: .leading)
+                        .position(x: yAxisWidth / 2, y: y)
+                        .allowsHitTesting(false)
                 }
 
                 Path { path in
@@ -139,29 +150,35 @@ struct TasukiWeeklyActivityLineChart: View {
                         }
                     }
                 }
-                .stroke(lineStrokeColor, style: StrokeStyle(lineWidth: 3.2, lineCap: .round, lineJoin: .round))
+                .stroke(lineStrokeColor, style: StrokeStyle(lineWidth: lineWidth, lineCap: .round, lineJoin: .round))
                 .allowsHitTesting(false)
 
                 ForEach(Array(points.enumerated()), id: \.element.id) { index, point in
                     let x = leftPadding + plotWidth * CGFloat(index) / CGFloat(count - 1)
                     let normalized = CGFloat(point.distanceKm / maxY)
                     let y = topPadding + (1 - normalized) * plotHeight
+                    let showPoint = !usesDailyPoints || point.distanceKm > 0.001
 
-                    Circle()
-                        .fill(selectedPointID == point.id ? Color.tasukiAccent : pointFillColor)
-                        .overlay(
-                            Circle()
-                                .stroke(Color.white.opacity(lineColor == nil ? 0.35 : 0.5), lineWidth: 1)
-                        )
-                        .frame(width: selectedPointID == point.id ? 10 : 7, height: selectedPointID == point.id ? 10 : 7)
-                        .position(x: x, y: y)
-                        .onTapGesture {
-                            withAnimation(.easeInOut(duration: 0.15)) {
-                                selectedPointID = selectedPointID == point.id ? nil : point.id
+                    if showPoint {
+                        Circle()
+                            .fill(selectedPointID == point.id ? Color.tasukiAccent : pointFillColor)
+                            .overlay(
+                                Circle()
+                                    .stroke(Color.white.opacity(lineColor == nil ? 0.35 : 0.5), lineWidth: 1)
+                            )
+                            .frame(
+                                width: selectedPointID == point.id ? selectedPointDiameter : pointDiameter,
+                                height: selectedPointID == point.id ? selectedPointDiameter : pointDiameter
+                            )
+                            .position(x: x, y: y)
+                            .onTapGesture {
+                                withAnimation(.easeInOut(duration: 0.15)) {
+                                    selectedPointID = selectedPointID == point.id ? nil : point.id
+                                }
                             }
-                        }
+                    }
 
-                    if shouldShowXAxisLabel(at: index) {
+                    if shouldShowXAxisLabel(at: index, point: point) {
                         let labelX: CGFloat = {
                             guard insetOldestWeekXAxisLabel, index == 0 else { return x }
                             return min(x + 14, leftPadding + plotWidth - 8)
@@ -201,17 +218,36 @@ struct TasukiWeeklyActivityLineChart: View {
     private func tooltipView(point: WeeklyActivityChartPoint) -> some View {
         let dailyLines = Self.dailyDistanceLines(for: point, activities: runActivities)
         VStack(alignment: .leading, spacing: 4) {
-            Text(Self.tooltipWeekRangeLabel(for: point.weekAnchor))
-                .font(.system(size: 10, weight: .medium))
-                .foregroundColor(Color.tasukiMutedText)
-            Text(String(format: "週合計 %.1f km", point.distanceKm))
-                .font(.system(size: 11, weight: .bold))
-                .foregroundColor(Color.tasukiPrimary)
-            if !dailyLines.isEmpty {
-                ForEach(Array(dailyLines.enumerated()), id: \.offset) { _, line in
-                    Text(line)
-                        .font(.system(size: 10, weight: .medium))
-                        .foregroundColor(Color.tasukiPrimary.opacity(0.92))
+            if usesDailyPoints {
+                Text(Self.tooltipDayFormatter.string(from: point.weekAnchor))
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundColor(Color.tasukiMutedText)
+                Text(tooltipValueLabel(for: point))
+                    .font(.system(size: 11, weight: .bold))
+                    .foregroundColor(Color.tasukiPrimary)
+                if let runActivities, !runActivities.isEmpty {
+                    let dayActs = runActivities.filter {
+                        Calendar.tasukiActivityWeekCalendar.isDate($0.startedAt, inSameDayAs: point.weekAnchor)
+                    }
+                    if !dayActs.isEmpty {
+                        Text("\(dayActs.count) 件の記録")
+                            .font(.system(size: 10, weight: .medium))
+                            .foregroundColor(Color.tasukiPrimary.opacity(0.92))
+                    }
+                }
+            } else {
+                Text(Self.tooltipWeekRangeLabel(for: point.weekAnchor))
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundColor(Color.tasukiMutedText)
+                Text(String(format: "週合計 %.1f km", point.distanceKm))
+                    .font(.system(size: 11, weight: .bold))
+                    .foregroundColor(Color.tasukiPrimary)
+                if !dailyLines.isEmpty {
+                    ForEach(Array(dailyLines.enumerated()), id: \.offset) { _, line in
+                        Text(line)
+                            .font(.system(size: 10, weight: .medium))
+                            .foregroundColor(Color.tasukiPrimary.opacity(0.92))
+                    }
                 }
             }
         }
@@ -266,6 +302,13 @@ struct TasukiWeeklyActivityLineChart: View {
         }
         return lines
     }
+
+    private func tooltipValueLabel(for point: WeeklyActivityChartPoint) -> String {
+        if let yAxisValueFormatter {
+            return yAxisValueFormatter(point.distanceKm)
+        }
+        return String(format: "%.1f km", point.distanceKm)
+    }
 }
 
 /// 週次トレンド＋今月サマリー（Activity グラフと同じ高さ）。
@@ -276,6 +319,11 @@ struct TasukiRunningStatTrendChartCard: View {
     var lineColor: Color? = nil
     var yAxisValueFormatter: ((Double) -> String)? = nil
     var chartHeight: CGFloat = 190
+    var usesDailyPoints: Bool = true
+
+    private var accent: Color {
+        lineColor ?? Color.tasukiPrimary
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -287,15 +335,16 @@ struct TasukiRunningStatTrendChartCard: View {
                 Spacer(minLength: 8)
                 Text(summaryValue)
                     .font(.system(size: 14, weight: .bold))
-                    .foregroundColor(Color.tasukiPrimary)
+                    .foregroundColor(accent)
                     .lineLimit(1)
                     .minimumScaleFactor(0.75)
             }
 
             TasukiWeeklyActivityLineChart(
                 points: points,
-                lineColor: lineColor,
-                yAxisValueFormatter: yAxisValueFormatter
+                lineColor: accent,
+                yAxisValueFormatter: yAxisValueFormatter,
+                usesDailyPoints: usesDailyPoints
             )
             .frame(height: chartHeight)
             .padding(.horizontal, 2)

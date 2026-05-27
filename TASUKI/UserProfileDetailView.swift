@@ -5,13 +5,19 @@ import UIKit
 struct UserProfileDetailView: View {
     let user: User
     private let activityChartPoints: [WeeklyActivityChartPoint]
+    @State private var displayUser: User
+    @State private var remoteActivities: [RunActivity] = []
+    @State private var isLoadingRemoteData = false
     @State private var showInviteComposer = false
     @State private var showRequestSent = false
     @Environment(\.dismiss) private var dismiss
 
+    private let userManager = UserManager()
+
     init(user: User, activityChartPoints: [WeeklyActivityChartPoint]? = nil) {
         self.user = user
         self.activityChartPoints = activityChartPoints ?? FindMockWeeklyActivity.chartPoints(for: user)
+        _displayUser = State(initialValue: user)
     }
 
     var body: some View {
@@ -22,9 +28,11 @@ struct UserProfileDetailView: View {
             ScrollView(showsIndicators: false) {
                 VStack(spacing: 0) {
                     UserPublicProfileScrollContent(
-                        user: user,
+                        user: displayUser,
                         activityChartPoints: activityChartPoints,
-                        heroAccessory: .findMatchRate(user.matchRate)
+                        remoteActivities: remoteActivities,
+                        isLoadingRemoteActivities: isLoadingRemoteData,
+                        heroAccessory: .findMatchRate(displayUser.matchRate)
                     )
                     .padding(.bottom, 100)
                 }
@@ -34,6 +42,9 @@ struct UserProfileDetailView: View {
         }
         .navigationBarTitleDisplayMode(.inline)
         .navigationBarBackButtonHidden(true)
+        .onAppear {
+            loadRemoteProfileAndActivities()
+        }
         .toolbar {
             ToolbarItem(placement: .navigationBarLeading) {
                 Button(action: { dismiss() }) {
@@ -83,7 +94,34 @@ struct UserProfileDetailView: View {
         .alert("送信完了", isPresented: $showRequestSent) {
             Button("OK") { }
         } message: {
-            Text("\(user.name)さんにマッチングの招待（日時・場所付き）を送りました。")
+            Text("\(displayUser.name)さんにマッチングの招待（日時・場所付き）を送りました。")
+        }
+    }
+
+    private func loadRemoteProfileAndActivities() {
+        guard let uid = displayUser.firebaseUid, !uid.isEmpty else { return }
+        isLoadingRemoteData = true
+
+        let group = DispatchGroup()
+
+        group.enter()
+        userManager.fetchPublicProfile(firebaseUid: uid) { result in
+            if case .success(let profile) = result {
+                displayUser = profile
+            }
+            group.leave()
+        }
+
+        group.enter()
+        RunActivityStore.shared.fetchActivitiesForUser(firebaseUid: uid) { result in
+            if case .success(let activities) = result {
+                remoteActivities = activities
+            }
+            group.leave()
+        }
+
+        group.notify(queue: .main) {
+            isLoadingRemoteData = false
         }
     }
 }

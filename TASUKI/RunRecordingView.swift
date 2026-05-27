@@ -137,6 +137,9 @@ struct RunRecordingView: View {
     @ViewBuilder
     private var runRecordingNavigableRoot: some View {
         ZStack {
+            Color.tasukiDarkBackground
+                .ignoresSafeArea()
+
             Group {
                 if tracker.isTracking {
                     trackingFocusedView
@@ -177,14 +180,18 @@ struct RunRecordingView: View {
                                 .padding(.horizontal, 20)
                                 .padding(.bottom, 24)
                         }
+                        // MainTabView の customTabBar（safeAreaInset）と重ならないよう余白を確保
+                        .padding(.bottom, runBottomMenuReservedHeight + 14)
                     }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                 }
             }
             if let phase = runStartCountdownPhase {
                 runStartCountdownOverlay(phase: phase)
             }
         }
-        .background(Color.tasukiDarkBackground.ignoresSafeArea())
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .ignoresSafeArea(edges: .bottom)
         .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
         .modifier(RunRecordingNavigationBarHiddenModifier(isHidden: tracker.isTracking))
@@ -253,7 +260,7 @@ struct RunRecordingView: View {
         GeometryReader { geo in
             let totalH = geo.size.height
             let safeBottom = geo.safeAreaInsets.bottom
-            let bottomControlsHeight: CGFloat = 64 + safeBottom + runBottomMenuReservedHeight
+            let bottomControlsHeight: CGFloat = 64 + runBottomMenuReservedHeight + (safeBottom > 0 ? 0 : 8)
             let contentH = max(120, totalH - bottomControlsHeight)
             let minF = effectiveRecordingSheetMinFraction(contentHeight: contentH)
             let maxF = recordingSheetMaxFraction
@@ -314,8 +321,8 @@ struct RunRecordingView: View {
             }
             .frame(width: geo.size.width, height: totalH, alignment: .top)
         }
-        .background(Color.tasukiDarkBackground)
-        .ignoresSafeArea(edges: .top)
+        .background(Color.tasukiDarkBackground.ignoresSafeArea())
+        .ignoresSafeArea(edges: [.top, .bottom])
         .onChange(of: tracker.trackingUIHeartbeatAt) { _, _ in
             syncTrackingMapCameraIfFollowing()
         }
@@ -1224,6 +1231,7 @@ struct RunRecordingView: View {
             }
             .tasukiFlatCard()
         }
+        .id(activityStore.activityRevision)
     }
 
     private func metricItem(title: String, value: String, unit: String) -> some View {

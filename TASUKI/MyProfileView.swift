@@ -195,29 +195,33 @@ struct MyProfileView: View {
         VStack(alignment: .leading, spacing: 14) {
             sectionEyebrow("RUNNING STATS")
 
-            LazyVGrid(columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)], spacing: 14) {
+            VStack(spacing: 14) {
                 TasukiRunningStatTrendChartCard(
                     title: "平均ペース",
                     summaryValue: monthlyAveragePaceDisplay,
-                    points: activityStore.weeklyAveragePaceChartPoints(),
+                    points: activityStore.dailyAveragePaceChartPoints(),
+                    lineColor: Color.tasukiAccent,
                     yAxisValueFormatter: { TasukiChartPaceFormat.yAxisLabel(secondsPerKm: $0) }
                 )
                 TasukiRunningStatTrendChartCard(
                     title: "今月距離",
                     summaryValue: String(format: "%.1f km", activityStore.monthlyDistanceKm()),
-                    points: activityStore.weeklyActivityChartPoints(),
+                    points: activityStore.dailyActivityChartPoints(),
+                    lineColor: Color(hex: "0E7C86"),
                     yAxisValueFormatter: { String(format: "%.0f", $0) }
                 )
                 TasukiRunningStatTrendChartCard(
                     title: "走行回数",
                     summaryValue: "\(activityStore.monthlyRunCount()) 回",
-                    points: activityStore.weeklyRunCountChartPoints(),
+                    points: activityStore.dailyRunCountChartPoints(),
+                    lineColor: Color.tasukiPrimary,
                     yAxisValueFormatter: { String(format: "%.0f", $0) }
                 )
                 TasukiRunningStatTrendChartCard(
                     title: "消費カロリー",
                     summaryValue: activityStore.monthlyTotalCaloriesDisplayLabel(),
-                    points: activityStore.weeklyCaloriesChartPoints(),
+                    points: activityStore.dailyCaloriesChartPoints(),
+                    lineColor: Color(hex: "D84315"),
                     yAxisValueFormatter: { String(format: "%.0f", $0) }
                 )
             }
@@ -270,12 +274,16 @@ struct MyProfileView: View {
                 .tracking(1.1)
                 .foregroundColor(.black)
 
-            TasukiWeeklyActivityLineChart(points: activityStore.weeklyActivityChartPoints())
+            TasukiWeeklyActivityLineChart(
+                points: activityStore.dailyActivityChartPoints(),
+                runActivities: activityStore.activities,
+                usesDailyPoints: true
+            )
                 .frame(height: 190)
                 .padding(.horizontal, 4)
                 .onAppear {
                     // #region agent log
-                    let pts = activityStore.weeklyActivityChartPoints()
+                    let pts = activityStore.dailyActivityChartPoints()
                     AgentDebugLog.log(
                         location: "MyProfileView.activitySection.chart",
                         message: "chart_onAppear",
