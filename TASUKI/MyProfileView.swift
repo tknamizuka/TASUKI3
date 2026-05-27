@@ -201,28 +201,33 @@ struct MyProfileView: View {
                     summaryValue: monthlyAveragePaceDisplay,
                     points: activityStore.dailyAveragePaceChartPoints(),
                     lineColor: Color.tasukiAccent,
-                    yAxisValueFormatter: { TasukiChartPaceFormat.yAxisLabel(secondsPerKm: $0) }
+                    yAxisValueFormatter: { TasukiChartPaceFormat.yAxisLabel(secondsPerKm: $0) },
+                    yAxisStep: 60,
+                    yAxisMaxLabels: 5
                 )
                 TasukiRunningStatTrendChartCard(
                     title: "今月距離",
                     summaryValue: String(format: "%.1f km", activityStore.monthlyDistanceKm()),
                     points: activityStore.dailyActivityChartPoints(),
                     lineColor: Color(hex: "0E7C86"),
-                    yAxisValueFormatter: { String(format: "%.0f", $0) }
+                    yAxisValueFormatter: { String(format: "%.0f", $0) },
+                    yAxisStep: 5
                 )
                 TasukiRunningStatTrendChartCard(
                     title: "走行回数",
                     summaryValue: "\(activityStore.monthlyRunCount()) 回",
                     points: activityStore.dailyRunCountChartPoints(),
                     lineColor: Color.tasukiPrimary,
-                    yAxisValueFormatter: { String(format: "%.0f", $0) }
+                    yAxisValueFormatter: { String(format: "%.0f", $0) },
+                    yAxisStep: 1
                 )
                 TasukiRunningStatTrendChartCard(
                     title: "消費カロリー",
                     summaryValue: activityStore.monthlyTotalCaloriesDisplayLabel(),
                     points: activityStore.dailyCaloriesChartPoints(),
                     lineColor: Color(hex: "D84315"),
-                    yAxisValueFormatter: { String(format: "%.0f", $0) }
+                    yAxisValueFormatter: { String(format: "%.0f", $0) },
+                    yAxisStep: 100
                 )
             }
         }

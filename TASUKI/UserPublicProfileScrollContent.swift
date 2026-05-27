@@ -258,7 +258,9 @@ struct UserPublicProfileScrollContent: View {
                     points: hasRemoteActivityStats
                         ? activityStats.dailyAveragePaceChartPoints()
                         : [],
-                    yAxisValueFormatter: { TasukiChartPaceFormat.yAxisLabel(secondsPerKm: $0) }
+                    yAxisValueFormatter: { TasukiChartPaceFormat.yAxisLabel(secondsPerKm: $0) },
+                    yAxisStep: 60,
+                    yAxisMaxLabels: 5
                 )
                 TasukiRunningStatTrendChartCard(
                     title: "今月距離",
@@ -266,7 +268,8 @@ struct UserPublicProfileScrollContent: View {
                     points: hasRemoteActivityStats
                         ? activityStats.dailyActivityChartPoints()
                         : [],
-                    yAxisValueFormatter: { String(format: "%.0f", $0) }
+                    yAxisValueFormatter: { String(format: "%.0f", $0) },
+                    yAxisStep: 5
                 )
                 TasukiRunningStatTrendChartCard(
                     title: "走行回数",
@@ -274,7 +277,8 @@ struct UserPublicProfileScrollContent: View {
                     points: hasRemoteActivityStats
                         ? activityStats.dailyRunCountChartPoints()
                         : [],
-                    yAxisValueFormatter: { String(format: "%.0f", $0) }
+                    yAxisValueFormatter: { String(format: "%.0f", $0) },
+                    yAxisStep: 1
                 )
                 TasukiRunningStatTrendChartCard(
                     title: "消費カロリー",
@@ -282,7 +286,8 @@ struct UserPublicProfileScrollContent: View {
                     points: hasRemoteActivityStats
                         ? activityStats.dailyCaloriesChartPoints()
                         : [],
-                    yAxisValueFormatter: { String(format: "%.0f", $0) }
+                    yAxisValueFormatter: { String(format: "%.0f", $0) },
+                    yAxisStep: 100
                 )
             }
             .overlay {
