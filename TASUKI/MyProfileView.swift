@@ -192,41 +192,33 @@ struct MyProfileView: View {
     }
 
     private var statsSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 14) {
             sectionEyebrow("RUNNING STATS")
-            
-            HStack(spacing: 12) {
-                statItem(title: "Avg Pace (月)", value: monthlyAveragePaceDisplay)
-                statItem(title: "Monthly Dist", value: monthlyDist)
-            }
 
-            sectionEyebrow("RUN RECORDER")
-
-            HStack(spacing: 12) {
-                statItem(title: "記録 今月回数", value: "\(activityStore.tasukiRecorderMonthlyRunCount()) 回")
-                statItem(title: "記録 今月 km", value: String(format: "%.1f km", activityStore.tasukiRecorderMonthlyDistanceKm()))
-            }
-            HStack(spacing: 12) {
-                statItem(title: "平均ペース（記録・月）", value: activityStore.tasukiRecorderMonthlyAveragePaceDisplayLabel())
-                statItem(title: "移動ペース（記録・月）", value: activityStore.tasukiRecorderMonthlyAverageMovingPaceDisplayLabel())
-            }
-            HStack(spacing: 12) {
-                statItem(title: "GAP（記録・月）", value: activityStore.tasukiRecorderMonthlyGapPaceDisplayLabel())
-                statItem(title: "平均速度（記録・月）", value: activityStore.tasukiRecorderMonthlyAverageSpeedDisplayLabel())
-            }
-            HStack(spacing: 12) {
-                statItem(title: "平均ケイデンス", value: activityStore.tasukiRecorderMonthlyAverageCadenceDisplayLabel())
-                statItem(title: "最高ケイデンス（月）", value: activityStore.tasukiRecorderMonthlyMaxCadenceDisplayLabel())
-            }
-            HStack(spacing: 12) {
-                statItem(title: "推定ストライド", value: activityStore.tasukiRecorderMonthlyAverageStrideDisplayLabel())
-                statItem(title: "累積上昇（記録・月）", value: activityStore.tasukiRecorderMonthlyTotalAscentDisplayLabel())
-            }
-            HStack(spacing: 12) {
-                statItem(title: "消費 kcal（記録・月）", value: activityStore.tasukiRecorderMonthlyTotalCaloriesDisplayLabel())
-                statItem(
-                    title: "累計（記録）",
-                    value: "\(activityStore.tasukiRecorderAllTimeRunCount()) 回 · \(String(format: "%.1f km", activityStore.tasukiRecorderAllTimeDistanceKm()))"
+            LazyVGrid(columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)], spacing: 14) {
+                TasukiRunningStatTrendChartCard(
+                    title: "平均ペース",
+                    summaryValue: monthlyAveragePaceDisplay,
+                    points: activityStore.weeklyAveragePaceChartPoints(),
+                    yAxisValueFormatter: { TasukiChartPaceFormat.yAxisLabel(secondsPerKm: $0) }
+                )
+                TasukiRunningStatTrendChartCard(
+                    title: "今月距離",
+                    summaryValue: String(format: "%.1f km", activityStore.monthlyDistanceKm()),
+                    points: activityStore.weeklyActivityChartPoints(),
+                    yAxisValueFormatter: { String(format: "%.0f", $0) }
+                )
+                TasukiRunningStatTrendChartCard(
+                    title: "走行回数",
+                    summaryValue: "\(activityStore.monthlyRunCount()) 回",
+                    points: activityStore.weeklyRunCountChartPoints(),
+                    yAxisValueFormatter: { String(format: "%.0f", $0) }
+                )
+                TasukiRunningStatTrendChartCard(
+                    title: "消費カロリー",
+                    summaryValue: activityStore.monthlyTotalCaloriesDisplayLabel(),
+                    points: activityStore.weeklyCaloriesChartPoints(),
+                    yAxisValueFormatter: { String(format: "%.0f", $0) }
                 )
             }
         }
@@ -277,12 +269,6 @@ struct MyProfileView: View {
                 .font(.system(size: 14, weight: .bold))
                 .tracking(1.1)
                 .foregroundColor(.black)
-
-            HStack(spacing: 14) {
-                graphStatActivity(title: "今週距離", value: String(format: "%.1f km", activityStore.weeklyDistanceKm()))
-                graphStatActivity(title: "今週回数", value: "\(activityStore.weeklyRunCount()) 回")
-                graphStatActivity(title: "今月距離", value: String(format: "%.1f km", activityStore.monthlyDistanceKm()))
-            }
 
             TasukiWeeklyActivityLineChart(points: activityStore.weeklyActivityChartPoints())
                 .frame(height: 190)

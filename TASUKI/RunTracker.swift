@@ -11,6 +11,16 @@ import CoreLocation
 import CoreMotion
 import SwiftUI
 
+/// 走行中の1kmラップ（完了分・進行中の表示用）。
+struct LiveRunKilometerLap: Identifiable, Hashable {
+    let index: Int
+    let distanceKm: Double
+    let durationSeconds: TimeInterval
+    let paceSecondsPerKm: Double
+
+    var id: Int { index }
+}
+
 struct RunTrackPoint: Codable, Hashable {
     let timestamp: Date
     let latitude: Double
@@ -44,12 +54,20 @@ final class RunTracker: NSObject, ObservableObject {
     @Published private(set) var maxCadenceSpm: Double?
     /// 走行中に1秒ごとに更新。経過時間・ペースなどのUIが `Timer.publish` に依存せず確実に再描画されるようにする。
     @Published private(set) var trackingUIHeartbeatAt: Date = Date()
+    /// 完了した1kmラップ（昇順: 1km目, 2km目…）
+    @Published private(set) var completedKilometerLaps: [LiveRunKilometerLap] = []
+    /// 進行中ラップの距離・時間（`completedKilometerLaps` の次のkm区間）
+    @Published private(set) var currentLapDistanceKm: Double = 0
+    @Published private(set) var currentLapDurationSeconds: TimeInterval = 0
+    @Published private(set) var currentLapPaceSecondsPerKm: Double?
     
     private let locationManager = CLLocationManager()
     private let pedometer = CMPedometer()
     private var lastLocation: CLLocation?
     private var lastAltitude: Double?
     private var lastDistanceBucket: Int = 0
+    private var lapSegmentStartElapsedSeconds: TimeInterval = 0
+    private var lapSegmentStartDistanceKm: Double = 0
     private var pausedAt: Date?
     private var accumulatedPausedSeconds: TimeInterval = 0
     // Accuracy tuning values calibrated for phone-based running.
@@ -224,6 +242,7 @@ final class RunTracker: NSObject, ObservableObject {
         lastAltitude = nil
         distanceKm = 0
         lastDistanceBucket = 0
+        resetKilometerLapState()
         elevationGainMeters = 0
         currentAltitudeMeters = 0
         if let previewCoordinate {
@@ -288,6 +307,7 @@ final class RunTracker: NSObject, ObservableObject {
             guard let self, self.isTracking else { return }
             DispatchQueue.main.async {
                 self.trackingUIHeartbeatAt = Date()
+                self.refreshCurrentKilometerLapProgress(now: Date())
             }
         }
         trackingUIHeartbeatTimer = timer
@@ -326,6 +346,8 @@ final class RunTracker: NSObject, ObservableObject {
         lastLocation = nil
         lastAltitude = nil
         distanceKm = 0
+        lastDistanceBucket = 0
+        resetKilometerLapState()
         elevationGainMeters = 0
         currentAltitudeMeters = 0
         routeCoordinates = []
@@ -373,6 +395,58 @@ final class RunTracker: NSObject, ObservableObject {
 
     private func stopCadenceUpdates() {
         pedometer.stopUpdates()
+    }
+
+    private func resetKilometerLapState() {
+        completedKilometerLaps = []
+        lapSegmentStartElapsedSeconds = 0
+        lapSegmentStartDistanceKm = 0
+        currentLapDistanceKm = 0
+        currentLapDurationSeconds = 0
+        currentLapPaceSecondsPerKm = nil
+    }
+
+    private func refreshCurrentKilometerLapProgress(now: Date = Date()) {
+        guard isTracking else {
+            currentLapDistanceKm = 0
+            currentLapDurationSeconds = 0
+            currentLapPaceSecondsPerKm = nil
+            return
+        }
+        let elapsed = elapsedSeconds(now: now)
+        let lapDistance = max(0, distanceKm - lapSegmentStartDistanceKm)
+        currentLapDistanceKm = lapDistance
+        currentLapDurationSeconds = max(0, elapsed - lapSegmentStartElapsedSeconds)
+        if lapDistance > 0.001 {
+            currentLapPaceSecondsPerKm = currentLapDurationSeconds / lapDistance
+        } else {
+            currentLapPaceSecondsPerKm = nil
+        }
+    }
+
+    private func recordKilometerLaps(from previousBucket: Int, to newBucket: Int, now: Date) {
+        guard newBucket > previousBucket else { return }
+        let elapsed = elapsedSeconds(now: now)
+        var segmentStartElapsed = lapSegmentStartElapsedSeconds
+        var segmentStartDistance = lapSegmentStartDistanceKm
+
+        for km in (previousBucket + 1)...newBucket {
+            let lapDuration = max(0, elapsed - segmentStartElapsed)
+            let pace = lapDuration > 0 ? lapDuration : 0
+            let lap = LiveRunKilometerLap(
+                index: km,
+                distanceKm: 1.0,
+                durationSeconds: lapDuration,
+                paceSecondsPerKm: pace
+            )
+            completedKilometerLaps.append(lap)
+            segmentStartElapsed = elapsed
+            segmentStartDistance = Double(km)
+        }
+
+        lapSegmentStartElapsedSeconds = segmentStartElapsed
+        lapSegmentStartDistanceKm = segmentStartDistance
+        refreshCurrentKilometerLapProgress(now: now)
     }
 }
 
@@ -440,14 +514,19 @@ extension RunTracker: CLLocationManagerDelegate {
             let meters = last.distance(from: newLocation)
             if meters >= minSegmentDistanceMeters && isPlausibleRunSegment(distanceMeters: meters, dt: dt, locationSpeed: newLocation.speed) {
                 DispatchQueue.main.async {
+                    let now = Date()
                     self.distanceKm += meters / 1000.0
+                    let previousBucket = self.lastDistanceBucket
                     let currentBucket = Int(self.distanceKm)
-                    if currentBucket > self.lastDistanceBucket {
+                    if currentBucket > previousBucket {
+                        self.recordKilometerLaps(from: previousBucket, to: currentBucket, now: now)
                         self.lastDistanceBucket = currentBucket
                         RealityMiningManager.shared.trackEvent(
                             name: "distance_bucket_reached",
                             properties: ["distance_bucket_km": currentBucket]
                         )
+                    } else {
+                        self.refreshCurrentKilometerLapProgress(now: now)
                     }
                 }
             }

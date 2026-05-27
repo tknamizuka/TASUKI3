@@ -19,6 +19,7 @@ final class RunLiveActivityManager {
             timeText: "00:00",
             distanceText: "0.00 km",
             paceText: "--:--/km",
+            lapText: "Lap 1 · 0.00km",
             isPaused: false
         )
         do {
@@ -43,6 +44,7 @@ final class RunLiveActivityManager {
             timeText: "00:00",
             distanceText: "0.00 km",
             paceText: "--:--/km",
+            lapText: "Lap 1 · 0.00km",
             isPaused: false
         )
         Task {
@@ -105,11 +107,23 @@ final class RunLiveActivityManager {
             timeText: timeText,
             distanceText: dist,
             paceText: paceText,
+            lapText: lapDisplayText(from: t),
             isPaused: t.isPaused
         )
         Task {
             await activity.update(ActivityContent(state: state, staleDate: nil))
         }
+    }
+
+    private func lapDisplayText(from tracker: RunTracker) -> String {
+        let lapNumber = tracker.completedKilometerLaps.count + 1
+        let dist = String(format: "%.2f", tracker.currentLapDistanceKm)
+        guard let paceSec = tracker.currentLapPaceSecondsPerKm, paceSec > 0, tracker.currentLapDistanceKm > 0.001 else {
+            return "Lap \(lapNumber) · \(dist)km"
+        }
+        let m = Int(paceSec) / 60
+        let s = Int(paceSec) % 60
+        return "Lap \(lapNumber) · \(dist)km · \(String(format: "%d:%02d", m, s))/km"
     }
 
     private func formatDuration(_ sec: TimeInterval) -> String {

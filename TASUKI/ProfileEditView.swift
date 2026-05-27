@@ -46,6 +46,9 @@ struct ProfileEditView: View {
     
     @State private var purpose: String = ""
     @State private var runningSpots: String = ""
+    @State private var selectedRunningSpots: [String] = []
+    @State private var runningSpotQuery: String = ""
+    @StateObject private var runningSpotSearchCompleter = ActivityAreaSearchCompleter()
     @State private var schedule: String = ""
     
     @State private var personalBest: String = ""
@@ -142,7 +145,21 @@ struct ProfileEditView: View {
                 // Section 2: Running Style
                 Section(header: Text("Running Style")) {
                     TextField("目的", text: $purpose, prompt: Text("例: サブ3目標, 健康維持 (カンマ区切り)"))
-                    TextField("ランニングスポット", text: $runningSpots, prompt: Text("例: 皇居, 駒沢公園 (カンマ区切り)"))
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("よく走るエリア")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundColor(Color.tasukiPrimary)
+                        ActivityAreaSpotSearchSection(
+                            selectedSpots: $selectedRunningSpots,
+                            query: $runningSpotQuery,
+                            completer: runningSpotSearchCompleter,
+                            regionPrefecture: ActivityAreaSpotLabel.prefectureName(from: area),
+                            scrollMaxHeight: 180
+                        )
+                    }
+                    .onChange(of: selectedRunningSpots) { _, spots in
+                        runningSpots = ActivityAreaSpotLabel.joinedSpots(spots)
+                    }
                     TextField("スケジュール", text: $schedule, prompt: Text("例: 平日朝, 土日祝 (カンマ区切り)"))
                 }
                 
@@ -371,7 +388,7 @@ private extension ProfileEditView {
         name = user.name
         age = user.age > 0 ? String(user.age) : ""
         area = user.prefecture
-        runningSpots = user.area.replacingOccurrences(of: "、", with: ", ")
+        syncRunningSpotsSelection(from: user.spotName.isEmpty ? user.area : user.spotName)
         rank = user.rank
         gender = genderPickerRaw(fromFirestoreGender: user.gender)
         purpose = user.purpose
@@ -395,7 +412,7 @@ private extension ProfileEditView {
         runnerHeightCmText = storedRunnerHeightCm > 0 ? formatDecimalInput(storedRunnerHeightCm) : ""
         runnerWeightKgText = storedRunnerWeightKg > 0 ? formatDecimalInput(storedRunnerWeightKg) : ""
         purpose = storedPurpose
-        runningSpots = storedRunningSpots
+        syncRunningSpotsSelection(from: storedRunningSpots)
         schedule = storedSchedule
         personalBest = storedPersonalBest
         targetTime = storedTargetTime
@@ -463,6 +480,14 @@ private extension ProfileEditView {
             return "\(Int(value))"
         }
         return String(format: "%.1f", value)
+    }
+
+    func syncRunningSpotsSelection(from raw: String) {
+        let normalized = raw
+            .replacingOccurrences(of: "、", with: ",")
+            .replacingOccurrences(of: "，", with: ",")
+        selectedRunningSpots = ActivityAreaSpotLabel.parseStoredSpots(normalized)
+        runningSpots = ActivityAreaSpotLabel.joinedSpots(selectedRunningSpots)
     }
 
     func buildUserFromForm(base: User) -> User {

@@ -454,6 +454,16 @@ final class RunActivityStore: ObservableObject {
         return String(format: "%d:%02d/km", m, s)
     }
 
+    /// 今月の記録から合計消費カロリー（`metrics.caloriesKcal` の合計）。
+    func monthlyTotalCaloriesDisplayLabel(now: Date = Date()) -> String {
+        let sum = activitiesInCurrentMonth(now: now)
+            .compactMap(\.metrics?.caloriesKcal)
+            .filter { $0 > 0 }
+            .reduce(0, +)
+        guard sum > 0 else { return "-- kcal" }
+        return "\(sum) kcal"
+    }
+
     /// 今月のルート座標の重心（マッチング用）。ルート点がない場合は nil。
     func monthlyRouteCentroid(now: Date = Date()) -> (latitude: Double, longitude: Double)? {
         let acts = activitiesInCurrentMonth(now: now)
@@ -608,7 +618,7 @@ final class RunActivityStore: ObservableObject {
         now: Date = Date(),
         calendar: Calendar = .tasukiActivityWeekCalendar
     ) -> [WeeklyActivityChartPoint] {
-        let real = weeklyChartRows(weeks: weeks, now: now, calendar: calendar)
+        let real = weeklyDistanceChartRows(weeks: weeks, now: now, calendar: calendar)
         if real.contains(where: { $0.distanceKm > 0 }) {
             return real
         }
@@ -623,7 +633,71 @@ final class RunActivityStore: ObservableObject {
         }
     }
 
-    private func weeklyChartRows(weeks: Int, now: Date, calendar: Calendar) -> [WeeklyActivityChartPoint] {
+    /// 直近 `weeks` 週の走行回数（右端が今週）。
+    func weeklyRunCountChartPoints(
+        weeks: Int = 8,
+        now: Date = Date(),
+        calendar: Calendar = .tasukiActivityWeekCalendar
+    ) -> [WeeklyActivityChartPoint] {
+        weeklyMetricChartRows(weeks: weeks, now: now, calendar: calendar) { interval in
+            Double(activities.filter { interval.contains($0.startedAt) }.count)
+        }
+    }
+
+    /// 直近 `weeks` 週の合計カロリー（右端が今週）。
+    func weeklyCaloriesChartPoints(
+        weeks: Int = 8,
+        now: Date = Date(),
+        calendar: Calendar = .tasukiActivityWeekCalendar
+    ) -> [WeeklyActivityChartPoint] {
+        weeklyMetricChartRows(weeks: weeks, now: now, calendar: calendar) { interval in
+            Double(
+                activities
+                    .filter { interval.contains($0.startedAt) }
+                    .compactMap(\.metrics?.caloriesKcal)
+                    .filter { $0 > 0 }
+                    .reduce(0, +)
+            )
+        }
+    }
+
+    /// 直近 `weeks` 週の平均ペース（秒/km・右端が今週）。走行なしの週は 0。
+    func weeklyAveragePaceChartPoints(
+        weeks: Int = 8,
+        now: Date = Date(),
+        calendar: Calendar = .tasukiActivityWeekCalendar
+    ) -> [WeeklyActivityChartPoint] {
+        weeklyMetricChartRows(weeks: weeks, now: now, calendar: calendar) { interval in
+            let weekActs = activities.filter { interval.contains($0.startedAt) }
+            var totalDist = 0.0
+            var totalDur = 0.0
+            for a in weekActs {
+                totalDist += max(0, a.distanceKm)
+                totalDur += max(0, a.durationSeconds)
+            }
+            guard totalDist > 0.01 else { return 0 }
+            return totalDur / totalDist
+        }
+    }
+
+    private func weeklyDistanceChartRows(
+        weeks: Int,
+        now: Date,
+        calendar: Calendar
+    ) -> [WeeklyActivityChartPoint] {
+        weeklyMetricChartRows(weeks: weeks, now: now, calendar: calendar) { interval in
+            activities
+                .filter { interval.contains($0.startedAt) }
+                .reduce(0) { $0 + $1.distanceKm }
+        }
+    }
+
+    private func weeklyMetricChartRows(
+        weeks: Int,
+        now: Date,
+        calendar: Calendar,
+        valueForInterval: (DateInterval) -> Double
+    ) -> [WeeklyActivityChartPoint] {
         (0..<weeks).map { idx in
             let offset = idx - (weeks - 1)
             let targetDate = calendar.date(byAdding: .weekOfYear, value: offset, to: now) ?? now
@@ -635,13 +709,11 @@ final class RunActivityStore: ObservableObject {
                     calendar: calendar
                 )
             }
-            let distance = activities
-                .filter { interval.contains($0.startedAt) }
-                .reduce(0) { $0 + $1.distanceKm }
+            let value = valueForInterval(interval)
             return WeeklyActivityChartPoint(
                 weekAnchor: interval.start,
                 label: Self.shortWeekChartLabel(for: interval.start, calendar: calendar),
-                distanceKm: distance,
+                distanceKm: value,
                 calendar: calendar
             )
         }

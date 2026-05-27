@@ -152,7 +152,14 @@ struct RunHistoryListView: View {
     
     var body: some View {
         NavigationStack {
-            List(resolvedEntries) { entry in
+            List {
+                Section {
+                    monthlySummaryStatsGrid
+                }
+                .listRowBackground(Color.tasukiDarkCardSecondary.opacity(0.45))
+                .listRowInsets(EdgeInsets(top: 12, leading: 16, bottom: 12, trailing: 16))
+
+                ForEach(resolvedEntries) { entry in
                 NavigationLink {
                     RunHistoryDetailView(entry: entry)
                 } label: {
@@ -179,6 +186,7 @@ struct RunHistoryListView: View {
                     .padding(.vertical, 4)
                 }
                 .listRowBackground(Color.tasukiDarkCardSecondary.opacity(0.45))
+                }
             }
             .listStyle(.insetGrouped)
             .scrollContentBackground(.hidden)
@@ -209,6 +217,57 @@ struct RunHistoryListView: View {
                 mainTabRouter.suppressBackToHomeOverlay = false
             }
         }
+    }
+
+    private var monthlySummaryStatsGrid: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("今月のサマリー")
+                .font(.system(size: 11, weight: .bold))
+                .tracking(1.2)
+                .foregroundColor(Color.tasukiMutedText)
+
+            HStack(spacing: 12) {
+                monthlySummaryStatItem(
+                    title: "平均ペース",
+                    value: activityStore.monthlyAveragePaceDisplayLabel()
+                )
+                monthlySummaryStatItem(
+                    title: "今月距離",
+                    value: String(format: "%.1f km", activityStore.monthlyDistanceKm())
+                )
+            }
+            HStack(spacing: 12) {
+                monthlySummaryStatItem(
+                    title: "走行回数",
+                    value: "\(activityStore.monthlyRunCount()) 回"
+                )
+                monthlySummaryStatItem(
+                    title: "消費カロリー",
+                    value: activityStore.monthlyTotalCaloriesDisplayLabel()
+                )
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func monthlySummaryStatItem(title: String, value: String) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(title)
+                .font(.system(size: 11, weight: .bold))
+                .tracking(1.0)
+                .foregroundColor(Color.tasukiMutedText)
+            Text(value)
+                .font(.system(size: 16, weight: .bold))
+                .foregroundColor(Color.tasukiPrimary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(12)
+        .background(
+            RoundedRectangle(cornerRadius: 10)
+                .fill(Color.tasukiDarkCard)
+        )
     }
     
     private func formatDate(_ date: Date) -> String {

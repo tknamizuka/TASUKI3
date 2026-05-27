@@ -7,6 +7,10 @@ struct TasukiWeeklyActivityLineChart: View {
     var lineColor: Color? = nil
     /// 指定時、選択中ポイントの週について日ごとの走行距離をツールチップに表示する。
     var runActivities: [RunActivity]? = nil
+    /// 縦軸ラベル（未指定時は km 表示）。
+    var yAxisValueFormatter: ((Double) -> String)? = nil
+    /// 最古週の横軸ラベルを右へ寄せ、0km ラベルと重ならないようにする。
+    var insetOldestWeekXAxisLabel: Bool = true
     @State private var selectedPointID: String?
 
     private var accent: Color {
@@ -35,6 +39,13 @@ struct TasukiWeeklyActivityLineChart: View {
         max(points.map(\.distanceKm).max() ?? 0, 1)
     }
 
+    private func formatYAxisValue(_ value: Double) -> String {
+        if let yAxisValueFormatter {
+            return yAxisValueFormatter(value)
+        }
+        return String(format: "%.0fkm", value)
+    }
+
     private var selectedPoint: WeeklyActivityChartPoint? {
         guard let selectedPointID else { return nil }
         return points.first(where: { $0.id == selectedPointID })
@@ -44,7 +55,8 @@ struct TasukiWeeklyActivityLineChart: View {
         GeometryReader { proxy in
             let width = proxy.size.width
             let height = proxy.size.height
-            let leftPadding: CGFloat = 30
+            let yAxisWidth: CGFloat = 26
+            let leftPadding: CGFloat = yAxisWidth + 6
             let bottomPadding: CGFloat = 28
             let topPadding: CGFloat = 10
             let plotWidth = max(1, width - leftPadding)
@@ -53,16 +65,22 @@ struct TasukiWeeklyActivityLineChart: View {
 
             ZStack {
                 VStack(alignment: .leading, spacing: 0) {
-                    Text(String(format: "%.0fkm", maxY))
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundColor(.black)
-                    Spacer()
-                    Text("0km")
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundColor(.black)
+                    Text(formatYAxisValue(maxY))
+                        .font(.system(size: 9, weight: .medium))
+                        .foregroundColor(Color.tasukiMutedText)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.7)
+                    Spacer(minLength: 0)
+                    Text(formatYAxisValue(0))
+                        .font(.system(size: 9, weight: .medium))
+                        .foregroundColor(Color.tasukiMutedText)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.7)
                 }
-                .padding(.top, topPadding - 4)
-                .frame(maxWidth: .infinity, alignment: .leading)
+                .frame(width: yAxisWidth, alignment: .leading)
+                .padding(.top, topPadding)
+                .padding(.bottom, bottomPadding)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                 .allowsHitTesting(false)
 
                 ForEach(0..<4, id: \.self) { row in
@@ -99,9 +117,9 @@ struct TasukiWeeklyActivityLineChart: View {
                 .fill(
                     LinearGradient(
                         colors: [
-                            accent.opacity(0.58),
-                            accent.opacity(0.34),
-                            accent.opacity(0.14)
+                            accent.opacity(0.78),
+                            accent.opacity(0.52),
+                            accent.opacity(0.30)
                         ],
                         startPoint: .top,
                         endPoint: .bottom
@@ -144,12 +162,16 @@ struct TasukiWeeklyActivityLineChart: View {
                         }
 
                     if shouldShowXAxisLabel(at: index) {
+                        let labelX: CGFloat = {
+                            guard insetOldestWeekXAxisLabel, index == 0 else { return x }
+                            return min(x + 14, leftPadding + plotWidth - 8)
+                        }()
                         Text(point.label)
-                            .font(.system(size: 12, weight: .medium))
+                            .font(.system(size: 11, weight: .medium))
                             .foregroundColor(selectedPointID == point.id ? Color.tasukiAccent : .black)
                             .lineLimit(1)
                             .minimumScaleFactor(0.85)
-                            .position(x: x, y: height - 12)
+                            .position(x: labelX, y: height - 12)
                             .onTapGesture {
                                 withAnimation(.easeInOut(duration: 0.15)) {
                                     selectedPointID = selectedPointID == point.id ? nil : point.id
@@ -243,5 +265,50 @@ struct TasukiWeeklyActivityLineChart: View {
             day = cal.startOfDay(for: next)
         }
         return lines
+    }
+}
+
+/// 週次トレンド＋今月サマリー（Activity グラフと同じ高さ）。
+struct TasukiRunningStatTrendChartCard: View {
+    let title: String
+    let summaryValue: String
+    let points: [WeeklyActivityChartPoint]
+    var lineColor: Color? = nil
+    var yAxisValueFormatter: ((Double) -> String)? = nil
+    var chartHeight: CGFloat = 190
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .firstTextBaseline) {
+                Text(title)
+                    .font(.system(size: 11, weight: .bold))
+                    .tracking(1.0)
+                    .foregroundColor(Color.tasukiMutedText)
+                Spacer(minLength: 8)
+                Text(summaryValue)
+                    .font(.system(size: 14, weight: .bold))
+                    .foregroundColor(Color.tasukiPrimary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.75)
+            }
+
+            TasukiWeeklyActivityLineChart(
+                points: points,
+                lineColor: lineColor,
+                yAxisValueFormatter: yAxisValueFormatter
+            )
+            .frame(height: chartHeight)
+            .padding(.horizontal, 2)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+enum TasukiChartPaceFormat {
+    static func yAxisLabel(secondsPerKm: Double) -> String {
+        guard secondsPerKm > 0 else { return "--" }
+        let m = Int(secondsPerKm) / 60
+        let s = Int(secondsPerKm) % 60
+        return String(format: "%d:%02d", m, s)
     }
 }

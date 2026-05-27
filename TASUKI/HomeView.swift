@@ -103,23 +103,26 @@ struct HomeView: View {
             Color.tasukiDarkBackground
                 .ignoresSafeArea()
 
-            ScrollView(showsIndicators: false) {
-                VStack(spacing: 0) {
-                    TasukiBrandedHeroHeader(title: "TASUKI")
+            VStack(spacing: 0) {
+                TasukiBrandedHeroHeader(title: "TASUKI")
 
-                    if runTracker.isTracking {
-                        activeRunHomeBanner
-                            .padding(.horizontal, 16)
-                            .padding(.bottom, 8)
-                    }
+                if runTracker.isTracking {
+                    activeRunHomeBanner
+                        .padding(.horizontal, 16)
+                        .padding(.bottom, 8)
+                }
 
-                    GeometryReader { geo in
-                        let ringSize = min(geo.size.width * 0.58, 260)
-                        let ringLine = max(14, ringSize * 0.065)
-                        let pctFont = ringSize * 0.26
-                        let subFont = max(13, ringSize * 0.078)
+                GeometryReader { geo in
+                    let labelBlockHeight: CGFloat = 44
+                    let ringSize = min(
+                        min(geo.size.width * 0.58, 260),
+                        max(120, geo.size.height - labelBlockHeight - 16)
+                    )
+                    let ringLine = max(14, ringSize * 0.065)
+                    let pctFont = ringSize * 0.26
+                    let subFont = max(13, ringSize * 0.078)
 
-                        Button {
+                    Button {
                             if !isHealthKitLoading { showRunHistory = true }
                         } label: {
                             VStack(spacing: 20) {
@@ -165,55 +168,40 @@ struct HomeView: View {
                             .frame(maxWidth: .infinity)
                             .padding(.top, 8)
                         }
-                        .buttonStyle(.plain)
-                        .disabled(isHealthKitLoading)
-                        .frame(width: geo.size.width, height: ringSize + 100)
-                    }
-                    .frame(height: 360)
-
-                    VStack(alignment: .center, spacing: 10) {
-                        Text("TOTAL POINTS")
-                            .font(.system(size: 11, weight: .bold))
-                            .tracking(1.2)
-                            .foregroundColor(Color.tasukiMutedText)
-                            .multilineTextAlignment(.center)
-                        Text(formattedTotalPoints)
-                            .font(.system(size: 32, weight: .bold))
-                            .foregroundColor(Color.tasukiPrimary)
-                            .multilineTextAlignment(.center)
-                    }
-                    .frame(maxWidth: .infinity, alignment: .center)
-                    .padding(.horizontal, 28)
-                    .padding(.top, 8)
-                    .padding(.bottom, 28)
-
-                    if !isHealthKitLoading {
-                        Text("ソース: \(selectedRunningDataSource.displayName)")
-                            .font(.caption)
-                            .foregroundColor(Color.tasukiMutedText.opacity(0.9))
-                            .multilineTextAlignment(.center)
-                            .frame(maxWidth: .infinity, alignment: .center)
-                            .padding(.horizontal, 28)
-                            .padding(.bottom, 20)
-                    }
-
-                    if let error = healthKitError {
-                        Text(error)
-                            .font(.caption)
-                            .foregroundColor(Color.tasukiAccentOrange)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(.horizontal, 28)
-                            .padding(.bottom, 12)
-                    }
-
-                    VStack(spacing: 0) {
-                    }
-                    .padding(.horizontal, 20)
-
-                    Spacer(minLength: 24)
+                    .buttonStyle(.plain)
+                    .disabled(isHealthKitLoading)
+                    .frame(width: geo.size.width, height: geo.size.height, alignment: .center)
                 }
-                .padding(.bottom, 24)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+                VStack(alignment: .center, spacing: 10) {
+                    Text("TOTAL POINTS")
+                        .font(.system(size: 11, weight: .bold))
+                        .tracking(1.2)
+                        .foregroundColor(Color.tasukiMutedText)
+                        .multilineTextAlignment(.center)
+                    Text(formattedTotalPoints)
+                        .font(.system(size: 32, weight: .bold))
+                        .foregroundColor(Color.tasukiPrimary)
+                        .multilineTextAlignment(.center)
+                }
+                .frame(maxWidth: .infinity, alignment: .center)
+                .padding(.horizontal, 28)
+                .padding(.top, 8)
+                .padding(.bottom, 16)
+
+                if let error = healthKitError {
+                    Text(error)
+                        .font(.caption)
+                        .foregroundColor(Color.tasukiAccentOrange)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 28)
+                        .padding(.bottom, 12)
+                }
+
+                Spacer(minLength: 8)
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .sheet(isPresented: $showRunHistory) {
             RunHistoryListView()

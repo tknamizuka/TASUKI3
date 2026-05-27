@@ -84,8 +84,15 @@ struct ProfileRegistrationView: View {
     private var selectedAreaSpots: [String] {
         activityArea
             .split(separator: "、")
-            .map { String($0) }
-            .filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
+            .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+    }
+
+    private var selectedAreaSpotsBinding: Binding<[String]> {
+        Binding(
+            get: { selectedAreaSpots },
+            set: { activityArea = $0.joined(separator: "、") }
+        )
     }
     
     /// 登録保存・AppStorage 用（ProfileEdit / MyProfile のカンマ区切りに合わせる）
@@ -412,69 +419,13 @@ struct ProfileRegistrationView: View {
                 .font(.subheadline)
                 .foregroundColor(.gray)
                 .frame(maxWidth: .infinity, alignment: .leading)
-            
-            TextField("例）皇居、代々木公園", text: $activityAreaQuery)
-                .textFieldStyle(.roundedBorder)
-                .textInputAutocapitalization(.none)
-                .disableAutocorrection(true)
-            
-            if !selectedAreaSpots.isEmpty {
-                Text("選択中")
-                    .font(.caption.weight(.semibold))
-                    .foregroundColor(Color.tasukiPrimary)
-                VStack(alignment: .leading, spacing: 8) {
-                    ForEach(selectedAreaSpots, id: \.self) { spot in
-                        selectedActivityAreaRow(storedLabel: spot) {
-                            toggleActivityArea(spot: spot)
-                        }
-                    }
-                }
-            }
-            
-            Text("検索候補")
-                .font(.caption.weight(.semibold))
-                .foregroundColor(.gray)
-            
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 0) {
-                    if activityAreaQuery.trimmingCharacters(in: .whitespaces).isEmpty {
-                        Text("キーワードを入力すると地図から候補が表示されます")
-                            .font(.footnote)
-                            .foregroundColor(.gray)
-                            .padding(.vertical, 8)
-                    } else if areaSearchCompleter.completions.isEmpty {
-                        Text("候補が見つかりませんでした")
-                            .font(.footnote)
-                            .foregroundColor(.gray)
-                            .padding(.vertical, 8)
-                    } else {
-                        ForEach(Array(areaSearchCompleter.completions.enumerated()), id: \.offset) { _, completion in
-                            let label = Self.displayLabel(for: completion)
-                            Button {
-                                toggleActivityArea(spot: label)
-                            } label: {
-                                VStack(alignment: .leading, spacing: 4) {
-                                    Text(completion.title)
-                                        .font(.body.weight(.semibold))
-                                        .foregroundColor(Color.tasukiPrimary)
-                                        .frame(maxWidth: .infinity, alignment: .leading)
-                                    if !completion.subtitle.isEmpty {
-                                        Text(completion.subtitle)
-                                            .font(.caption)
-                                            .foregroundColor(.gray)
-                                            .frame(maxWidth: .infinity, alignment: .leading)
-                                    }
-                                }
-                                .padding(.vertical, 10)
-                                .padding(.horizontal, 4)
-                            }
-                            .buttonStyle(.plain)
-                            Divider()
-                        }
-                    }
-                }
-            }
-            .frame(maxHeight: 220)
+
+            ActivityAreaSpotSearchSection(
+                selectedSpots: selectedAreaSpotsBinding,
+                query: $activityAreaQuery,
+                completer: areaSearchCompleter,
+                regionPrefecture: selectedPrefecture
+            )
         }
     }
     
@@ -596,13 +547,6 @@ struct ProfileRegistrationView: View {
         }
     }
     
-    private static func displayLabel(for completion: MKLocalSearchCompletion) -> String {
-        if completion.subtitle.isEmpty {
-            return completion.title
-        }
-        return "\(completion.title)（\(completion.subtitle)）"
-    }
-
     private static func formattedBirthDateInput(from raw: String) -> String {
         let digits = raw.filter(\.isNumber)
         let limited = String(digits.prefix(8))
@@ -1120,91 +1064,6 @@ private struct ProfileRegistrationDraft: Codable {
     var privacyReadToEnd: Bool
     var selectedDeviceRaw: String?
     var profileImageJPEGData: Data?
-}
-
-// MARK: - エリア検索候補の加工（住宅系の除外・駅・公園等の優先）
-
-private enum ActivityAreaCompletionFilter {
-    static let maxResults = 40
-
-    private static let residentialMarkers: [String] = [
-        "番地", "号室", "マンション", "アパート", "レジデンス", "コーポ", "ハイツ"
-    ]
-
-    private static let priorityKeywords: [String] = [
-        "公園", "緑地", "河川敷", "駅", "グラウンド", "陸上", "スタジアム", "ドーム", "JR", "新幹線",
-        "トラック", "広場", "城", "海浜", "林道", "遊歩道"
-    ]
-
-    static func shouldExclude(_ completion: MKLocalSearchCompletion) -> Bool {
-        let t = completion.title + completion.subtitle
-        return residentialMarkers.contains { t.contains($0) }
-    }
-
-    static func priorityScore(_ completion: MKLocalSearchCompletion) -> Int {
-        let t = completion.title + completion.subtitle
-        return priorityKeywords.reduce(0) { partial, keyword in
-            partial + (t.contains(keyword) ? 2 : 0)
-        }
-    }
-
-    static func process(_ raw: [MKLocalSearchCompletion]) -> [MKLocalSearchCompletion] {
-        let filtered = raw.filter { !shouldExclude($0) }
-        if filtered.count < 8 {
-            return Array(raw.prefix(maxResults))
-        }
-        let sorted = filtered.sorted { priorityScore($0) > priorityScore($1) }
-        return Array(sorted.prefix(maxResults))
-    }
-}
-
-// MARK: - MapKit search (activity area)
-
-@MainActor
-final class ActivityAreaSearchCompleter: NSObject, ObservableObject, MKLocalSearchCompleterDelegate {
-    @Published var completions: [MKLocalSearchCompletion] = []
-    
-    private let completer: MKLocalSearchCompleter = {
-        let c = MKLocalSearchCompleter()
-        c.resultTypes = [.pointOfInterest, .address, .query]
-        c.region = PrefectureMapRegions.japanWide
-        return c
-    }()
-    
-    override init() {
-        super.init()
-        completer.delegate = self
-        updateRegion(forPrefecture: "東京都")
-    }
-    
-    /// プロフィールの「お住まいの都道府県」に合わせて検索バイアスを更新する。
-    func updateRegion(forPrefecture name: String) {
-        if let region = PrefectureMapRegions.region(for: name) {
-            completer.region = region
-        } else {
-            completer.region = PrefectureMapRegions.japanWide
-        }
-    }
-    
-    func setQuery(_ fragment: String) {
-        let trimmed = fragment.trimmingCharacters(in: .whitespacesAndNewlines)
-        completer.queryFragment = trimmed
-        if trimmed.isEmpty {
-            completions = []
-        }
-    }
-    
-    nonisolated func completerDidUpdateResults(_ completer: MKLocalSearchCompleter) {
-        Task { @MainActor in
-            self.completions = ActivityAreaCompletionFilter.process(completer.results)
-        }
-    }
-    
-    nonisolated func completer(_ completer: MKLocalSearchCompleter, didFailWithError error: Error) {
-        Task { @MainActor in
-            self.completions = []
-        }
-    }
 }
 
 // MARK: - Keyboard Dismiss Helper
