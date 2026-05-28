@@ -49,6 +49,8 @@ final class RunTracker: NSObject, ObservableObject {
     @Published private(set) var trackPoints: [RunTrackPoint] = []
     /// 記録中の最新位置（地図の現在地表示用）
     @Published private(set) var lastKnownCoordinate: CLLocationCoordinate2D?
+    /// 進行方向（度・北=0）。GPS course または直近2点の方位。
+    @Published private(set) var lastKnownCourseDegrees: CLLocationDirection?
     @Published private(set) var trackingStartedAt: Date?
     @Published private(set) var averageCadenceSpm: Double?
     @Published private(set) var maxCadenceSpm: Double?
@@ -354,6 +356,7 @@ final class RunTracker: NSObject, ObservableObject {
         smoothedRouteCoordinates = []
         trackPoints = []
         lastKnownCoordinate = nil
+        lastKnownCourseDegrees = nil
         trackingStartedAt = nil
         pausedAt = nil
         accumulatedPausedSeconds = 0
@@ -469,6 +472,7 @@ extension RunTracker: CLLocationManagerDelegate {
             guard let previewCandidate else { return }
             DispatchQueue.main.async {
                 self.lastKnownCoordinate = previewCandidate.coordinate
+                self.updateLastKnownCourse(from: previewCandidate, previous: nil)
             }
             return
         }
@@ -481,8 +485,10 @@ extension RunTracker: CLLocationManagerDelegate {
     }
 
     private func ingestTrackingLocation(_ newLocation: CLLocation) {
+        let previousLocation = lastLocation
         DispatchQueue.main.async {
             self.lastKnownCoordinate = newLocation.coordinate
+            self.updateLastKnownCourse(from: newLocation, previous: previousLocation)
             self.currentAltitudeMeters = max(0, newLocation.altitude)
             self.trackPoints.append(
                 RunTrackPoint(
@@ -539,6 +545,39 @@ extension RunTracker: CLLocationManagerDelegate {
             self.lastAltitude = newLocation.altitude
         }
         lastLocation = newLocation
+    }
+
+    private func updateLastKnownCourse(from location: CLLocation, previous: CLLocation?) {
+        if location.course >= 0 {
+            lastKnownCourseDegrees = location.course
+            return
+        }
+        if let previous {
+            let speed = location.speed >= 0 ? location.speed : 0
+            let dist = previous.distance(from: location)
+            if speed >= 0.5 || dist >= 3 {
+                lastKnownCourseDegrees = Self.bearingDegrees(
+                    from: previous.coordinate,
+                    to: location.coordinate
+                )
+            }
+        }
+    }
+
+    private static func bearingDegrees(
+        from: CLLocationCoordinate2D,
+        to: CLLocationCoordinate2D
+    ) -> CLLocationDirection {
+        let lat1 = from.latitude * .pi / 180
+        let lon1 = from.longitude * .pi / 180
+        let lat2 = to.latitude * .pi / 180
+        let lon2 = to.longitude * .pi / 180
+        let dLon = lon2 - lon1
+        let y = sin(dLon) * cos(lat2)
+        let x = cos(lat1) * sin(lat2) - sin(lat1) * cos(lat2) * cos(dLon)
+        var bearing = atan2(y, x) * 180 / .pi
+        if bearing < 0 { bearing += 360 }
+        return bearing
     }
 
     private func smoothedCoordinates(from raw: [CLLocationCoordinate2D]) -> [CLLocationCoordinate2D] {

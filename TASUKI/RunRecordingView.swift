@@ -29,6 +29,10 @@ struct RunRecordingView: View {
     @State private var trackingMapFollowsUserLocation = true
     /// プログラムからカメラを動かした直後は `onMapCameraChange` を追従解除とみなさない
     @State private var suppressTrackingMapCameraUserInteraction = false
+    /// 追従中マップの進行方向（度）。course 未取得時は直前値を保持
+    @State private var trackingMapLastHeading: CLLocationDirection = 0
+    /// パン後、操作が止まってから現在地へ戻すタイマー
+    @State private var trackingMapAutoRecenterTask: Task<Void, Never>?
     /// 走行開始前のルートカード用（現在地に追従）
     @State private var idleMapCamera: MapCameraPosition = .region(
         MKCoordinateRegion(
@@ -156,10 +160,6 @@ struct RunRecordingView: View {
                                 .padding(.horizontal, 20)
                                 .padding(.bottom, 20)
 
-                            recentActivitiesCard
-                                .padding(.horizontal, 20)
-                                .padding(.bottom, 20)
-
                             runGoalInputCard
                                 .padding(.horizontal, 20)
                                 .padding(.bottom, 20)
@@ -169,6 +169,10 @@ struct RunRecordingView: View {
                                 .padding(.bottom, 20)
 
                             primaryStartRunButton
+                                .padding(.horizontal, 20)
+                                .padding(.bottom, 20)
+
+                            recentActivitiesCard
                                 .padding(.horizontal, 20)
                                 .padding(.bottom, 20)
 
@@ -203,6 +207,7 @@ struct RunRecordingView: View {
                 syncPaceDisplaySnapshot()
             } else {
                 trackingMapFollowsUserLocation = true
+                cancelTrackingMapAutoRecenter()
                 paceDisplayElapsedSeconds = 0
                 paceDisplayDistanceKm = 0
                 tracker.startMapPreviewLocationUpdates()
@@ -230,6 +235,7 @@ struct RunRecordingView: View {
             runStartCountdownTask?.cancel()
             runStartCountdownTask = nil
             runStartCountdownPhase = nil
+            cancelTrackingMapAutoRecenter()
             tracker.setRunScreenVisible(false)
             tracker.stopMapPreviewLocationUpdates()
         }
@@ -260,7 +266,8 @@ struct RunRecordingView: View {
         GeometryReader { geo in
             let totalH = geo.size.height
             let safeBottom = geo.safeAreaInsets.bottom
-            let bottomControlsHeight: CGFloat = 64 + runBottomMenuReservedHeight + (safeBottom > 0 ? 0 : 8)
+            let tabBarClearance = runBottomMenuReservedHeight + safeBottom + 12
+            let bottomControlsHeight: CGFloat = 64 + tabBarClearance
             let contentH = max(120, totalH - bottomControlsHeight)
             let minF = effectiveRecordingSheetMinFraction(contentHeight: contentH)
             let maxF = recordingSheetMaxFraction
@@ -316,7 +323,7 @@ struct RunRecordingView: View {
                 }
                 .padding(.horizontal, 20)
                 .padding(.vertical, 12)
-                .padding(.bottom, runBottomMenuReservedHeight + (safeBottom > 0 ? 0 : 8))
+                .padding(.bottom, tabBarClearance)
                 .background(Color.tasukiDarkBackground)
             }
             .frame(width: geo.size.width, height: totalH, alignment: .top)
@@ -397,23 +404,16 @@ struct RunRecordingView: View {
             .frame(width: w, height: h)
             .onMapCameraChange(frequency: .onEnd) { _ in
                 guard tracker.isTracking, !suppressTrackingMapCameraUserInteraction else { return }
-                trackingMapFollowsUserLocation = false
+                if trackingMapFollowsUserLocation {
+                    trackingMapFollowsUserLocation = false
+                }
+                scheduleTrackingMapAutoRecenter()
             }
 
-            VStack(alignment: .trailing, spacing: 8) {
-                if tracker.isTracking, !trackingMapFollowsUserLocation {
-                    trackingMapRecenterButton
-                }
-                if tracker.lastKnownCoordinate != nil {
-                    Label("GPS", systemImage: "location.fill")
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundColor(Color.tasukiAccent)
-                        .padding(10)
-                        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 10))
-                        .allowsHitTesting(false)
-                }
+            if tracker.isTracking, !trackingMapFollowsUserLocation {
+                trackingMapRecenterButton
+                    .padding(14)
             }
-            .padding(14)
         }
         .frame(width: w, height: h)
         .clipped()
@@ -688,16 +688,80 @@ struct RunRecordingView: View {
         syncTrackingMapCamera()
     }
 
+    /// 走行中マップのカメラ距離（`trackingLiveMapRegion` の span 相当）
+    private let trackingMapCameraDistanceMeters: CLLocationDistance = 800
+
     private func syncTrackingMapCamera() {
         guard tracker.isTracking else { return }
+        let region = trackingLiveMapRegion
+        let center = tracker.lastKnownCoordinate ?? region.center
+        let heading = resolvedTrackingMapHeading()
         suppressTrackingMapCameraUserInteraction = true
-        trackingMapCamera = .region(trackingLiveMapRegion)
+        trackingMapCamera = .camera(
+            MapCamera(
+                centerCoordinate: center,
+                distance: trackingMapCameraDistanceMeters,
+                heading: heading,
+                pitch: 0
+            )
+        )
         Task { @MainActor in
             suppressTrackingMapCameraUserInteraction = false
         }
     }
 
+    private func resolvedTrackingMapHeading() -> CLLocationDirection {
+        if let course = tracker.lastKnownCourseDegrees {
+            trackingMapLastHeading = course
+            return course
+        }
+        if displayRouteCoordinates.count >= 2 {
+            let from = displayRouteCoordinates[displayRouteCoordinates.count - 2]
+            let to = displayRouteCoordinates[displayRouteCoordinates.count - 1]
+            let bearing = bearingDegrees(from: from, to: to)
+            trackingMapLastHeading = bearing
+            return bearing
+        }
+        return trackingMapLastHeading
+    }
+
+    private func bearingDegrees(
+        from: CLLocationCoordinate2D,
+        to: CLLocationCoordinate2D
+    ) -> CLLocationDirection {
+        let lat1 = from.latitude * .pi / 180
+        let lon1 = from.longitude * .pi / 180
+        let lat2 = to.latitude * .pi / 180
+        let lon2 = to.longitude * .pi / 180
+        let dLon = lon2 - lon1
+        let y = sin(dLon) * cos(lat2)
+        let x = cos(lat1) * sin(lat2) - sin(lat1) * cos(lat2) * cos(dLon)
+        var bearing = atan2(y, x) * 180 / .pi
+        if bearing < 0 { bearing += 360 }
+        return bearing
+    }
+
+    private func scheduleTrackingMapAutoRecenter() {
+        guard tracker.isTracking, !trackingMapFollowsUserLocation else { return }
+        trackingMapAutoRecenterTask?.cancel()
+        trackingMapAutoRecenterTask = Task { @MainActor in
+            do {
+                try await Task.sleep(nanoseconds: 2_000_000_000)
+            } catch {
+                return
+            }
+            guard !Task.isCancelled, tracker.isTracking, !trackingMapFollowsUserLocation else { return }
+            recenterTrackingMapOnUser()
+        }
+    }
+
+    private func cancelTrackingMapAutoRecenter() {
+        trackingMapAutoRecenterTask?.cancel()
+        trackingMapAutoRecenterTask = nil
+    }
+
     private func recenterTrackingMapOnUser() {
+        cancelTrackingMapAutoRecenter()
         trackingMapFollowsUserLocation = true
         syncTrackingMapCamera()
     }
