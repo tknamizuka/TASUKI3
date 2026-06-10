@@ -20,6 +20,8 @@ struct PartnerDetailView: View {
     @State private var showAlert = false
     @State private var alertMessage = ""
     @State private var showRequestAlert = false
+    @State private var showInviteComposer = false
+    @State private var isSendingRequest = false
 
     private let userManager = UserManager()
 
@@ -72,13 +74,49 @@ struct PartnerDetailView: View {
         }
         .alert("パートナー申請を送信しますか？", isPresented: $showRequestAlert) {
             Button("キャンセル", role: .cancel) { }
-            Button("送信", role: .none) {
-                connectionStatus = .requested
-                alertMessage = "リクエストを送信しました"
-                showAlert = true
+            Button("続ける", role: .none) {
+                showInviteComposer = true
             }
         } message: {
-            Text("相手にパートナー申請を送ります。よろしいですか？")
+            Text("相手にパートナー申請を送ります。日時・場所を入力してください。")
+        }
+        .sheet(isPresented: $showInviteComposer) {
+            MatchInviteComposerSheet(
+                navigationTitle: "パートナー申請",
+                submitLabel: "送る",
+                onSubmit: { payload in
+                    Task { await sendPartnerRequest(payload) }
+                }
+            )
+        }
+    }
+
+    @MainActor
+    private func sendPartnerRequest(_ payload: MatchInvitePayload) async {
+        guard let toUid = ownerFirebaseUid, !toUid.isEmpty else {
+            alertMessage = "送信先ユーザーが特定できません"
+            showAlert = true
+            return
+        }
+        guard FindComplianceService.shared.canAccessFindFeatures else {
+            alertMessage = "本人確認とメール確認を完了してください"
+            showAlert = true
+            return
+        }
+        isSendingRequest = true
+        defer { isSendingRequest = false }
+        do {
+            _ = try await FindComplianceService.shared.sendMatchRequest(
+                toUid: toUid,
+                payload: payload,
+                sourceScreen: "PartnerDetailView"
+            )
+            connectionStatus = .requested
+            alertMessage = "リクエストを送信しました"
+            showAlert = true
+        } catch {
+            alertMessage = error.localizedDescription
+            showAlert = true
         }
     }
 

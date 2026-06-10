@@ -29,6 +29,7 @@ private func rankOrderIndex(_ rankLabel: String) -> Int {
 }
 
 struct FindView: View {
+    @ObservedObject private var findCompliance = FindComplianceService.shared
     @State private var selectedMode: String = "Runners"  // "Runners" or "Practices"
     @State private var searchText: String = ""
     @State private var showRecruitmentSheet = false
@@ -81,12 +82,14 @@ struct FindView: View {
     
     /// Firestore に候補がいれば優先。無ければ `Models.mockUsers`（リッチプロフィール済み）
     private var discoverUserPool: [User] {
-        discoveredUsers.isEmpty ? mockUsers : discoveredUsers
+        let base = discoveredUsers.isEmpty ? mockUsers : discoveredUsers
+        guard findCompliance.canAccessFindFeatures else { return [] }
+        return base.filter { findCompliance.isOppositeSex(with: $0.gender) }
     }
 
     /// Partner カードも User と同一データソース
     private var partnerDiscoverPool: [PartnerUser] {
-        discoveredUsers.isEmpty ? findDiscoverFallbackPartners : discoveredUsers.map { $0.toPartnerUser() }
+        discoverUserPool.map { $0.toPartnerUser() }
     }
     
     private var mySpotLabelForMatch: String {
@@ -352,6 +355,12 @@ struct FindView: View {
     }
     
     var body: some View {
+        FindComplianceGate {
+            findMainContent
+        }
+    }
+
+    private var findMainContent: some View {
         NavigationStack {
             ZStack {
                 Color.tasukiDarkBackground

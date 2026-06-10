@@ -49,6 +49,8 @@ struct RunRecordingView: View {
     /// 「走行を開始」後の 3→2→1。nil のときは表示しない。
     @State private var runStartCountdownPhase: Int? = nil
     @State private var runStartCountdownTask: Task<Void, Never>? = nil
+    /// Live Activity プローブ中（カウントダウン前）
+    @State private var isRunStartPreparing = false
     /// ペース表示は `RunTracker` の1秒ハートビートのタイミングでのみ更新（GPSのたびに数字が細かく動かないようにする）
     @State private var paceDisplayElapsedSeconds: TimeInterval = 0
     @State private var paceDisplayDistanceKm: Double = 0
@@ -230,11 +232,15 @@ struct RunRecordingView: View {
                 tracker.startMapPreviewLocationUpdates()
                 syncIdleMapCameraFromTracker()
             }
+            Task {
+                await RunLiveActivityManager.shared.requestAuthorizationProbeIfNeeded()
+            }
         }
         .onDisappear {
             runStartCountdownTask?.cancel()
             runStartCountdownTask = nil
             runStartCountdownPhase = nil
+            isRunStartPreparing = false
             cancelTrackingMapAutoRecenter()
             tracker.setRunScreenVisible(false)
             tracker.stopMapPreviewLocationUpdates()
@@ -266,7 +272,8 @@ struct RunRecordingView: View {
         GeometryReader { geo in
             let totalH = geo.size.height
             let safeBottom = geo.safeAreaInsets.bottom
-            let tabBarClearance = runBottomMenuReservedHeight + safeBottom + 12
+            // 走行中は `.ignoresSafeArea(edges: .bottom)` のため、MainTabView のタブバー分を多めに確保
+            let tabBarClearance = runTrackingBottomTabBarClearance + safeBottom + 16
             let bottomControlsHeight: CGFloat = 64 + tabBarClearance
             let contentH = max(120, totalH - bottomControlsHeight)
             let minF = effectiveRecordingSheetMinFraction(contentHeight: contentH)
@@ -360,8 +367,10 @@ struct RunRecordingView: View {
     private let recordingSheetMinFractionFloor: CGFloat = 0.08
     /// デフォルト展開（画像1: 記録が主役・上端にマップが細く見える）
     private let recordingSheetMaxFraction: CGFloat = 0.94
-    /// 常時表示の下部メニューバーと干渉しないための確保領域
+    /// 常時表示の下部メニューバーと干渉しないための確保領域（走行前画面）
     private let runBottomMenuReservedHeight: CGFloat = 74
+    /// 走行中の一時停止・終了ボタン用（タブバー＋ホームインジケータより上に配置）
+    private let runTrackingBottomTabBarClearance: CGFloat = 96
 
     private func effectiveRecordingSheetMinFraction(contentHeight: CGFloat) -> CGFloat {
         let intrinsic = recordingCompactSheetMinimumHeight / max(contentHeight, 120)
@@ -1019,7 +1028,7 @@ struct RunRecordingView: View {
                 beginRunStartCountdown(seconds: 3)
             }
         } label: {
-            Text(runStartCountdownPhase != nil ? "準備中…" : "Let's RUN")
+            Text(isRunStartPreparing || runStartCountdownPhase != nil ? "準備中…" : "Let's RUN")
                 .font(.system(size: 17, weight: .bold))
                 .foregroundColor(Color.tasukiOnBrandYellow)
                 .frame(maxWidth: .infinity)
@@ -1027,7 +1036,7 @@ struct RunRecordingView: View {
                 .background(RoundedRectangle(cornerRadius: 12).fill(Color.tasukiPrimaryButtonFill))
         }
         .buttonStyle(.plain)
-        .disabled(runStartCountdownPhase != nil)
+        .disabled(isRunStartPreparing || runStartCountdownPhase != nil)
     }
 
     private var runGoalInputCard: some View {
@@ -1181,9 +1190,17 @@ struct RunRecordingView: View {
     private func beginRunStartCountdown(seconds: Int = 3) {
         runStartCountdownTask?.cancel()
         runStartCountdownTask = Task { @MainActor in
-            defer { runStartCountdownTask = nil }
+            defer {
+                runStartCountdownTask = nil
+                isRunStartPreparing = false
+            }
             do {
+                isRunStartPreparing = true
+                await RunLiveActivityManager.shared.requestAuthorizationProbeIfNeeded()
+                try Task.checkCancellation()
+
                 for phase in (1...max(1, seconds)).reversed() {
+                    isRunStartPreparing = false
                     runStartCountdownPhase = phase
                     try await Task.sleep(nanoseconds: 1_000_000_000)
                     try Task.checkCancellation()

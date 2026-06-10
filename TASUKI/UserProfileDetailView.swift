@@ -10,6 +10,9 @@ struct UserProfileDetailView: View {
     @State private var isLoadingRemoteData = false
     @State private var showInviteComposer = false
     @State private var showRequestSent = false
+    @State private var showRequestError = false
+    @State private var requestErrorMessage = ""
+    @State private var isSendingRequest = false
     @Environment(\.dismiss) private var dismiss
 
     private let userManager = UserManager()
@@ -44,6 +47,14 @@ struct UserProfileDetailView: View {
         .navigationBarBackButtonHidden(true)
         .onAppear {
             loadRemoteProfileAndActivities()
+            if let uid = displayUser.firebaseUid {
+                Task {
+                    await FindComplianceService.shared.logProfileView(
+                        targetUid: uid,
+                        sourceScreen: "UserProfileDetailView"
+                    )
+                }
+            }
         }
         .toolbar {
             ToolbarItem(placement: .navigationBarLeading) {
@@ -61,9 +72,14 @@ struct UserProfileDetailView: View {
         }
         .overlay(alignment: .bottom) {
             Button(action: {
+                guard FindComplianceService.shared.canAccessFindFeatures else {
+                    requestErrorMessage = "本人確認とメール確認を完了してください"
+                    showRequestError = true
+                    return
+                }
                 showInviteComposer = true
             }) {
-                Text("マッチングのリクエストを送る")
+                Text(isSendingRequest ? "送信中…" : "マッチングのリクエストを送る")
                     .font(.headline)
                     .fontWeight(.bold)
                     .foregroundColor(Color.tasukiOnBrandYellow)
@@ -81,13 +97,14 @@ struct UserProfileDetailView: View {
                 )
                 .frame(height: 100)
             )
+            .disabled(isSendingRequest)
         }
         .sheet(isPresented: $showInviteComposer) {
             MatchInviteComposerSheet(
                 navigationTitle: "マッチング招待",
                 submitLabel: "送る",
-                onSubmit: { _ in
-                    showRequestSent = true
+                onSubmit: { payload in
+                    Task { await sendMatchInvite(payload) }
                 }
             )
         }
@@ -95,6 +112,33 @@ struct UserProfileDetailView: View {
             Button("OK") { }
         } message: {
             Text("\(displayUser.name)さんにマッチングの招待（日時・場所付き）を送りました。")
+        }
+        .alert("送信できませんでした", isPresented: $showRequestError) {
+            Button("OK") { }
+        } message: {
+            Text(requestErrorMessage)
+        }
+    }
+
+    @MainActor
+    private func sendMatchInvite(_ payload: MatchInvitePayload) async {
+        guard let toUid = displayUser.firebaseUid, !toUid.isEmpty else {
+            requestErrorMessage = "送信先ユーザーが特定できません"
+            showRequestError = true
+            return
+        }
+        isSendingRequest = true
+        defer { isSendingRequest = false }
+        do {
+            _ = try await FindComplianceService.shared.sendMatchRequest(
+                toUid: toUid,
+                payload: payload,
+                sourceScreen: "UserProfileDetailView"
+            )
+            showRequestSent = true
+        } catch {
+            requestErrorMessage = error.localizedDescription
+            showRequestError = true
         }
     }
 

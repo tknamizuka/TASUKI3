@@ -6,14 +6,22 @@ import ActivityKit
 final class RunLiveActivityManager {
     static let shared = RunLiveActivityManager()
 
+    private static let authorizationProbeSucceededKey = "tasuki.liveActivityAuthorizationProbeSucceeded"
+
     private var activity: Activity<RunTrackingActivityAttributes>?
     private var tickTimer: Timer?
 
     private init() {}
 
-    /// 初回起動時: Live Activity の利用可否をシステムに確認（短いプレースホルダを即終了）。
+    /// プローブが一度成功したら、走行開始前の再リクエストを省略する。
+    var hasCompletedAuthorizationProbe: Bool {
+        UserDefaults.standard.bool(forKey: Self.authorizationProbeSucceededKey)
+    }
+
+    /// Live Activity の利用可否をシステムに確認（短いプレースホルダを即終了）。成功時のみフラグを立てる。
     func requestAuthorizationProbeIfNeeded() async {
         guard ActivityAuthorizationInfo().areActivitiesEnabled else { return }
+        guard !hasCompletedAuthorizationProbe else { return }
 
         let state = RunTrackingActivityAttributes.ContentState(
             timeText: "00:00",
@@ -29,8 +37,9 @@ final class RunLiveActivityManager {
                 pushType: nil
             )
             await probe.end(nil, dismissalPolicy: .immediate)
+            UserDefaults.standard.set(true, forKey: Self.authorizationProbeSucceededKey)
         } catch {
-            // 拡張未埋め込み・ユーザー拒否など
+            // 拡張未埋め込み・ユーザー拒否など（フラグは立てず、RUN 画面等で再試行）
         }
     }
 

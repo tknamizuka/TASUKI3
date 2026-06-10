@@ -8,6 +8,10 @@ Reality mining の日次集計ジョブをここで実行します。
 - `grantTeamActivityPoints` — チームポイント加算（チームメンバーのみ）
 - `postSpectatorCheer` — 沿道応援（既存）
 - `submitEkidenLeg` — 駅伝区間提出（既存）
+- `ensureUserComplianceDefaults` — FIND 用 `users.compliance` 初期化
+- `submitIdentityVerification` — 本人確認申請（本番は eKYC Webhook と連携）
+- `sendMatchRequest` / `acceptMatchRequest` / `declineMatchRequest` — マッチング（クライアント直書き禁止）
+- `blockUser` / `logProfileView` — ブロック・紹介ログ
 
 ## ルール回帰テスト
 
@@ -46,3 +50,5 @@ firebase deploy --only functions
 
 - `behavior_features` は `HomeView` で読み取って表示済みです。
 - スコア正規化式（social/consistency）は `functions/index.js` で調整できます。
+- FIND 開発用本人確認スタブ: デプロイ時に `ALLOW_DEV_IDENTITY_VERIFICATION=1` を設定。
+- 届出標識は Firestore `app_config/legal` に投入（`docs/app_config_legal_seed.json` 参照）。

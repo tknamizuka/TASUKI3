@@ -1225,3 +1225,7 @@ exports.postSpectatorCheer = onCall(
       return {success: true};
     },
 );
+
+// --- FIND / インターネット異性紹介事業 コンプライアンス ---
+const findCompliance = require("./findCompliance");
+Object.assign(exports, findCompliance.registerFindComplianceExports());

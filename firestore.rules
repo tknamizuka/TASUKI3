@@ -41,8 +41,40 @@ service cloud.firestore {
     function usersServerOnlyKeys() {
       return [
         'coachCertified', 'coachProfileName', 'coachTier',
-        'totalPoints', 'monthlyPoints', 'isCoach', 'adminRole'
+        'totalPoints', 'monthlyPoints', 'isCoach', 'adminRole',
+        'compliance', 'genderVerified'
       ];
+    }
+
+    function userDocument(uid) {
+      return get(/databases/$(database)/documents/users/$(uid));
+    }
+
+    function verifiedGenderFromUser(uid) {
+      let doc = userDocument(uid);
+      return doc.data != null && doc.data.genderVerified == 'male' ? 'male' :
+        (doc.data != null && doc.data.genderVerified == 'female' ? 'female' : 'other');
+    }
+
+    function isVerifiedForFind() {
+      let u = userDocument(request.auth.uid);
+      return signedIn() &&
+        request.auth.token.email_verified == true &&
+        u.data != null &&
+        u.data.compliance.identityVerificationStatus == 'verified' &&
+        u.data.compliance.accountStatus == 'active' &&
+        u.data.compliance.findFeatureEnabled == true;
+    }
+
+    function isOppositeSexVerified(viewerUid, targetUid) {
+      let viewerGender = verifiedGenderFromUser(viewerUid);
+      let targetGender = verifiedGenderFromUser(targetUid);
+      return (viewerGender == 'male' && targetGender == 'female') ||
+        (viewerGender == 'female' && targetGender == 'male');
+    }
+
+    function isNotBlocked(blockerUid, blockedUid) {
+      return !exists(/databases/$(database)/documents/blocks/$(blockerUid + '_' + blockedUid));
     }
 
     function usersSelfUpdateAllowed(userId) {
@@ -115,7 +147,10 @@ service cloud.firestore {
     }
 
     match /public_profiles/{userId} {
-      allow read: if signedIn();
+      allow read: if signedIn() && (
+        request.auth.uid == userId ||
+        (isVerifiedForFind() && isOppositeSexVerified(request.auth.uid, userId))
+      );
       allow create: if isSelf(userId) &&
         !request.resource.data.keys().hasAny(publicProfileServerOnlyKeys()) &&
         !request.resource.data.keys().hasAny(publicProfileForbiddenKeys());
@@ -278,8 +313,14 @@ service cloud.firestore {
       );
     }
 
+    function conversationIsFindPartnerMatch(conversationId) {
+      let doc = conversationDocument(conversationId);
+      return doc.data != null && doc.data.source == 'find_partner_match';
+    }
+
     function messageCreateAllowed(conversationId) {
       return isConversationParticipant(conversationId) &&
+        (!conversationIsFindPartnerMatch(conversationId) || isVerifiedForFind()) &&
         request.resource.data.keys().hasAll(['text', 'senderId', 'timestamp']) &&
         request.resource.data.text is string &&
         request.resource.data.text.size() > 0 &&
@@ -343,13 +384,35 @@ service cloud.firestore {
 
     match /match_requests/{requestId} {
       allow read: if isMatchRequestParticipant();
-      allow create: if signedIn() &&
-        request.resource.data.fromUid == request.auth.uid &&
-        request.resource.data.toUid is string &&
-        request.resource.data.status == 'open';
+      allow create: if false;
       allow update: if isMatchRequestParticipant() &&
         request.resource.data.diff(resource.data).affectedKeys().hasOnly(matchRequestUpdatableKeys());
       allow delete: if false;
+    }
+
+    match /connections/{connectionId} {
+      allow read: if signedIn() &&
+        request.auth.uid in resource.data.participantUids;
+      allow write: if false;
+    }
+
+    match /blocks/{blockId} {
+      allow read: if signedIn() &&
+        resource.data.blockerUid == request.auth.uid;
+      allow create, update, delete: if false;
+    }
+
+    match /introduction_events/{eventId} {
+      allow read, write: if false;
+    }
+
+    match /rate_limits/{docId} {
+      allow read, write: if false;
+    }
+
+    match /app_config/{docId} {
+      allow read: if signedIn();
+      allow write: if false;
     }
 
     // --- races: ホストのみ管理 + 参加者の starting→running 遷移を許可 ---

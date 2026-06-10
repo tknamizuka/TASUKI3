@@ -7,6 +7,7 @@
 
 import SwiftUI
 import FirebaseAuth
+import FirebaseFirestore
 
 // MARK: - Chat Message Model（conversationId に紐づくメッセージ。replyToMessageId で返信先を参照）
 struct ChatMessage: Identifiable {
@@ -46,6 +47,8 @@ struct ChatView: View {
     /// バックエンドで発行された一意の会話ID（このチャットルームの識別子）
     let conversationId: String
     let partnerName: String
+    /// 1対1チャットの相手 UID（ブロック用。未指定時は会話ドキュメントから解決）
+    var partnerUid: String? = nil
     /// 練習会チャットかどうか（true のときメッセージに送信者名を表示）
     var isPractice: Bool = false
     @Environment(\.dismiss) var dismiss
@@ -70,10 +73,20 @@ struct ChatView: View {
     @State private var reportErrorMessage: String = ""
     @State private var isSubmittingReport = false
     @State private var scrollToMessageId: String?
+    @State private var resolvedPartnerUid: String?
+    @State private var showBlockConfirm = false
+    @State private var showBlockResult = false
+    @State private var blockResultMessage = ""
 
-    init(conversationId: String = "dummy-preview", partnerName: String = "Tanaka-san", isPractice: Bool = false) {
+    init(
+        conversationId: String = "dummy-preview",
+        partnerName: String = "Tanaka-san",
+        partnerUid: String? = nil,
+        isPractice: Bool = false
+    ) {
         self.conversationId = conversationId
         self.partnerName = partnerName
+        self.partnerUid = partnerUid
         self.isPractice = isPractice
     }
     
@@ -133,6 +146,12 @@ struct ChatView: View {
                     Button("ハラスメント") { openReportSheet(category: "ハラスメント") }
                     Button("不適切な内容") { openReportSheet(category: "不適切な内容") }
                     Button("その他") { openReportSheet(category: "その他") }
+                    if !isPractice, effectivePartnerUid != nil {
+                        Divider()
+                        Button("このユーザーをブロック", role: .destructive) {
+                            showBlockConfirm = true
+                        }
+                    }
                 } label: {
                     Image(systemName: "ellipsis.circle")
                         .font(.system(size: 18, weight: .semibold))
@@ -165,10 +184,22 @@ struct ChatView: View {
         } message: {
             Text(reportErrorMessage)
         }
+        .confirmationDialog("このユーザーをブロックしますか？", isPresented: $showBlockConfirm, titleVisibility: .visible) {
+            Button("ブロックする", role: .destructive) {
+                Task { await blockPartner() }
+            }
+            Button("キャンセル", role: .cancel) {}
+        }
+        .alert("ブロック", isPresented: $showBlockResult) {
+            Button("OK") { dismiss() }
+        } message: {
+            Text(blockResultMessage)
+        }
         .onAppear {
             tabBarVisibility.pushHiddenContext()
             if useRemoteMessages {
                 loadMessagesFromFirestore()
+                resolvePartnerUidIfNeeded()
             } else {
                 loadDummyMessages()
             }
@@ -643,6 +674,38 @@ struct ChatView: View {
                 reportErrorMessage = error.localizedDescription
                 showReportErrorAlert = true
             }
+        }
+    }
+
+    private var effectivePartnerUid: String? {
+        partnerUid ?? resolvedPartnerUid
+    }
+
+    private func resolvePartnerUidIfNeeded() {
+        guard !isPractice, partnerUid == nil, let myUid = Auth.auth().currentUser?.uid else { return }
+        Firestore.firestore().collection("conversations").document(conversationId).getDocument { snapshot, _ in
+            guard let ids = snapshot?.data()?["participantIds"] as? [String] else { return }
+            let other = ids.first { $0 != myUid }
+            DispatchQueue.main.async {
+                resolvedPartnerUid = other
+            }
+        }
+    }
+
+    @MainActor
+    private func blockPartner() async {
+        guard let uid = effectivePartnerUid else {
+            blockResultMessage = "相手ユーザーを特定できませんでした"
+            showBlockResult = true
+            return
+        }
+        do {
+            try await FindComplianceService.shared.blockUser(blockedUid: uid)
+            blockResultMessage = "\(partnerName)さんをブロックしました"
+            showBlockResult = true
+        } catch {
+            blockResultMessage = error.localizedDescription
+            showBlockResult = true
         }
     }
     

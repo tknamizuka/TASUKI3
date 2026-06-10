@@ -238,6 +238,7 @@ struct TASUKIApp: App {
         // #endregion
         if nextState == .main {
             PointService.shared.syncFromRemoteIfNeeded()
+            await FindComplianceService.shared.refresh()
         }
     }
     

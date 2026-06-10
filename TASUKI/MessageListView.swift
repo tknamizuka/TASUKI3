@@ -676,8 +676,12 @@ struct RequestDetailView: View {
 
     @State private var showCounterSheet = false
     @State private var navigateToChat = false
+    @State private var acceptedConversationId: String?
+    @State private var isAccepting = false
+    @State private var acceptErrorMessage: String?
+    @State private var showAcceptError = false
 
-    private var chatConversationId: String { "match-\(request.id)" }
+    private var chatConversationId: String { acceptedConversationId ?? "match-\(request.id)" }
 
     /// カウンター送信済みならそちらを「合意前提」の予定として優先
     private var effectiveRunStart: Date {
@@ -775,10 +779,9 @@ struct RequestDetailView: View {
             VStack(spacing: 12) {
                 if !request.hasCounterProposal {
                     Button(action: {
-                        acceptMatch()
-                        navigateToChat = true
+                        Task { await acceptMatchAndOpenChat() }
                     }) {
-                        Text("承諾")
+                        Text(isAccepting ? "処理中…" : "承諾")
                             .font(.system(size: 16, weight: .semibold))
                             .foregroundColor(Color.tasukiOnBrandYellow)
                             .frame(maxWidth: .infinity)
@@ -786,6 +789,7 @@ struct RequestDetailView: View {
                             .background(Color.tasukiPrimaryButtonFill)
                             .cornerRadius(30)
                     }
+                    .disabled(isAccepting)
 
                     Button(action: { showCounterSheet = true }) {
                         Text("日程候補を提案する")
@@ -801,7 +805,7 @@ struct RequestDetailView: View {
                 }
 
                 Button(action: {
-                    matchInvitationStore.remove(id: request.id)
+                    matchInvitationStore.dismissRequest(id: request.id)
                     dismiss()
                 }) {
                     Text("今回は見送る")
@@ -862,6 +866,11 @@ struct RequestDetailView: View {
         .onDisappear {
             tabBarVisibility.popHiddenContext()
         }
+        .alert("承諾できませんでした", isPresented: $showAcceptError) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(acceptErrorMessage ?? "")
+        }
     }
 
     private func detailBlock(title: String, body: String) -> some View {
@@ -876,22 +885,33 @@ struct RequestDetailView: View {
         }
     }
 
-    private func acceptMatch() {
-        var title = "\(request.fromName)さんとラン"
-        if effectiveWeeklyLabel {
-            title += "（毎週）"
-        }
-        joinedPracticesStore.add(
-            JoinedPracticeItem(
-                id: UUID().uuidString,
-                practiceId: "match-\(request.id)",
-                title: title,
-                location: effectiveLocation,
-                date: effectiveRunStart,
-                chatId: chatConversationId
+    @MainActor
+    private func acceptMatchAndOpenChat() async {
+        isAccepting = true
+        defer { isAccepting = false }
+        do {
+            let conversationId = try await FindComplianceService.shared.acceptMatchRequest(requestId: request.id)
+            acceptedConversationId = conversationId
+            var title = "\(request.fromName)さんとラン"
+            if effectiveWeeklyLabel {
+                title += "（毎週）"
+            }
+            joinedPracticesStore.add(
+                JoinedPracticeItem(
+                    id: UUID().uuidString,
+                    practiceId: "match-\(request.id)",
+                    title: title,
+                    location: effectiveLocation,
+                    date: effectiveRunStart,
+                    chatId: conversationId
+                )
             )
-        )
-        matchInvitationStore.remove(id: request.id)
+            matchInvitationStore.removeLocal(id: request.id)
+            navigateToChat = true
+        } catch {
+            acceptErrorMessage = error.localizedDescription
+            showAcceptError = true
+        }
     }
 }
 
